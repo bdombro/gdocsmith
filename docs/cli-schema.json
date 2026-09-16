@@ -1,0 +1,646 @@
+{
+  "key": "gdocsmith",
+  "description": "Google Docs surgical authoring and workflow engine",
+  "commands": [
+    {
+      "key": "run",
+      "description": "Execute an ordered Google Docs workflow from YAML or JSON (`steps` with `kind`).",
+      "notes": "• Pipe stdin or pass one document (`run < file.yaml`). Knobs live in the document (`dryRun`, `force`, `json`, `quiet`).\n• Canonical list: `steps: [{ kind: open|close|createDoc|copyDoc|query|dump|insertMarkdown|… }]`. `ops`/`op`/`action`/`step` are aliases.\n• `kind: dump` with `as:` copies that alias into `dumped` in the response.\n• Dry run: `dryRun: true` returns a unified git diff without writing.",
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "description": "Document ID (raw id, not a URL). Auto-opens as alias `main` when set."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Preview resolved targets without writing."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Skip guards. Only if the user asked."
+          },
+          "json": {
+            "type": "boolean",
+            "description": "Output JSON instead of YAML."
+          },
+          "ops": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/GdocsmithStepInput"
+            },
+            "description": "Alias for `steps`."
+          },
+          "quiet": {
+            "type": "boolean",
+            "description": "Minimal output."
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/GdocsmithStepInput"
+            },
+            "description": "Ordered workflow steps."
+          }
+        },
+        "additionalProperties": false,
+        "definitions": {
+          "GdocsmithStepInput": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "description": "Alias for `kind`."
+              },
+              "after": {
+                "type": [
+                  "number",
+                  "string"
+                ],
+                "description": "Anchor node to insert after."
+              },
+              "as": {
+                "type": "string",
+                "description": "Label for later steps in this document."
+              },
+              "at": {
+                "type": [
+                  "number",
+                  "string"
+                ],
+                "description": "Heading-scoped id from query (e.g. h.arch.9a1b)."
+              },
+              "before": {
+                "type": [
+                  "number",
+                  "string"
+                ],
+                "description": "Anchor node to insert before."
+              },
+              "contains": {
+                "type": "string",
+                "description": "Text substring filter for query."
+              },
+              "copyFrom": {
+                "type": "string",
+                "description": "Source doc ID or alias for copyDoc."
+              },
+              "dangerousClear": {
+                "type": "boolean",
+                "description": "Clear the tab/doc before mutations."
+              },
+              "dangerousRemoveSection": {
+                "type": "boolean",
+                "description": "Remove the heading and its following section."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "docId": {
+                "type": "string",
+                "description": "Alias for doc."
+              },
+              "element": {
+                "type": "object",
+                "additionalProperties": {},
+                "description": "Detached element spec to insert."
+              },
+              "elements": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": {}
+                },
+                "description": "Detached element specs to insert in order."
+              },
+              "file": {
+                "type": "string",
+                "description": "Local markdown/text path."
+              },
+              "find": {
+                "type": "string",
+                "description": "String to find for replaceText."
+              },
+              "h1IsTitle": {
+                "type": "boolean",
+                "description": "Treat top-level # as Title instead of HEADING_1."
+              },
+              "index": {
+                "type": "number",
+                "description": "Position index for addTab."
+              },
+              "innerText": {
+                "type": "string",
+                "description": "In-place paragraph text."
+              },
+              "insertMarkdown": {
+                "type": [
+                  "string",
+                  "boolean"
+                ],
+                "description": "Insert rendered markdown at the anchor."
+              },
+              "kind": {
+                "type": "string",
+                "description": "Step kind: open, close, createDoc, copyDoc, query, dump, insertMarkdown, …"
+              },
+              "markdown": {
+                "type": "string",
+                "description": "Markdown text string."
+              },
+              "op": {
+                "type": "string",
+                "description": "Alias for `kind`."
+              },
+              "permanent": {
+                "type": "boolean",
+                "description": "Permanently delete document (deleteDoc)."
+              },
+              "remove": {
+                "type": "boolean",
+                "description": "Delete this node."
+              },
+              "replace": {
+                "type": "string",
+                "description": "In-place text replacement (alias for innerText) or replaceText replacement."
+              },
+              "replaceMarkdown": {
+                "type": [
+                  "string",
+                  "boolean"
+                ],
+                "description": "Replace one node with markdown."
+              },
+              "replaceSection": {
+                "type": [
+                  "string",
+                  "boolean"
+                ],
+                "description": "Diff-replace a heading section with markdown."
+              },
+              "step": {
+                "type": "string",
+                "description": "Alias for `kind`."
+              },
+              "style": {
+                "type": "object",
+                "additionalProperties": {},
+                "description": "Native style fields."
+              },
+              "stylesOnly": {
+                "type": "boolean",
+                "description": "Scope query to custom styled nodes only."
+              },
+              "tab": {
+                "type": "string",
+                "description": "Target tab ID or title."
+              },
+              "tabId": {
+                "type": "string",
+                "description": "Alias for tab."
+              },
+              "target": {
+                "type": "string",
+                "description": "Dump target alias (kind: dump)."
+              },
+              "text": {
+                "type": "string",
+                "description": "Text content for insertMarkdown / replace."
+              },
+              "title": {
+                "type": "string",
+                "description": "Title for createDoc / copyDoc / addTab / renameDoc / renameTab."
+              },
+              "under": {
+                "type": "string",
+                "description": "Heading or scope for query/replace."
+              },
+              "unsafeOnly": {
+                "type": "boolean",
+                "description": "Scope query to fragile nodes only."
+              }
+            },
+            "additionalProperties": {},
+            "description": "One workflow step. Canonical discriminator is `kind`; `action`, `op`, and `step` are accepted aliases."
+          }
+        }
+      },
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "diff": {
+            "type": "string",
+            "description": "Unified git diff of changes (populated on dryRun)."
+          },
+          "documentId": {
+            "type": "string",
+            "description": "Document ID mutations were applied to (legacy shape)."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "True when `dryRun: true` previewed without writing."
+          },
+          "dumped": {
+            "type": "object",
+            "additionalProperties": {},
+            "description": "Values extracted by `kind: dump`."
+          },
+          "highlights": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/ApplyHighlightDocJson"
+            },
+            "description": "Highlights of newly created docs, tabs, and headings."
+          },
+          "ok": {
+            "type": "boolean",
+            "description": "Status confirmation for minimal response."
+          },
+          "opsCount": {
+            "type": "number",
+            "description": "Steps executed."
+          }
+        },
+        "additionalProperties": false,
+        "definitions": {
+          "ApplyHighlightDocJson": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "tabs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/ApplyHighlightTabJson"
+                }
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false,
+            "description": "Document item in highlights."
+          },
+          "ApplyHighlightTabJson": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string"
+              },
+              "headings": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/ApplyHighlightHeadingJson"
+                }
+              },
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false,
+            "description": "Tab item in highlights."
+          },
+          "ApplyHighlightHeadingJson": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "text"
+            ],
+            "additionalProperties": false,
+            "description": "Newly created heading item in highlights."
+          }
+        }
+      },
+      "commands": [
+        {
+          "key": "version",
+          "description": "Print the program version."
+        },
+        {
+          "key": "configure",
+          "description": "Set up MCP config for this app (binary via Homebrew).",
+          "notes": "Set up agent artifacts after the binary is installed via Homebrew (see README for tap install).\n\nHomebrew installs the binary and shell completions only. Agent artifacts live under ~/.agents and are not written during brew install.\n\nAfter install or upgrade:\n  gdocsmith configure install\n\nUpgrade:\n  brew upgrade gdocsmith\n  gdocsmith configure install\n\nShell completions are installed by Homebrew during brew install.\nSee: https://docs.brew.sh/Shell-Completion\n\nSee what is installed:\n  gdocsmith configure status\n\nUninstall:\n  gdocsmith configure uninstall\n  brew uninstall <tap>/gdocsmith\n\nUse `configure status --json` for machine-readable output.",
+          "commands": [
+            {
+              "key": "install",
+              "description": "Install agent artifacts and bootstrap app config."
+            },
+            {
+              "key": "uninstall",
+              "description": "Remove agent artifacts and app config.",
+              "options": [
+                {
+                  "name": "yes",
+                  "description": "Skip uninstall confirmation.",
+                  "kind": "presence",
+                  "shortName": "y"
+                }
+              ]
+            },
+            {
+              "key": "status",
+              "description": "Print what is currently installed (read-only).",
+              "options": [
+                {
+                  "name": "json",
+                  "description": "Print status JSON on stdout.",
+                  "kind": "presence"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "docs",
+          "description": "Print bundled CLI documentation.",
+          "notes": "Topics print to stdout. Add --save to write files under ./docs/.",
+          "options": [
+            {
+              "name": "save",
+              "description": "Write documentation to ./docs/.",
+              "kind": "presence"
+            }
+          ],
+          "commands": [
+            {
+              "key": "readme",
+              "description": "Print README (user guide).",
+              "options": [
+                {
+                  "name": "save",
+                  "description": "Write documentation to ./docs/.",
+                  "kind": "presence"
+                }
+              ]
+            },
+            {
+              "key": "mcp",
+              "description": "Print MCP server setup and tool guidance.",
+              "options": [
+                {
+                  "name": "save",
+                  "description": "Write documentation to ./docs/.",
+                  "kind": "presence"
+                }
+              ]
+            },
+            {
+              "key": "cli-schema",
+              "description": "Print the full CLI command tree as JSON.",
+              "options": [
+                {
+                  "name": "save",
+                  "description": "Write documentation to ./docs/.",
+                  "kind": "presence"
+                }
+              ]
+            },
+            {
+              "key": "cli",
+              "description": "Print the full command reference as markdown.",
+              "options": [
+                {
+                  "name": "save",
+                  "description": "Write documentation to ./docs/.",
+                  "kind": "presence"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "mcp",
+          "description": "MCP server and bundle tools.",
+          "notes": "Stdio MCP server. Add to Cursor, Claude Code, or Claude Desktop:\n\n  command: gdocsmith\n  args: mcp\n\nOr:\n\n  gdocsmith configure\n\nFull setup guide: gdocsmith docs mcp",
+          "options": [
+            {
+              "name": "obscure-errors",
+              "description": "Hide unexpected errors from clients.",
+              "kind": "presence"
+            },
+            {
+              "name": "log-format",
+              "description": "Log format: json (ECS Logging) or text.",
+              "kind": "enum",
+              "choices": [
+                "json",
+                "text"
+              ]
+            },
+            {
+              "name": "log-file",
+              "description": "Append logs to this file (relative → app config dir).",
+              "kind": "string"
+            },
+            {
+              "name": "dev",
+              "description": "Print full stacks to stderr on errors.",
+              "kind": "presence"
+            }
+          ],
+          "fallbackCommand": "serve",
+          "fallbackMode": "missingOnly",
+          "commands": [
+            {
+              "key": "bundle",
+              "description": "Pack dist MCP artifacts (`.mcpb`, Claude Code plugin zip) from dist/<key>."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "status",
+      "description": "Show app version.",
+      "options": [
+        {
+          "name": "json",
+          "description": "Emit JSON.",
+          "kind": "presence"
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "App version from program root."
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "additionalProperties": false,
+        "definitions": {}
+      },
+      "commands": [
+        {
+          "key": "version",
+          "description": "Print the program version."
+        },
+        {
+          "key": "configure",
+          "description": "Set up MCP config for this app (binary via Homebrew).",
+          "notes": "Set up agent artifacts after the binary is installed via Homebrew (see README for tap install).\n\nHomebrew installs the binary and shell completions only. Agent artifacts live under ~/.agents and are not written during brew install.\n\nAfter install or upgrade:\n  gdocsmith configure install\n\nUpgrade:\n  brew upgrade gdocsmith\n  gdocsmith configure install\n\nShell completions are installed by Homebrew during brew install.\nSee: https://docs.brew.sh/Shell-Completion\n\nSee what is installed:\n  gdocsmith configure status\n\nUninstall:\n  gdocsmith configure uninstall\n  brew uninstall <tap>/gdocsmith\n\nUse `configure status --json` for machine-readable output.",
+          "commands": [
+            {
+              "key": "install",
+              "description": "Install agent artifacts and bootstrap app config."
+            },
+            {
+              "key": "uninstall",
+              "description": "Remove agent artifacts and app config.",
+              "options": [
+                {
+                  "name": "yes",
+                  "description": "Skip uninstall confirmation.",
+                  "kind": "presence",
+                  "shortName": "y"
+                }
+              ]
+            },
+            {
+              "key": "status",
+              "description": "Print what is currently installed (read-only).",
+              "options": [
+                {
+                  "name": "json",
+                  "description": "Print status JSON on stdout.",
+                  "kind": "presence"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "docs",
+          "description": "Print bundled CLI documentation.",
+          "notes": "Topics print to stdout. Add --save to write files under ./docs/.",
+          "options": [
+            {
+              "name": "save",
+              "description": "Write documentation to ./docs/.",
+              "kind": "presence"
+            }
+          ],
+          "commands": [
+            {
+              "key": "readme",
+              "description": "Print README (user guide).",
+              "options": [
+                {
+                  "name": "save",
+                  "description": "Write documentation to ./docs/.",
+                  "kind": "presence"
+                }
+              ]
+            },
+            {
+              "key": "mcp",
+              "description": "Print MCP server setup and tool guidance.",
+              "options": [
+                {
+                  "name": "save",
+                  "description": "Write documentation to ./docs/.",
+                  "kind": "presence"
+                }
+              ]
+            },
+            {
+              "key": "cli-schema",
+              "description": "Print the full CLI command tree as JSON.",
+              "options": [
+                {
+                  "name": "save",
+                  "description": "Write documentation to ./docs/.",
+                  "kind": "presence"
+                }
+              ]
+            },
+            {
+              "key": "cli",
+              "description": "Print the full command reference as markdown.",
+              "options": [
+                {
+                  "name": "save",
+                  "description": "Write documentation to ./docs/.",
+                  "kind": "presence"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "key": "mcp",
+          "description": "MCP server and bundle tools.",
+          "notes": "Stdio MCP server. Add to Cursor, Claude Code, or Claude Desktop:\n\n  command: gdocsmith\n  args: mcp\n\nOr:\n\n  gdocsmith configure\n\nFull setup guide: gdocsmith docs mcp",
+          "options": [
+            {
+              "name": "obscure-errors",
+              "description": "Hide unexpected errors from clients.",
+              "kind": "presence"
+            },
+            {
+              "name": "log-format",
+              "description": "Log format: json (ECS Logging) or text.",
+              "kind": "enum",
+              "choices": [
+                "json",
+                "text"
+              ]
+            },
+            {
+              "name": "log-file",
+              "description": "Append logs to this file (relative → app config dir).",
+              "kind": "string"
+            },
+            {
+              "name": "dev",
+              "description": "Print full stacks to stderr on errors.",
+              "kind": "presence"
+            }
+          ],
+          "fallbackCommand": "serve",
+          "fallbackMode": "missingOnly",
+          "commands": [
+            {
+              "key": "bundle",
+              "description": "Pack dist MCP artifacts (`.mcpb`, Claude Code plugin zip) from dist/<key>."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

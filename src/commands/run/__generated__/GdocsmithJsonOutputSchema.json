@@ -1,0 +1,101 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "diff": {
+      "type": "string",
+      "description": "Unified git diff of changes (populated on dryRun)."
+    },
+    "documentId": {
+      "type": "string",
+      "description": "Document ID mutations were applied to (legacy shape)."
+    },
+    "dryRun": {
+      "type": "boolean",
+      "description": "True when `dryRun: true` previewed without writing."
+    },
+    "dumped": {
+      "type": "object",
+      "additionalProperties": {},
+      "description": "Values extracted by `kind: dump`."
+    },
+    "highlights": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ApplyHighlightDocJson"
+      },
+      "description": "Highlights of newly created docs, tabs, and headings."
+    },
+    "ok": {
+      "type": "boolean",
+      "description": "Status confirmation for minimal response."
+    },
+    "opsCount": {
+      "type": "number",
+      "description": "Steps executed."
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "ApplyHighlightDocJson": {
+      "type": "object",
+      "properties": {
+        "as": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "tabs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ApplyHighlightTabJson"
+          }
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": ["id"],
+      "additionalProperties": false,
+      "description": "Document item in highlights."
+    },
+    "ApplyHighlightTabJson": {
+      "type": "object",
+      "properties": {
+        "as": {
+          "type": "string"
+        },
+        "headings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ApplyHighlightHeadingJson"
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": ["id"],
+      "additionalProperties": false,
+      "description": "Tab item in highlights."
+    },
+    "ApplyHighlightHeadingJson": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "text"],
+      "additionalProperties": false,
+      "description": "Newly created heading item in highlights."
+    }
+  }
+}

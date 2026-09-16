@@ -1,0 +1,317 @@
+import {
+  applyDom,
+  applyOps,
+  type DomOp,
+  DomWriter,
+  type ElementSpec,
+  findNodeAt,
+  type InsertPosition,
+  missingNodeIdMsg,
+  parseDocument,
+} from "./dom/index.ts";
+import {
+  chunkMarkdownElements,
+  extractFrontmatter,
+  type MarkdownChunk,
+  type MarkdownParseOptions,
+  normalizeCustomStyle,
+  normalizeListIndentation,
+  parseFrontmatterStyles,
+  parseMarkdownToElements,
+} from "./dom/markdown-parser.ts";
+import { parseYamlTree } from "./dom/yaml.ts";
+import { Gdoc } from "./gdoc.ts";
+import { type GwsClient, gws } from "./gws.ts";
+import { type CustomTextStyle, InlineMarkup } from "./inline.ts";
+import { DriveRevisions } from "./revisions.ts";
+import { resolveTab } from "./tabs.ts";
+
+export {
+  chunkMarkdownElements,
+  extractFrontmatter,
+  type MarkdownChunk,
+  type MarkdownParseOptions,
+  normalizeCustomStyle,
+  normalizeListIndentation,
+  parseFrontmatterStyles,
+  parseMarkdownToElements,
+};
+
+/** Parameters for executing a markdown insertion. */
+export type ExecuteMarkdownInsertParams = {
+  anchorId?: number | string;
+  client?: GwsClient;
+  customStyles?: Record<string, CustomTextStyle>;
+  documentId: string;
+  force?: boolean;
+  h1IsTitle?: boolean;
+  markdown: string;
+  position?: InsertPosition;
+  tabHint?: string;
+};
+
+/** Result of executing a markdown insertion. */
+export type MarkdownInsertResult = {
+  appliedChunks: number;
+  elementsInserted: number;
+  insertedRange?: {
+    count: number;
+    endId: number;
+    startId: number;
+  };
+  message: string;
+  tabId?: string;
+};
+
+/** Parameters for executing a generic ElementSpec array insertion. */
+export type ExecuteElementsInsertParams = {
+  anchorId?: number | string;
+  client?: GwsClient;
+  customStyles?: Record<string, CustomTextStyle>;
+  documentId: string;
+  elements: ElementSpec[];
+  force?: boolean;
+  position?: InsertPosition;
+  tabHint?: string;
+};
+
+/** Executes insertion of generic ElementSpec array across one or more chunks. */
+export async function executeElementsInsert(params: ExecuteElementsInsertParams): Promise<MarkdownInsertResult> {
+  const client = params.client ?? gws;
+  const elements = params.elements;
+  const effectiveStyles = params.customStyles ?? {};
+
+  if (!elements.length) {
+    return {
+      appliedChunks: 0,
+      elementsInserted: 0,
+      message: "No elements found to insert.",
+    };
+  }
+
+  const chunks = chunkMarkdownElements(elements);
+
+  let freshDoc = await Gdoc.load(params.documentId, client);
+  const tabResolution = resolveTab(freshDoc.data, params.tabHint);
+  const tabId = tabResolution.tabId;
+  let gdoc = tabId ? freshDoc.withTab(tabId) : freshDoc;
+  let parsedDoc = parseDocument(gdoc);
+
+  let currentAnchorId: number;
+  let replaceAnchor = false;
+
+  if (params.anchorId != null) {
+    const hit = findNodeAt(parsedDoc.nodes, params.anchorId);
+    if (!hit) {
+      throw new Error(missingNodeIdMsg(params.anchorId, parsedDoc.nodes.length));
+    }
+    currentAnchorId = hit.tapeIndex;
+  } else {
+    const contentNodes = parsedDoc.nodes.filter((n) => n.kind !== "sectionBreak");
+    if (contentNodes.length === 1 && contentNodes[0]?.kind === "paragraph" && !contentNodes[0]?.text) {
+      currentAnchorId = contentNodes[0]?.tapeIndex;
+      replaceAnchor = true;
+    } else {
+      const target = contentNodes[contentNodes.length - 1] ?? parsedDoc.nodes[parsedDoc.nodes.length - 1];
+      if (!target) {
+        throw new Error("Document has no nodes to insert content into.");
+      }
+      currentAnchorId = target.tapeIndex;
+    }
+  }
+
+  const effectivePosition: InsertPosition = params.position ?? "afterend";
+  const originalAnchorId = currentAnchorId;
+  const originalReplaceAnchor = replaceAnchor;
+
+  return await InlineMarkup.withStyles(effectiveStyles, async () => {
+    await DriveRevisions.pinHead(params.documentId, params.client ?? gws);
+
+    let chunksApplied = 0;
+
+    for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
+      const chunk = chunks[cIdx]!;
+      if (cIdx > 0) {
+        freshDoc = await Gdoc.load(params.documentId, client);
+        gdoc = tabId ? freshDoc.withTab(tabId) : freshDoc;
+        parsedDoc = parseDocument(gdoc);
+      }
+
+      const writer = new DomWriter(parsedDoc.nodes, {
+        force: params.force,
+        lists: gdoc.data.lists,
+        tabId,
+      });
+
+      const isReplacing = cIdx === 0 && replaceAnchor;
+      const ops = buildChunkOps(currentAnchorId, effectivePosition, chunk, isReplacing);
+
+      const plan = applyOps(writer, ops);
+      await applyDom(params.documentId, writer, {
+        client,
+        doc: gdoc.data,
+        force: params.force,
+        plan,
+      });
+
+      chunksApplied++;
+
+      if (cIdx < chunks.length - 1) {
+        const reloadedDoc = await Gdoc.load(params.documentId, client);
+        const reloadedGdoc = tabId ? reloadedDoc.withTab(tabId) : reloadedDoc;
+        const reloadedParsed = parseDocument(reloadedGdoc);
+
+        const lastSpec = chunk.kind === "table" ? chunk.spec : chunk.specs[chunk.specs.length - 1]!;
+
+        const matchingNode = reloadedParsed.nodes.find((n) => {
+          if (lastSpec.kind === "table" && n.kind === "table") {
+            return true;
+          }
+          if (lastSpec.kind === "paragraph" && n.kind === "paragraph") {
+            return n.text === lastSpec.text;
+          }
+          return false;
+        });
+
+        if (matchingNode) {
+          currentAnchorId = matchingNode.tapeIndex;
+        } else {
+          currentAnchorId = reloadedParsed.nodes[reloadedParsed.nodes.length - 1]?.tapeIndex;
+        }
+      }
+    }
+
+    const startId =
+      originalReplaceAnchor || effectivePosition === "beforebegin" ? originalAnchorId : originalAnchorId + 1;
+    const endId = startId + elements.length - 1;
+
+    return {
+      appliedChunks: chunksApplied,
+      elementsInserted: elements.length,
+      insertedRange: {
+        count: elements.length,
+        endId,
+        startId,
+      },
+      message: `Inserted ${elements.length} element(s) into document (${chunksApplied} batch(es)).`,
+      tabId,
+    };
+  });
+}
+
+/** Executes markdown insertion across one or more chunks. */
+export async function executeMarkdownInsert(params: ExecuteMarkdownInsertParams): Promise<MarkdownInsertResult> {
+  const { content, frontmatter } = extractFrontmatter(params.markdown);
+  const frontmatterStyles = parseFrontmatterStyles(frontmatter);
+  const effectiveStyles: Record<string, CustomTextStyle> = {
+    ...frontmatterStyles,
+    ...(params.customStyles ?? {}),
+  };
+
+  const elements = parseMarkdownToElements(content, {
+    customStyles: effectiveStyles,
+    h1IsTitle: params.h1IsTitle,
+  });
+
+  return executeElementsInsert({
+    anchorId: params.anchorId,
+    client: params.client,
+    customStyles: effectiveStyles,
+    documentId: params.documentId,
+    elements,
+    force: params.force,
+    position: params.position,
+    tabHint: params.tabHint,
+  });
+}
+
+/** Parameters for executing a YAML DOM tree insertion. */
+export type ExecuteYamlInsertParams = {
+  anchorId?: number | string;
+  client?: GwsClient;
+  documentId: string;
+  force?: boolean;
+  position?: InsertPosition;
+  tabHint?: string;
+  yaml: string | Record<string, unknown>;
+};
+
+/** Executes insertion of a YAML DOM tree into a tab or document. */
+export async function executeYamlInsert(params: ExecuteYamlInsertParams): Promise<MarkdownInsertResult> {
+  const { elements, meta } = parseYamlTree(params.yaml);
+  return executeElementsInsert({
+    anchorId: params.anchorId,
+    client: params.client,
+    documentId: params.documentId,
+    elements,
+    force: params.force,
+    position: params.position,
+    tabHint: params.tabHint ?? (typeof meta.tabId === "string" ? meta.tabId : undefined),
+  });
+}
+
+/** Builds DomOp array for a single markdown chunk. */
+export function buildChunkOps(
+  anchorId: number,
+  position: InsertPosition,
+  chunk: MarkdownChunk,
+  replaceAnchor: boolean,
+): DomOp[] {
+  const ops: DomOp[] = [];
+
+  if (chunk.kind === "table") {
+    ops.push({
+      at: anchorId,
+      insertAdjacentElement: {
+        element: chunk.spec as unknown as Record<string, unknown>,
+        position,
+      },
+    });
+    return ops;
+  }
+
+  const specs = chunk.specs;
+  if (!specs.length) return ops;
+
+  if (replaceAnchor && specs[0]?.kind === "paragraph") {
+    const first = specs[0]!;
+    const op: DomOp = {
+      at: anchorId,
+      innerText: first.text,
+    };
+    if (first.namedStyleType && first.namedStyleType !== "NORMAL_TEXT") {
+      op.namedStyleType = first.namedStyleType;
+    }
+    if (first.style) {
+      op.style = first.style;
+    }
+    if (first.bullet) {
+      op.bullet = first.bullet;
+    }
+    if (first.runs?.length) {
+      op.runs = first.runs;
+    }
+    ops.push(op);
+
+    const remaining = specs.slice(1);
+    if (remaining.length > 0) {
+      ops.push({
+        at: anchorId,
+        insertAdjacentElement: {
+          elements: remaining as unknown as Record<string, unknown>[],
+          position: "afterend",
+        },
+      });
+    }
+  } else {
+    ops.push({
+      at: anchorId,
+      insertAdjacentElement: {
+        elements: specs as unknown as Record<string, unknown>[],
+        position,
+      },
+    });
+  }
+
+  return ops;
+}

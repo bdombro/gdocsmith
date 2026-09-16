@@ -1,0 +1,27 @@
+{
+  "name": "gdocsmith",
+  "private": true,
+  "type": "module",
+  "module": "src/index.ts",
+  "description": "Google Docs surgical authoring and workflow engine",
+  "engines": {
+    "bun": ">=1.3"
+  },
+  "scripts": {
+    "biome": "biome",
+    "docs:gen": "bun src/index.ts docs cli --save",
+    "start": "bun run src/index.ts",
+    "test": "bun test src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "argsbarg": "^7.0.10",
+    "marked": "^18.0.13",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.0",
+    "@types/bun": "^1.3.12",
+    "typescript": "^5.9.3"
+  }
+}

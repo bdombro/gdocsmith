@@ -1,8 +1,8 @@
 class Gdocsmith < Formula
   desc "Google Docs surgical authoring and workflow engine"
   homepage "https://github.com/bdombro/gdocsmith"
-  version "1.0.1"
-  sha256 "0cc9cab076059168287217bf936731f3e2d8c0aac747dde40b8afa5da970f592"
+  version "1.0.2"
+  sha256 "a906b2d3518b5da3b632e996c6d58651aca27609866c9bef6d98272dabed0caa"
 
   def install
     bin.install "gdocsmith"
@@ -61,6 +61,6 @@ class Gdocsmith < Formula
     end
   end
 
-  url "https://github.com/bdombro/gdocsmith/releases/download/v1.0.1/gdocsmith.zip",
+  url "https://github.com/bdombro/gdocsmith/releases/download/v1.0.2/gdocsmith.zip",
       using: GitHubPrivateReleaseDownloadStrategy
 end

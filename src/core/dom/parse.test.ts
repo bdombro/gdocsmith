@@ -1,12 +1,9 @@
-/*
+/* Unit tests for the sibling-tape parser. */
 
-Unit tests for the sibling-tape parser.
-
-*/
 import { describe, expect, test } from "bun:test";
 import { Gdoc } from "../gdoc.ts";
 import { PARAGRAPH_STYLES } from "../styles.ts";
-import { mockDoc } from "../test-fixtures.ts";
+import { mockDoc } from "../testFixtures.ts";
 import { parseDocument, parseTape } from "./parse.ts";
 
 describe("parseTape", () => {

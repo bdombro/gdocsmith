@@ -1,12 +1,7 @@
-/*
+/* Mutation log and DOM-shaped handles. createElement specs are detached until */
 
-Mutation log + DOM-shaped handles. createElement specs are detached until
-insertAdjacentElement. innerText / namedStyleType / remove target one tape node.
-
-*/
-
-import type { InlineRunInput } from "../inline.ts";
-import type { GoogleDoc } from "../types.ts";
+import type { InlineRunInput } from "~/core/inline.ts";
+import type { GoogleDoc } from "~/core/types.ts";
 import { createElement, type ElementSpec, type InsertPosition, stripTrailingNewline } from "./element.ts";
 import { assertWritable } from "./guards.ts";
 import { hasStyle, hasTableChrome, type StylePatch } from "./style.ts";
@@ -443,37 +438,44 @@ export class DomWriter {
 export class DomHandle {
   constructor(
     private readonly writer: DomWriter,
+    /** Wrapped target document node. */
     readonly node: DocNode,
   ) {}
 
+  /** Gets the text content of the underlying node. */
   get innerText(): string {
     return this.node.text ?? "";
   }
 
+  /** Sets the text content of the underlying node. */
   set innerText(text: string) {
     this.writer.setInnerText(this.node, text);
   }
 
+  /** Sets the named style type of the underlying node. */
   set namedStyleType(namedStyleType: NamedStyle) {
     this.writer.setNamedStyleType(this.node, namedStyleType);
   }
 
+  /** Sets the paragraph alignment of the underlying node. */
   set alignment(alignment: ParagraphAlignment) {
     this.writer.setAlignment(this.node, alignment);
   }
 
+  /** Inserts a new element relative to the underlying node. */
   insertAdjacentElement(position: InsertPosition, element: ElementSpec): DomHandle {
     const created = this.writer.insertAdjacentElement(this.node, position, element);
     return new DomHandle(this.writer, created);
   }
 
+  /** Removes the underlying node from the document. */
   remove(): void {
     this.writer.remove(this.node);
   }
 }
 
-/** Free-function form of insertAdjacentElement. */
-export function insertAdjacentElement(
+/** Inserts a detached element specification relative to an anchor node. */
+export function elementInsertAdjacent(
   writer: DomWriter,
   anchor: DocNode,
   position: InsertPosition,
@@ -482,16 +484,26 @@ export function insertAdjacentElement(
   return writer.insertAdjacentElement(anchor, position, element);
 }
 
-/** Free-function form of innerText set. */
-export function setInnerText(writer: DomWriter, node: DocNode, text: string): void {
+/** Free-function form of insertAdjacentElement (alias for elementInsertAdjacent). */
+export const insertAdjacentElement = elementInsertAdjacent;
+
+/** Sets the inner text content of a document node. */
+export function innerTextSet(writer: DomWriter, node: DocNode, text: string): void {
   writer.setInnerText(node, text);
 }
 
-/** Free-function form of remove. */
-export function remove(writer: DomWriter, node: DocNode): void {
+/** Free-function form of setInnerText (alias for innerTextSet). */
+export const setInnerText = innerTextSet;
+
+/** Removes a node from the document writer tape. */
+export function nodeRemove(writer: DomWriter, node: DocNode): void {
   writer.remove(node);
 }
 
+/** Free-function form of remove (alias for nodeRemove). */
+export const remove = nodeRemove;
+
+/** Clones a cell paragraph including chip and image arrays. */
 function clonePara(p: CellParagraph): CellParagraph {
   return {
     ...p,
@@ -500,6 +512,7 @@ function clonePara(p: CellParagraph): CellParagraph {
   };
 }
 
+/** Deep clones a document node and its nested attributes. */
 function cloneNode(node: DocNode): DocNode {
   return {
     ...node,
@@ -531,6 +544,7 @@ function cloneNode(node: DocNode): DocNode {
   };
 }
 
+/** Converts an ElementSpec into an in-memory DocNode placeholder for writing. */
 function specToNode(spec: ElementSpec, tapeIndex: number): DocNode {
   if (spec.kind === "table") {
     return {
@@ -625,6 +639,7 @@ function specToNode(spec: ElementSpec, tapeIndex: number): DocNode {
   return node;
 }
 
+/** Asserts that a table node contains the specified cell coordinates. */
 function requireCell(node: DocNode, cell: [number, number]): TableCell & { paragraphs: CellParagraph[] } {
   if (node.kind !== "table" || !node.table) {
     throw new Error("cell id is only valid on a table node");
@@ -640,6 +655,7 @@ function requireCell(node: DocNode, cell: [number, number]): TableCell & { parag
   return hit as TableCell & { paragraphs: CellParagraph[] };
 }
 
+/** Asserts that a table cell contains the specified paragraph index. */
 function requireCellPara(node: DocNode, cell: [number, number], para?: number): CellParagraph {
   const tableCell = requireCell(node, cell);
   const i = para ?? 0;
@@ -650,6 +666,7 @@ function requireCellPara(node: DocNode, cell: [number, number], para?: number): 
   return hit;
 }
 
+/** Synchronizes cell head paragraph properties back to the parent cell. */
 function syncCellHead(node: DocNode, cell: [number, number]): void {
   const tableCell = requireCell(node, cell);
   const head = tableCell.paragraphs[0];
@@ -662,6 +679,7 @@ function syncCellHead(node: DocNode, cell: [number, number]): void {
   tableCell.text = head.text;
 }
 
+/** Identifies style patch keys that are not supported directly on table nodes. */
 function tableDisallowedKeys(patch: StylePatch): string[] {
   const allowed = new Set<keyof StylePatch | "cellTextAlignment">([
     "alignment",
@@ -693,6 +711,7 @@ function applyPatchToTable(node: DocNode, patch: StylePatch): void {
   if (patch.preventOverflow != null) node.table.preventOverflow = patch.preventOverflow;
 }
 
+/** Applies paragraph layout and spacing style patch properties to target object. */
 function applyPatchToPara(
   target: {
     alignment?: ParagraphAlignment;

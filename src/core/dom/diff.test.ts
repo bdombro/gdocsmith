@@ -1,3 +1,5 @@
+/* Tests for unified git-style text diff generation. */
+
 import { describe, expect, test } from "bun:test";
 import { formatUnifiedDiff } from "./diff.ts";
 

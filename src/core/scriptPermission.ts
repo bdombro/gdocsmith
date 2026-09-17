@@ -1,8 +1,4 @@
-/*
-
-Apps Script API permission — insert/bootstrap need it; Drive upload does not.
-
-*/
+/* Apps Script API permission — insert/bootstrap need it; Drive upload does not. */
 
 /** Agent/human message when Script API is missing on the gws OAuth project. */
 export const SCRIPT_PERMISSION_MSG =
@@ -11,18 +7,24 @@ export const SCRIPT_PERMISSION_MSG =
   "Workaround: put diagrams in with the Google Docs UI. Do not retry.";
 
 /** True when gws/script failed because the API is off, forbidden, or unauthorized. */
-export function isScriptPermissionError(err: unknown): boolean {
+export function scriptPermissionErrorIs(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return /401|403|Unauthorized|forbidden|accessNotConfigured|insufficientPermissions|API has not been used|script.*api|PERMISSION_DENIED/i.test(
     msg,
   );
 }
 
+/** True when gws/script failed because the API is off, forbidden, or unauthorized (alias for scriptPermissionErrorIs). */
+export const isScriptPermissionError = scriptPermissionErrorIs;
+
 /** Rewrites a Script API failure into SCRIPT_PERMISSION_MSG; rethrows others. */
-export function wrapScriptError(err: unknown, what: string): Error {
+export function scriptErrorWrap(err: unknown, what: string): Error {
   const detail = err instanceof Error ? err.message : String(err);
-  if (isScriptPermissionError(err)) {
+  if (scriptPermissionErrorIs(err)) {
     return new Error(`${what}: ${SCRIPT_PERMISSION_MSG}\n(${detail})`);
   }
   return err instanceof Error ? err : new Error(`${what}: ${detail}`);
 }
+
+/** Rewrites a Script API failure into SCRIPT_PERMISSION_MSG; rethrows others (alias for scriptErrorWrap). */
+export const wrapScriptError = scriptErrorWrap;

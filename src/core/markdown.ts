@@ -1,3 +1,5 @@
+/* High-level markdown and YAML DOM insertion workflows. */
+
 import {
   applyDom,
   applyOps,
@@ -11,14 +13,17 @@ import {
 } from "./dom/index.ts";
 import {
   chunkMarkdownElements,
-  extractFrontmatter,
+  customStyleNormalize,
+  listIndentationNormalize,
   type MarkdownChunk,
   type MarkdownParseOptions,
+  markdownElementsChunk,
+  markdownStylesParse,
+  markdownToElementsParse,
   normalizeCustomStyle,
   normalizeListIndentation,
-  parseFrontmatterStyles,
   parseMarkdownToElements,
-} from "./dom/markdown-parser.ts";
+} from "./dom/markdownParser.ts";
 import { parseYamlTree } from "./dom/yaml.ts";
 import { Gdoc } from "./gdoc.ts";
 import { type GwsClient, gws } from "./gws.ts";
@@ -28,13 +33,28 @@ import { resolveTab } from "./tabs.ts";
 
 export {
   chunkMarkdownElements,
-  extractFrontmatter,
+  customStyleNormalize,
+  listIndentationNormalize,
   type MarkdownChunk,
   type MarkdownParseOptions,
+  markdownElementsChunk,
+  markdownStylesParse,
+  markdownToElementsParse,
   normalizeCustomStyle,
   normalizeListIndentation,
-  parseFrontmatterStyles,
   parseMarkdownToElements,
+};
+
+/** Parameters for executing a generic ElementSpec array insertion. */
+export type ExecuteElementsInsertParams = {
+  anchorId?: number | string;
+  client?: GwsClient;
+  customStyles?: Record<string, CustomTextStyle>;
+  documentId: string;
+  elements: ElementSpec[];
+  force?: boolean;
+  position?: InsertPosition;
+  tabHint?: string;
 };
 
 /** Parameters for executing a markdown insertion. */
@@ -50,6 +70,17 @@ export type ExecuteMarkdownInsertParams = {
   tabHint?: string;
 };
 
+/** Parameters for executing a YAML DOM tree insertion. */
+export type ExecuteYamlInsertParams = {
+  anchorId?: number | string;
+  client?: GwsClient;
+  documentId: string;
+  force?: boolean;
+  position?: InsertPosition;
+  tabHint?: string;
+  yaml: string | Record<string, unknown>;
+};
+
 /** Result of executing a markdown insertion. */
 export type MarkdownInsertResult = {
   appliedChunks: number;
@@ -63,20 +94,8 @@ export type MarkdownInsertResult = {
   tabId?: string;
 };
 
-/** Parameters for executing a generic ElementSpec array insertion. */
-export type ExecuteElementsInsertParams = {
-  anchorId?: number | string;
-  client?: GwsClient;
-  customStyles?: Record<string, CustomTextStyle>;
-  documentId: string;
-  elements: ElementSpec[];
-  force?: boolean;
-  position?: InsertPosition;
-  tabHint?: string;
-};
-
 /** Executes insertion of generic ElementSpec array across one or more chunks. */
-export async function executeElementsInsert(params: ExecuteElementsInsertParams): Promise<MarkdownInsertResult> {
+export async function elementsInsertExecute(params: ExecuteElementsInsertParams): Promise<MarkdownInsertResult> {
   const client = params.client ?? gws;
   const elements = params.elements;
   const effectiveStyles = params.customStyles ?? {};
@@ -199,24 +218,20 @@ export async function executeElementsInsert(params: ExecuteElementsInsertParams)
   });
 }
 
-/** Executes markdown insertion across one or more chunks. */
-export async function executeMarkdownInsert(params: ExecuteMarkdownInsertParams): Promise<MarkdownInsertResult> {
-  const { content, frontmatter } = extractFrontmatter(params.markdown);
-  const frontmatterStyles = parseFrontmatterStyles(frontmatter);
-  const effectiveStyles: Record<string, CustomTextStyle> = {
-    ...frontmatterStyles,
-    ...(params.customStyles ?? {}),
-  };
+/** Executes insertion of generic ElementSpec array (alias for elementsInsertExecute). */
+export const executeElementsInsert = elementsInsertExecute;
 
-  const elements = parseMarkdownToElements(content, {
-    customStyles: effectiveStyles,
+/** Executes markdown insertion across one or more chunks. */
+export async function markdownInsertExecute(params: ExecuteMarkdownInsertParams): Promise<MarkdownInsertResult> {
+  const elements = parseMarkdownToElements(params.markdown, {
+    customStyles: params.customStyles,
     h1IsTitle: params.h1IsTitle,
   });
 
   return executeElementsInsert({
     anchorId: params.anchorId,
     client: params.client,
-    customStyles: effectiveStyles,
+    customStyles: params.customStyles,
     documentId: params.documentId,
     elements,
     force: params.force,
@@ -225,19 +240,11 @@ export async function executeMarkdownInsert(params: ExecuteMarkdownInsertParams)
   });
 }
 
-/** Parameters for executing a YAML DOM tree insertion. */
-export type ExecuteYamlInsertParams = {
-  anchorId?: number | string;
-  client?: GwsClient;
-  documentId: string;
-  force?: boolean;
-  position?: InsertPosition;
-  tabHint?: string;
-  yaml: string | Record<string, unknown>;
-};
+/** Executes markdown insertion across one or more chunks (alias for markdownInsertExecute). */
+export const executeMarkdownInsert = markdownInsertExecute;
 
 /** Executes insertion of a YAML DOM tree into a tab or document. */
-export async function executeYamlInsert(params: ExecuteYamlInsertParams): Promise<MarkdownInsertResult> {
+export async function yamlInsertExecute(params: ExecuteYamlInsertParams): Promise<MarkdownInsertResult> {
   const { elements, meta } = parseYamlTree(params.yaml);
   return executeElementsInsert({
     anchorId: params.anchorId,
@@ -250,8 +257,11 @@ export async function executeYamlInsert(params: ExecuteYamlInsertParams): Promis
   });
 }
 
+/** Executes insertion of a YAML DOM tree (alias for yamlInsertExecute). */
+export const executeYamlInsert = yamlInsertExecute;
+
 /** Builds DomOp array for a single markdown chunk. */
-export function buildChunkOps(
+export function chunkOpsBuild(
   anchorId: number,
   position: InsertPosition,
   chunk: MarkdownChunk,
@@ -264,17 +274,28 @@ export function buildChunkOps(
       at: anchorId,
       insertAdjacentElement: {
         element: chunk.spec as unknown as Record<string, unknown>,
-        position,
+        position: replaceAnchor ? "afterend" : position,
       },
     });
+    if (replaceAnchor) {
+      ops.push({
+        at: anchorId,
+        remove: true,
+      });
+    }
     return ops;
   }
 
   const specs = chunk.specs;
   if (!specs.length) return ops;
 
-  if (replaceAnchor && specs[0]?.kind === "paragraph") {
-    const first = specs[0]!;
+  const first = specs[0];
+  if (
+    replaceAnchor &&
+    first &&
+    first.kind === "paragraph" &&
+    (!first.bullet || (first.bullet.nestingLevel ?? 0) === 0)
+  ) {
     const op: DomOp = {
       at: anchorId,
       innerText: first.text,
@@ -303,6 +324,18 @@ export function buildChunkOps(
         },
       });
     }
+  } else if (replaceAnchor) {
+    ops.push({
+      at: anchorId,
+      insertAdjacentElement: {
+        elements: specs as unknown as Record<string, unknown>[],
+        position: "afterend",
+      },
+    });
+    ops.push({
+      at: anchorId,
+      remove: true,
+    });
   } else {
     ops.push({
       at: anchorId,
@@ -315,3 +348,6 @@ export function buildChunkOps(
 
   return ops;
 }
+
+/** Builds DomOp array for a single markdown chunk (alias for chunkOpsBuild). */
+export const buildChunkOps = chunkOpsBuild;

@@ -1,8 +1,4 @@
-/*
-
-In-memory model of a loaded Google Doc.
-
-*/
+/* In-memory model of a loaded Google Doc. Wraps raw documents.get payloads and provides tab overlay and table resolution helpers. */
 
 import { type GwsClient, gws } from "./gws.ts";
 import { overlayTab, parseRef } from "./tabs.ts";
@@ -25,13 +21,23 @@ export class Gdoc {
   }
 
   /** Validates and returns the document ID, rejecting full URLs. */
-  static parseId(input: string): string {
+  static idParse(input: string): string {
     return parseRef(input).documentId;
   }
 
+  /** Validates and returns the document ID, rejecting full URLs (alias for idParse). */
+  static parseId(input: string): string {
+    return Gdoc.idParse(input);
+  }
+
   /** Validates and returns a DocRef ({ documentId }), rejecting full URLs. */
-  static parseRef(input: string): { documentId: string; tabId?: string } {
+  static refParse(input: string): { documentId: string; tabId?: string } {
     return parseRef(input);
+  }
+
+  /** Validates and returns a DocRef ({ documentId }), rejecting full URLs (alias for refParse). */
+  static parseRef(input: string): { documentId: string; tabId?: string } {
+    return Gdoc.refParse(input);
   }
 
   /** Overlay this tab's documentTab onto legacy body/headers/lists. */
@@ -40,7 +46,7 @@ export class Gdoc {
   }
 
   /** Locates a table element near an insert cursor after insertTable. */
-  findTableAt(index: number): DocElement | undefined {
+  tableAtFind(index: number): DocElement | undefined {
     const tables = (this.data.body?.content ?? []).filter((el) => el.table);
     return (
       tables.find((el) => el.startIndex === index) ??
@@ -49,8 +55,13 @@ export class Gdoc {
     );
   }
 
+  /** Locates a table element near an insert cursor after insertTable (alias for tableAtFind). */
+  findTableAt(index: number): DocElement | undefined {
+    return this.tableAtFind(index);
+  }
+
   /** Table inserted at `insertTable` cursor — never a table that merely contains index. */
-  findInsertedTableAt(index: number): DocElement | undefined {
+  insertedTableAtFind(index: number): DocElement | undefined {
     const tables = (this.data.body?.content ?? []).filter((el) => el.table);
     return (
       tables.find((el) => el.startIndex === index) ??
@@ -58,5 +69,10 @@ export class Gdoc {
         .filter((el) => el.startIndex >= index && el.startIndex <= index + 5)
         .sort((a, b) => a.startIndex - b.startIndex)[0]
     );
+  }
+
+  /** Table inserted at `insertTable` cursor — never a table that merely contains index (alias for insertedTableAtFind). */
+  findInsertedTableAt(index: number): DocElement | undefined {
+    return this.insertedTableAtFind(index);
   }
 }

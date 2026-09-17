@@ -2,11 +2,11 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
 export PATH := justfile_directory() + "/node_modules/.bin:" + env_var("PATH")
 
-cli_key := `bun scripts/print-identity.ts key`
-tap_org := `bun scripts/print-identity.ts tapOrg`
-tap_repo := `bun scripts/print-identity.ts tapRepo`
-tap := `bun scripts/print-identity.ts tap`
-release_repo := `bun scripts/print-identity.ts releaseRepo`
+cli_key := `bun scripts/printIdentity.ts key`
+tap_org := `bun scripts/printIdentity.ts tapOrg`
+tap_repo := `bun scripts/printIdentity.ts tapRepo`
+tap := `bun scripts/printIdentity.ts tap`
+release_repo := `bun scripts/printIdentity.ts releaseRepo`
 tap_git_url := "git@github.com:" + release_repo + ".git"
 brew_prefix := `brew --prefix`
 tap_parent := brew_prefix + "/Library/Taps/" + tap_org
@@ -55,9 +55,9 @@ install: install-local
 install-local: uninstall build
     mkdir -p {{tap_parent}}
     ln -sfn '{{justfile_directory()}}' {{tap_path}}
-    bun scripts/dev-formula.ts install
+    bun scripts/devFormula.ts install
     HOMEBREW_NO_ASK=1 brew reinstall --formula {{tap}}/{{cli_key}} || HOMEBREW_NO_ASK=1 brew install --force --formula {{tap}}/{{cli_key}}
-    bun scripts/dev-formula.ts reset
+    bun scripts/devFormula.ts reset
     {{cli_key}} configure install
 
 # Remove local dev install, then install from GitHub tap (requires gh auth login)

@@ -1,31 +1,19 @@
-/*
-
-Apps Script image insert — private Drive blobs without public URLs.
-
-Bootstrap: gws script projects create + updateContent, then scripts.run.
-
-*/
+/* Apps Script image insert — private Drive blobs without public URLs. */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadSkillConfig, saveSkillConfig } from "./config.ts";
-import type { GwsClient } from "./gws.ts";
-import { gws } from "./gws.ts";
-import { wrapScriptError } from "./script-permission.ts";
+import { type GwsClient, gws } from "./gws.ts";
+import { wrapScriptError } from "./scriptPermission.ts";
 
-const PROJECT_TITLE = "gdocsmith-images";
-const APPS_SCRIPT_DIR = join(import.meta.dir, "..", "..", "apps-script");
-
+/** Options for Drive image insertion into Google Docs. */
 export type DriveImageInsertOpts = {
-  widthPt?: number;
-  heightPt?: number;
+  /** Optional alignment (left, center, or right). */
   align?: string;
-};
-
-type ScriptOperation = {
-  done?: boolean;
-  error?: { message?: string; code?: number };
-  response?: { result?: unknown };
+  /** Height in points. */
+  heightPt?: number;
+  /** Width in points. */
+  widthPt?: number;
 };
 
 /** Manages the Apps Script project and inserts Drive images via blob. */
@@ -39,6 +27,7 @@ export class AppsScriptImages {
     this.scriptId = scriptId === null ? undefined : (scriptId ?? loadSkillConfig().appsScriptId);
   }
 
+  /** Project ID for the configured Apps Script project. */
   get projectId(): string | undefined {
     return this.scriptId;
   }
@@ -138,3 +127,16 @@ export class AppsScriptImages {
     ]);
   }
 }
+
+/** Directory containing Apps Script bundle sources. */
+const APPS_SCRIPT_DIR = join(import.meta.dir, "..", "..", "apps-script");
+
+/** Title of the Apps Script companion project. */
+const PROJECT_TITLE = "gdocsmith-images";
+
+/** Structure of a script.run execution response. */
+type ScriptOperation = {
+  done?: boolean;
+  error?: { code?: number; message?: string };
+  response?: { result?: unknown };
+};

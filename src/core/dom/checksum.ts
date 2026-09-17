@@ -1,33 +1,48 @@
-/*
-
-Checksum calculation for DocNode and TableCell content/metadata.
-Hashes text + all known styles, bullets, alignments, and structural attributes.
-
-*/
+/* Checksum calculation for DocNode and TableCell content/metadata. */
 
 import { createHash } from "node:crypto";
 import type { CellParagraph, DocNode, TableCell } from "./types.ts";
 
-function sortObjectKeys(obj: Record<string, unknown>): Record<string, unknown> {
-  const sorted: Record<string, unknown> = {};
-  for (const key of Object.keys(obj).sort()) {
-    const val = obj[key];
-    if (val !== undefined && val !== null) {
-      if (typeof val === "object" && !Array.isArray(val)) {
-        sorted[key] = sortObjectKeys(val as Record<string, unknown>);
-      } else {
-        sorted[key] = val;
-      }
-    }
-  }
-  return sorted;
+/**
+ * Computes a deterministic 4-character hex checksum over a TableCell or CellParagraph.
+ */
+export function cellChecksumCompute(
+  /** Cell or cell paragraph to checksum. */
+  cell: TableCell | CellParagraph,
+): string {
+  const normText = (cell.text ?? "").trim().replace(/\r\n/g, "\n");
+  const styleStr = cell.style ? JSON.stringify(sortObjectKeys(cell.style as unknown as Record<string, unknown>)) : "";
+  const alignStr = cell.alignment ?? "";
+  const shadingStr = cell.shading ?? ("backgroundColor" in cell ? (cell.backgroundColor ?? "") : "");
+  const imagesCount = cell.images?.length ?? 0;
+  const chipsCount = cell.chips?.length ?? 0;
+
+  const payload = [
+    "cell",
+    normText,
+    alignStr,
+    shadingStr,
+    styleStr,
+    imagesCount ? `img:${imagesCount}` : "",
+    chipsCount ? `chips:${chipsCount}` : "",
+  ].join("|");
+
+  return createHash("sha256").update(payload, "utf8").digest("hex").slice(0, 4);
 }
+
+/**
+ * Alias for cellChecksumCompute.
+ */
+export const computeCellChecksum = cellChecksumCompute;
 
 /**
  * Computes a deterministic 4-character hex checksum over a DocNode's or ElementSpec's
  * text, style, alignment, bullet, and metadata.
  */
-export function computeNodeChecksum(node: Partial<DocNode> | Record<string, unknown>): string {
+export function nodeChecksumCompute(
+  /** Candidate node or spec to checksum. */
+  node: Partial<DocNode> | Record<string, unknown>,
+): string {
   const normText = (typeof node.text === "string" ? node.text : "").trim().replace(/\r\n/g, "\n");
   const styleStr = node.style ? JSON.stringify(sortObjectKeys(node.style as unknown as Record<string, unknown>)) : "";
   const bullet = (node as Record<string, unknown>).bullet as
@@ -68,25 +83,27 @@ export function computeNodeChecksum(node: Partial<DocNode> | Record<string, unkn
 }
 
 /**
- * Computes a deterministic 4-character hex checksum over a TableCell or CellParagraph.
+ * Alias for nodeChecksumCompute.
  */
-export function computeCellChecksum(cell: TableCell | CellParagraph): string {
-  const normText = (cell.text ?? "").trim().replace(/\r\n/g, "\n");
-  const styleStr = cell.style ? JSON.stringify(sortObjectKeys(cell.style as unknown as Record<string, unknown>)) : "";
-  const alignStr = cell.alignment ?? "";
-  const shadingStr = cell.shading ?? ("backgroundColor" in cell ? (cell.backgroundColor ?? "") : "");
-  const imagesCount = cell.images?.length ?? 0;
-  const chipsCount = cell.chips?.length ?? 0;
+export const computeNodeChecksum = nodeChecksumCompute;
 
-  const payload = [
-    "cell",
-    normText,
-    alignStr,
-    shadingStr,
-    styleStr,
-    imagesCount ? `img:${imagesCount}` : "",
-    chipsCount ? `chips:${chipsCount}` : "",
-  ].join("|");
-
-  return createHash("sha256").update(payload, "utf8").digest("hex").slice(0, 4);
+/**
+ * Recursively sorts object keys alphabetically for stable checksumming.
+ */
+function sortObjectKeys(
+  /** Object whose keys should be sorted. */
+  obj: Record<string, unknown>,
+): Record<string, unknown> {
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(obj).sort()) {
+    const val = obj[key];
+    if (val !== undefined && val !== null) {
+      if (typeof val === "object" && !Array.isArray(val)) {
+        sorted[key] = sortObjectKeys(val as Record<string, unknown>);
+      } else {
+        sorted[key] = val;
+      }
+    }
+  }
+  return sorted;
 }

@@ -1,8 +1,5 @@
-/*
+/* Unit tests for Gdoc load helpers. */
 
-Unit tests for Gdoc load helpers.
-
-*/
 import { describe, expect, test } from "bun:test";
 import { Gdoc } from "./gdoc.ts";
 

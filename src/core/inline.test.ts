@@ -1,8 +1,5 @@
-/*
+/* Unit tests for InlineMarkup parse, serialize, and mergeRuns. */
 
-Unit tests for InlineMarkup parse, serialize, and mergeRuns.
-
-*/
 import { describe, expect, test } from "bun:test";
 import { InlineMarkup } from "./inline.ts";
 

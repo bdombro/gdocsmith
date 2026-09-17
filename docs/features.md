@@ -21,12 +21,12 @@ Use this guide to avoid overconfidence when planning mutations or estimating whe
 | | **Watermarks** | ✅ | ❌ Hidden | ❌ | ❌ | ❌ Unsupported | Invisible in REST API; preserved unless whole doc is wiped. |
 | **Typography & Styles** | **Heading Styles (H1–H6)** | ✅ | ✅ (`namedStyleType`) | ✅ (`updateParagraphStyle`) | ✅ | ✅ Full | Supported up to `HEADING_6`. Real styles only (never bold `NORMAL_TEXT`). |
 | | **Inline Text Formatting** | ✅ | ✅ (`textStyle`) | ✅ (`updateTextStyle`) | ✅ | ✅ Full | Bold, italic, underline, strikethrough, monospace, colors, background. |
-| | **Paragraph Spacing & Indent** | ✅ | ✅ (`paragraphStyle`) | ✅ (`updateParagraphStyle`) | ✅ | ✅ Full | `spaceAbove`, `spaceBelow`, `lineSpacing`, `indentStart`, `indentFirstLine`. |
+| | **Paragraph Spacing & Indent** | ✅ | ✅ (`paragraphStyle`) | ✅ (`updateParagraphStyle`) | ✅ | ✅ Full | `spaceAbove`, `spaceBelow`, `lineSpacing`, `indentStart`, `indentFirstLine`, `indentEnd`. Auto-calculates 18pt hanging indent for bullets. |
 | | **Hyperlinks** | ✅ | ✅ (`link.url`) | ✅ (`link`) | ✅ | ✅ Full | Native clickable links. Markdown links `[text](url)` auto-convert. |
 | | **Custom Named Styles** | ✅ | ✅ (`namedStyles`) | ✅ (`updateNamedStyle`) | ❌ | ⚠️ Read-only | Default style presets can be updated via API, but "Save as default styles" is UI-only. |
 | **Lists & Tasks** | **Bulleted & Numbered Lists** | ✅ | ✅ (`bullet`) | ✅ (`createParagraphBullets`) | ✅ | ✅ Full | Uses native Docs glyph presets (`BULLET_*`, `NUMBERED_*`). Never put glyphs in text. |
 | | **Interactive Checklists** | ✅ | ✅ (`BULLET_CHECKBOX`) | ✅ (`BULLET_CHECKBOX`) | ✅ | ✅ Full | Real interactive checkboxes. |
-| | **List Nesting Level** | ✅ | ✅ (`nestingLevel`) | ✅ (via leading `\t`) | ✅ | ✅ Full | Absolute nesting (0–8). Leading tabs auto-calculated. **Cannot change nesting level on existing item**. |
+| | **List Nesting Level** | ✅ | ✅ (`nestingLevel`) | ✅ (via leading `\t`) | ✅ | ✅ Full | Absolute nesting (0–8). Leading tabs auto-calculated. Queryable via `[level=N]` / `[bullet:N]`. |
 | | **Custom Bullet Glyphs** | ✅ | ❌ Not in API | ❌ | ❌ | ❌ Unsupported | Custom glyph prefixes ("Step 1", "•") cannot be styled as bullets in REST API. |
 | **Tables** | **Table Grid & Dimensions** | ✅ | ✅ (`table`) | ✅ (`insertTable`, rows/cols) | ✅ | ✅ Full | Insert must be followed by query to fill cells. |
 | | **Row & Column Manipulation** | ✅ | ✅ (`table`) | ✅ (`insertTableRow`, `deleteTableRow`, `insertTableColumn`, `deleteTableColumn`) | ✅ | ✅ Full | Surgical insertion and deletion of rows and columns with cell content population. |
@@ -38,7 +38,7 @@ Use this guide to avoid overconfidence when planning mutations or estimating whe
 | | **Table Alignment on Page** | ✅ | ❌ No page alignment prop | ❌ | ❌ | ⚠️ Workaround | API lacks "Center Table". Use fixed `columnWidth` to sit left. |
 | | **Nested Tables** | ❌ | ❌ Docs rejects nested tables | ❌ | ❌ | ❌ Unsupported | Google Docs does not allow tables inside table cells. |
 | **Media & Graphics** | **Inline Images (Public HTTPS)**| ✅ | ✅ (`inlineObjects`) | ✅ (`insertInlineImage`) | ✅ | ✅ Full (`insertImage`) | Insert public HTTPS image directly via REST API. |
-| | **Images from Drive Blob** | ✅ | ❌ REST API cannot read bytes | ❌ | ✅ (`appendImage`) | ✅ Via Script | Requires Apps Script bridge (`Apps Script bootstrap (src/core/apps-script-images.ts)`). |
+| | **Images from Drive Blob** | ✅ | ❌ REST API cannot read bytes | ❌ | ✅ (`appendImage`) | ✅ Via Script | Requires Apps Script bridge (`Apps Script bootstrap (src/core/appsScriptImages.ts)`). |
 | | **Image Resize & Crop** | ✅ | ✅ (`embeddedObject.size`) | ❌ No resize request | ✅ (`setWidth`/`setHeight`) | ⚠️ Via Script | REST API cannot resize existing images. |
 | | **Floating / Wrap-Text Images**| ✅ | ✅ (`positionedObjects`) | ❌ Read-only (delete only) | ❌ | ⚠️ Read/Delete only | Cannot create or reposition floating wrap-around objects via REST API. |
 | | **Google Drawings (Vector)** | ✅ | ⚠️ Read-only embedded object | ❌ | ❌ | ⚠️ Read-only | Drawing canvas cannot be inspected, modified, or minted via API. |
@@ -107,6 +107,15 @@ The following operations carry silent data loss risks that agents must be explic
 * **The Reality:** Google Docs web UI allows setting table page alignment (Center, Left, Right). In Google Docs, tables default to full page width (under the hood, they are Left-aligned). The Google Docs REST API has no property or request for table page alignment (`TableStyle` only supports `tableColumnProperties`).
 * **The Silent Confusion:** Setting `alignment: "CENTER"` on a table op applies horizontal alignment to the paragraph text inside cells, NOT the table on the page. Furthermore, setting a fixed `columnWidth` smaller than page width leaves the table hugging the left margin.
 * **The Guard & Workaround:** The CLI emits a plan warning when table-wide cell alignment is set, rejects `tableAlignment` with actionable error text, and supports `cellTextAlignment` as an explicit alias. Centering a narrow table on the page can only be done manually in the Docs web UI.
+
+### 8. List Nesting Level & Indentation Mechanics
+* **The Reality:** In the Google Docs REST API, list nesting levels (0–8) are derived *solely* from leading tab characters (`\t`) in the paragraph text when `createParagraphBullets` runs. Setting `indentStart` alone does NOT establish nesting—it only shifts text without moving the bullet glyph, creating broken layouts like `- \titem`.
+* **Leading Tab Conversion:** `gdocsmith` automatically converts Markdown list indentation (2-space, 4-space, or tabbed) into leading `\t` characters before creating bullets, allowing Docs to natively establish nesting depth.
+* **18pt Hanging Indents for Bullets:** Google Docs places bullet glyphs at `indentFirstLine` and list item text at `indentStart` (an 18pt hanging gap). When explicit `indentStart` is styled on a bullet, `gdocsmith` automatically injects `indentFirstLine: indentStart - 18` so the glyph and text remain properly aligned.
+* **Nesting Level Immutability on Existing Items:** Once a list item is created in Google Docs, leading tabs are stripped by the API. The REST API offers no property or request to mutate `nestingLevel` on an existing paragraph (`updateParagraphStyle` lacks nesting controls).
+* **Surgical Diffing & Replacement:** When using `replaceSection` or `replaceMarkdown`, `gdocsmith` detects changes in list item `nestingLevel` or bullet preset. Instead of attempting invalid in-place text updates, it replaces the modified item by inserting a new spec with leading tabs and deleting the old node, ensuring accurate nesting without losing surrounding unchanged paragraphs.
+* **Query & Selector Support:** Queries expose `bullet: { nestingLevel, preset, type }`. Selectors can filter by nesting level using `[level=N]`, `[nestingLevel=N]`, `[bullet:N]`, or `:level(N)`. Diagnostic outputs reflect levels as `NORMAL_TEXT[bullet:1]`.
+* **Markdown Export / SS:** `kind: query` + `output: markdown` dumps a document, tab, or `under:` section as body-only markdown (`{ markdown, audit }`). Custom run styles and lossy omissions live on `audit`, not YAML frontmatter. List items use hierarchical indentation (`"  ".repeat(nestingLevel)`) and tight lists without extra blank lines. `output: yaml` is the lossless DOM tree.
 
 ---
 

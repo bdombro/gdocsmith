@@ -1,8 +1,5 @@
-/*
+/* Unit tests for Docs tab targeting. */
 
-Unit tests for Docs tab targeting.
-
-*/
 import { describe, expect, test } from "bun:test";
 import { parseDocument } from "./dom/parse.ts";
 import { Gdoc } from "./gdoc.ts";
@@ -18,7 +15,7 @@ import {
   tabContent,
   tabTree,
 } from "./tabs.ts";
-import { mockDoc } from "./test-fixtures.ts";
+import { mockDoc } from "./testFixtures.ts";
 import type { DocTab, GoogleDoc } from "./types.ts";
 
 function para(text: string, start = 1): NonNullable<GoogleDoc["body"]>["content"][number] {
@@ -168,12 +165,12 @@ describe("tabContent / overlayTab", () => {
 });
 
 describe("parseDocument from tabs", () => {
-  test("legacy mockDoc body still parses", () => {
-    const parsed = parseDocument(new Gdoc(mockDoc([para("legacy")]), "doc"));
-    expect(parsed.nodes[0]).toMatchObject({ text: "legacy" });
+  test("flat body mock still parses", () => {
+    const parsed = parseDocument(new Gdoc(mockDoc([para("flat-body")]), "doc"));
+    expect(parsed.nodes[0]).toMatchObject({ text: "flat-body" });
   });
 
-  test("reads the selected documentTab, not empty legacy body", () => {
+  test("reads the selected documentTab, not empty flat body", () => {
     const data: GoogleDoc = {
       tabs: [
         docTab("t.0", "Intro", "hello", undefined),

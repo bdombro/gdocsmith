@@ -1,16 +1,18 @@
+/* Tests for CLI output formatting and structured input parsing. */
+
 import { describe, expect, test } from "bun:test";
 import { formatOutput, formatYaml, parseInput } from "./format.ts";
 
 describe("formatOutput", () => {
   const sample = {
     documentId: "doc-123",
-    revisionId: "rev-456",
-    tabId: "t.0",
     nodes: [
       { id: 1, namedStyleType: "HEADING_1", text: "Title" },
       { id: 2, namedStyleType: "NORMAL_TEXT", text: "Line 1\nLine 2" },
     ],
     ops: [],
+    revisionId: "rev-456",
+    tabId: "t.0",
   };
 
   test("defaults to YAML formatting", () => {

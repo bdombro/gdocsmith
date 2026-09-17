@@ -1,12 +1,8 @@
-/*
+/* Surgical DOM write compile/apply tests. */
 
-Surgical write compile/apply: innerText, insertAdjacent after heading,
-consecutive bullets → one createParagraphBullets.
-
-*/
 import { describe, expect, test } from "bun:test";
 import type { GwsClient } from "../gws.ts";
-import { mockDoc } from "../test-fixtures.ts";
+import { mockDoc } from "../testFixtures.ts";
 import type { GoogleDoc } from "../types.ts";
 import {
   applyDom,
@@ -599,12 +595,12 @@ describe("DomWriter apply", () => {
           {
             action: "innerText",
             index: 0,
-            target: { id: 12, namedStyleType: "HEADING_2", text: "Status" },
+            target: { id: 12, kind: "paragraph", namedStyleType: "HEADING_2", text: "Status" },
           },
           {
             action: "innerText",
             index: 1,
-            target: { id: 40, text: "Ticket: AUTO-781" },
+            target: { id: 40, kind: "paragraph", text: "Ticket: AUTO-781" },
           },
         ],
       },

@@ -1,21 +1,15 @@
-/*
-
-Drive revision pin + restore hint for non-atomic Docs apply.
-
-Docs API has no transactions. keepForever is documented as binary-file-only;
-we still try it so named versions stick when the API allows. Restore is always
-File → Version history in the Docs UI — Drive cannot restore a native Doc in-place.
-
-*/
+/* Drive revision pin + restore hint for non-atomic Docs apply. */
 
 import { type GwsClient, gws } from "./gws.ts";
 
+/** Information about a pinned Drive head revision. */
 export type PinnedRevision = {
   id: string;
   keepForever?: boolean;
   modifiedTime?: string;
 };
 
+/** Raw item from Drive revisions.list API response. */
 type RevisionListItem = {
   id?: string;
   keepForever?: boolean;

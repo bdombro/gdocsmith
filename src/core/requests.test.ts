@@ -1,8 +1,5 @@
-/*
+/* Unit tests for RequestBuilder batchUpdate payload construction. */
 
-Unit tests for RequestBuilder batchUpdate payload construction.
-
-*/
 import { describe, expect, test } from "bun:test";
 import { RequestBuilder } from "./requests.ts";
 

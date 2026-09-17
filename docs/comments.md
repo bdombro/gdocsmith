@@ -2,6 +2,8 @@
 
 Load when the user asks about comments on this Doc. Not a `run` step: no `comment` field on `steps`.
 
+Comments exist in Google Drive, outside the Google Docs REST API DOM tape. `gdocsmith` manages document content; Drive comment threads can be queried or updated via the companion Google Workspace CLI (`gws`) or the Drive REST API.
+
 Threads live on Drive (file-level, not per tab). `kind: query` / `documents.get` omit them. `anchor` is a `kix.*` id that `documents.get` does not expose (its `kix.*` values are list and person ids). Mapping a thread to `at` is a heuristic. Match quotes on the tab you queried.
 
 ## List

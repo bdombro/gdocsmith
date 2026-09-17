@@ -1,22 +1,12 @@
-/*
-Status leaf — print app version.
-*/
+/* Status leaf — print app version. */
 
 import { type CliLeaf, CliOptionKind } from "argsbarg";
 import { StatusJsonOutputSchema } from "./__generated__";
 import type { StatusJsonOutput } from "./types.ts";
 
+/** Command leaf that reports the application version. */
 export const statusCommand = {
-  key: "status",
   description: "Show app version.",
-  options: [
-    {
-      name: "json",
-      description: "Emit JSON.",
-      kind: CliOptionKind.Presence,
-    },
-  ],
-  outputSchema: StatusJsonOutputSchema,
   handler: (ctx) => {
     const out: StatusJsonOutput = { version: ctx.program.version };
     if (ctx.hasFlag("json")) {
@@ -25,4 +15,13 @@ export const statusCommand = {
       console.log(`version=${out.version}`);
     }
   },
+  key: "status",
+  options: [
+    {
+      description: "Emit JSON.",
+      kind: CliOptionKind.Presence,
+      name: "json",
+    },
+  ],
+  outputSchema: StatusJsonOutputSchema,
 } satisfies CliLeaf;

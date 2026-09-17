@@ -1,12 +1,8 @@
-/*
-
-CLI adapter — shared context between command leaves and core.
-
-*/
+/* CLI context adapters for argsbarg leaf handlers. */
 
 import type { CliContext } from "argsbarg";
-import { Gdoc } from "../core/gdoc.ts";
-import type { ImageStoreMode } from "../core/image-store.ts";
+import { Gdoc } from "~/core/gdoc.ts";
+import type { ImageStoreMode } from "~/core/imageStore.ts";
 import {
   flattenTabs,
   type ListedTab,
@@ -15,12 +11,26 @@ import {
   type TabOutline,
   tabRequiredError,
   tabTree,
-} from "../core/tabs.ts";
+} from "~/core/tabs.ts";
 
-export function throwUsage(msg: string): never {
+/** Loaded Doc with the selected tab overlaid onto legacy body/headers/lists. */
+export type ResolvedDoc = {
+  documentId: string;
+  gdoc: Gdoc;
+  tabId?: string;
+  tabs: TabOutline[];
+  tabTitle?: string;
+};
+
+/** Throws a CLI usage error with the given message. */
+export function usageThrow(msg: string): never {
   throw new Error(msg);
 }
 
+/** Throws a CLI usage error (alias for usageThrow). */
+export const throwUsage = usageThrow;
+
+/** Resolves image store backend from CLI --image-store option. */
 export function imageStoreMode(ctx: CliContext): ImageStoreMode | undefined {
   const raw = ctx.stringOpt("image-store");
   if (!raw) return undefined;
@@ -28,29 +38,21 @@ export function imageStoreMode(ctx: CliContext): ImageStoreMode | undefined {
   throw new Error(`Invalid --image-store: ${raw}`);
 }
 
-/** Loaded Doc with the selected tab overlaid onto legacy body/headers/lists. */
-export type ResolvedDoc = {
-  documentId: string;
-  gdoc: Gdoc;
-  tabId?: string;
-  tabTitle?: string;
-  tabs: TabOutline[];
-};
-
-/** Document id from the first positional. */
-export function resolveDocId(ctx: CliContext): string {
-  return resolveDocRef(ctx).documentId;
+/** Document id from the first positional argument. */
+export function docIdResolve(ctx: CliContext): string {
+  return docRefResolve(ctx).documentId;
 }
 
-/**
- * Document id plus optional tab hint from --tab.
- */
-export function resolveDocRef(ctx: CliContext): {
+/** Document id from the first positional argument (alias for docIdResolve). */
+export const resolveDocId = docIdResolve;
+
+/** Document id plus optional tab hint from --tab. */
+export function docRefResolve(ctx: CliContext): {
   documentId: string;
   tabHint?: string;
 } {
   const source = ctx.args[0];
-  if (!source) throwUsage("document id required");
+  if (!source) usageThrow("document id required");
   const ref = Gdoc.parseRef(source);
   const flag = ctx.stringOpt("tab");
   if (flag && (flag.startsWith("http://") || flag.startsWith("https://") || flag.includes("/document/d/"))) {
@@ -60,12 +62,15 @@ export function resolveDocRef(ctx: CliContext): {
   return tabHint ? { documentId: ref.documentId, tabHint } : { documentId: ref.documentId };
 }
 
+/** Document id plus optional tab hint from --tab (alias for docRefResolve). */
+export const resolveDocRef = docRefResolve;
+
 /**
  * Fetch + overlay the selected tab. Multi-tab Docs need a URL tab or `--tab`
  * unless `requireTab` is false (e.g. export or tab commands).
  */
-export async function loadResolvedDoc(ctx: CliContext, opts: { requireTab?: boolean } = {}): Promise<ResolvedDoc> {
-  const { documentId, tabHint } = resolveDocRef(ctx);
+export async function resolvedDocLoad(ctx: CliContext, opts: { requireTab?: boolean } = {}): Promise<ResolvedDoc> {
+  const { documentId, tabHint } = docRefResolve(ctx);
   const raw = await Gdoc.load(documentId);
   const tabs = tabTree(raw.data.tabs);
   const flat = flattenTabs(raw.data.tabs);
@@ -82,20 +87,21 @@ export async function loadResolvedDoc(ctx: CliContext, opts: { requireTab?: bool
     documentId,
     gdoc,
     tabId: resolved.tabId,
-    tabTitle: resolved.title,
     tabs,
+    tabTitle: resolved.title,
   };
 }
 
-/**
- * Resolves all document refs from arguments.
- */
-export function resolveDocRefs(ctx: CliContext): Array<{
+/** Fetch + overlay the selected tab (alias for resolvedDocLoad). */
+export const loadResolvedDoc = resolvedDocLoad;
+
+/** Resolves all document refs from arguments. */
+export function docRefsResolve(ctx: CliContext): Array<{
   documentId: string;
   tabHint?: string;
 }> {
   if (ctx.args.length === 0) {
-    throwUsage("At least one document ID is required");
+    usageThrow("At least one document ID is required");
   }
   const flag = ctx.stringOpt("tab");
   if (flag && (flag.startsWith("http://") || flag.startsWith("https://") || flag.includes("/document/d/"))) {
@@ -108,8 +114,11 @@ export function resolveDocRefs(ctx: CliContext): Array<{
   });
 }
 
+/** Resolves all document refs from arguments (alias for docRefsResolve). */
+export const resolveDocRefs = docRefsResolve;
+
 /** Loads the current tab roster after a mutation. */
-export async function loadListedTabs(documentId: string): Promise<{
+export async function listedTabsLoad(documentId: string): Promise<{
   tabId?: string;
   tabs: ListedTab[];
 }> {
@@ -117,3 +126,6 @@ export async function loadListedTabs(documentId: string): Promise<{
   const tabs = listedTabs(doc.data.tabs);
   return { tabId: tabs[0]?.tabId, tabs };
 }
+
+/** Loads the current tab roster after a mutation (alias for listedTabsLoad). */
+export const loadListedTabs = listedTabsLoad;

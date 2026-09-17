@@ -1,11 +1,7 @@
-/*
-
-Markdown AST parser — translates CommonMark / GFM markdown into Google Docs DOM ElementSpec array.
-
-*/
+/* Markdown AST parser — translates CommonMark / GFM markdown into Google Docs DOM ElementSpec array. */
 
 import { marked, type Token, type Tokens } from "marked";
-import { type CustomTextStyle, InlineMarkup } from "../inline.ts";
+import { type CustomTextStyle, InlineMarkup } from "~/core/inline.ts";
 import {
   type BulletPreset,
   type CreateParagraphProps,
@@ -16,39 +12,62 @@ import {
 } from "./element.ts";
 import type { NamedStyle } from "./types.ts";
 
-/** Options for markdown AST parsing. */
+/**
+ * A chunk of elements that can be executed as an atomic apply.
+ */
+export type MarkdownChunk = { kind: "elements"; specs: ElementSpec[] } | { kind: "table"; spec: TableSpec };
+
+/**
+ * Options for markdown AST parsing.
+ */
 export type MarkdownParseOptions = {
-  /** Custom directive style definitions (e.g. from frontmatter). */
+  /** Custom `::styleName[text]::` directive definitions from `markdownStyles`. */
   customStyles?: Record<string, CustomTextStyle>;
   /** If true, the first level-1 heading (# Title) is mapped to TITLE instead of HEADING_1. */
   h1IsTitle?: boolean;
 };
 
-/** A chunk of elements that can be executed as an atomic apply. */
-export type MarkdownChunk = { kind: "elements"; specs: ElementSpec[] } | { kind: "table"; spec: TableSpec };
+/**
+ * Chunks elements into contiguous non-table runs and individual tables.
+ */
+export function chunkMarkdownElements(
+  /** Array of element specifications to chunk. */
+  specs: ElementSpec[],
+): MarkdownChunk[] {
+  const chunks: MarkdownChunk[] = [];
+  let currentElements: ElementSpec[] = [];
 
-/** Extracts YAML frontmatter and remaining markdown content. */
-export function extractFrontmatter(markdown: string): {
-  content: string;
-  frontmatter: Record<string, unknown> | null;
-} {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(markdown);
-  if (!match) return { content: markdown, frontmatter: null };
-  try {
-    const rawYaml = match[1] ?? "";
-    const bunYaml = (globalThis as unknown as { Bun?: { YAML?: { parse: (s: string) => unknown } } }).Bun?.YAML;
-    const parsed = bunYaml ? bunYaml.parse(rawYaml) : null;
-    return {
-      content: markdown.slice(match[0].length),
-      frontmatter: parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null,
-    };
-  } catch {
-    return { content: markdown, frontmatter: null };
+  for (const spec of specs) {
+    if (spec.kind === "table") {
+      if (currentElements.length > 0) {
+        chunks.push({ kind: "elements", specs: currentElements });
+        currentElements = [];
+      }
+      chunks.push({ kind: "table", spec });
+    } else {
+      currentElements.push(spec);
+    }
   }
+
+  if (currentElements.length > 0) {
+    chunks.push({ kind: "elements", specs: currentElements });
+  }
+
+  return chunks;
 }
 
-/** Normalizes relaxed style keys (color, size, background, etc.) into CustomTextStyle. */
-export function normalizeCustomStyle(raw: Record<string, unknown>): CustomTextStyle {
+/**
+ * Alias for chunkMarkdownElements.
+ */
+export const markdownElementsChunk = chunkMarkdownElements;
+
+/**
+ * Normalizes relaxed style keys (color, size, background, etc.) into CustomTextStyle.
+ */
+export function customStyleNormalize(
+  /** Raw style dictionary. */
+  raw: Record<string, unknown>,
+): CustomTextStyle {
   const style: CustomTextStyle = {};
   if (raw.bold === true) style.bold = true;
   if (raw.italic === true) style.italic = true;
@@ -85,29 +104,37 @@ export function normalizeCustomStyle(raw: Record<string, unknown>): CustomTextSt
   return style;
 }
 
-/** Parses the `styles` section of frontmatter into normalized CustomTextStyle map. */
-export function parseFrontmatterStyles(frontmatter: Record<string, unknown> | null): Record<string, CustomTextStyle> {
+/**
+ * Alias for customStyleNormalize.
+ */
+export const normalizeCustomStyle = customStyleNormalize;
+
+/**
+ * Parses a `markdownStyles` map (`{ alert: { color: "#f00" } }`) into CustomTextStyle entries.
+ */
+export function markdownStylesParse(
+  /** Named directive styles, or null. */
+  styles: Record<string, unknown> | null,
+): Record<string, CustomTextStyle> {
   const out: Record<string, CustomTextStyle> = {};
-  if (!frontmatter || typeof frontmatter !== "object") {
+  if (!styles || typeof styles !== "object") {
     return out;
   }
-  const rawStyles =
-    frontmatter.styles && typeof frontmatter.styles === "object"
-      ? (frontmatter.styles as Record<string, unknown>)
-      : frontmatter;
-  for (const [name, val] of Object.entries(rawStyles)) {
+  for (const [name, val] of Object.entries(styles)) {
     if (val && typeof val === "object") {
-      out[name] = normalizeCustomStyle(val as Record<string, unknown>);
+      out[name] = customStyleNormalize(val as Record<string, unknown>);
     }
   }
   return out;
 }
 
 /**
- * Normalizes list item indentation so that sub-lists (e.g. 2-space indented list items
- * under an ordered list item `1. `) are properly nested according to CommonMark rules.
+ * Normalizes list item indentation so that sub-lists are properly nested according to CommonMark rules.
  */
-export function normalizeListIndentation(md: string): string {
+export function listIndentationNormalize(
+  /** Markdown text string to normalize. */
+  md: string,
+): string {
   const lines = md.split("\n");
   const result: string[] = [];
   let inCodeBlock = false;
@@ -155,9 +182,9 @@ export function normalizeListIndentation(md: string): string {
     const [, indentStr, marker, spaceStr, text] = match;
     const rawIndent = indentStr?.replace(/\t/g, "    ").length;
     const isOrdered = /^\d+[.)]$/.test(marker!);
-    const markerLen = marker?.length + spaceStr?.length;
+    const markerLen = (marker?.length ?? 0) + (spaceStr?.length ?? 0);
 
-    while (listStack.length > 0 && listStack[listStack.length - 1]?.indent >= rawIndent) {
+    while (listStack.length > 0 && (listStack[listStack.length - 1]?.indent ?? 0) >= (rawIndent ?? 0)) {
       listStack.pop();
     }
 
@@ -165,7 +192,7 @@ export function normalizeListIndentation(md: string): string {
     if (listStack.length > 0) {
       const parent = listStack[listStack.length - 1]!;
       currentShift = parent.shift;
-      const effectiveIndent = rawIndent + currentShift;
+      const effectiveIndent = (rawIndent ?? 0) + currentShift;
 
       if (effectiveIndent < parent.minChildIndent) {
         const extraShift = parent.minChildIndent - effectiveIndent;
@@ -173,11 +200,11 @@ export function normalizeListIndentation(md: string): string {
       }
     }
 
-    const newIndent = rawIndent + currentShift;
+    const newIndent = (rawIndent ?? 0) + currentShift;
     const minChild = newIndent + Math.max(markerLen, isOrdered ? 4 : 2);
 
     listStack.push({
-      indent: rawIndent,
+      indent: rawIndent ?? 0,
       minChildIndent: minChild,
       shift: currentShift,
     });
@@ -188,16 +215,22 @@ export function normalizeListIndentation(md: string): string {
   return result.join("\n");
 }
 
-/** Parses markdown text into detached Google Docs ElementSpec objects. */
-export function parseMarkdownToElements(markdown: string, options: MarkdownParseOptions = {}): ElementSpec[] {
-  const { content, frontmatter } = extractFrontmatter(markdown);
-  const frontmatterStyles = parseFrontmatterStyles(frontmatter);
-  const effectiveStyles: Record<string, CustomTextStyle> = {
-    ...frontmatterStyles,
-    ...(options.customStyles ?? {}),
-  };
+/**
+ * Alias for listIndentationNormalize.
+ */
+export const normalizeListIndentation = listIndentationNormalize;
 
-  const normalizedContent = normalizeListIndentation(content);
+/**
+ * Parses markdown text into detached Google Docs ElementSpec objects.
+ */
+export function markdownToElementsParse(
+  /** Markdown text string to parse. */
+  markdown: string,
+  /** Parser configuration options. */
+  options: MarkdownParseOptions = {},
+): ElementSpec[] {
+  const effectiveStyles = options.customStyles ?? {};
+  const normalizedContent = listIndentationNormalize(markdown);
   const tokens = marked.lexer(normalizedContent);
   const elements: ElementSpec[] = [];
   let seenFirstH1 = false;
@@ -330,9 +363,9 @@ export function parseMarkdownToElements(markdown: string, options: MarkdownParse
               nestingLevel,
               preset,
             },
-            ...(indentStart > 0 ? { indentStart } : {}),
             namedStyleType: "NORMAL_TEXT",
             text,
+            ...(indentStart > 0 ? { indentStart } : {}),
           };
           if (Object.keys(effectiveStyles).length > 0) {
             const parsed = InlineMarkup.parse(text, effectiveStyles);
@@ -351,9 +384,9 @@ export function parseMarkdownToElements(markdown: string, options: MarkdownParse
             nestingLevel,
             preset,
           },
-          ...(indentStart > 0 ? { indentStart } : {}),
           namedStyleType: "NORMAL_TEXT",
           text: item.text,
+          ...(indentStart > 0 ? { indentStart } : {}),
         };
         if (Object.keys(effectiveStyles).length > 0) {
           const parsed = InlineMarkup.parse(item.text, effectiveStyles);
@@ -377,26 +410,7 @@ export function parseMarkdownToElements(markdown: string, options: MarkdownParse
   return elements;
 }
 
-/** Chunks elements into contiguous non-table runs and individual tables. */
-export function chunkMarkdownElements(specs: ElementSpec[]): MarkdownChunk[] {
-  const chunks: MarkdownChunk[] = [];
-  let currentElements: ElementSpec[] = [];
-
-  for (const spec of specs) {
-    if (spec.kind === "table") {
-      if (currentElements.length > 0) {
-        chunks.push({ kind: "elements", specs: currentElements });
-        currentElements = [];
-      }
-      chunks.push({ kind: "table", spec });
-    } else {
-      currentElements.push(spec);
-    }
-  }
-
-  if (currentElements.length > 0) {
-    chunks.push({ kind: "elements", specs: currentElements });
-  }
-
-  return chunks;
-}
+/**
+ * Alias for markdownToElementsParse.
+ */
+export const parseMarkdownToElements = markdownToElementsParse;

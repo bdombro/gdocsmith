@@ -1,15 +1,12 @@
+/* Unit tests for Homebrew formula generation and release archive helpers. */
+
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  buildReleaseArchive,
-  releaseArchiveName,
-  releaseFormulaUrl,
-  selectStaleReleaseTags,
-} from "./formula-shared.ts";
+import { buildReleaseArchive, releaseArchiveName, releaseFormulaUrl, selectStaleReleaseTags } from "./formulaShared.ts";
 
 describe("releaseArchiveName", () => {
   test("returns key.zip", () => {
@@ -28,14 +25,14 @@ describe("releaseFormulaUrl", () => {
 describe("selectStaleReleaseTags", () => {
   test("returns empty for zero or one release", () => {
     expect(selectStaleReleaseTags([])).toEqual([]);
-    expect(selectStaleReleaseTags([{ tagName: "v1.0.0", publishedAt: "2026-01-01T00:00:00Z" }])).toEqual([]);
+    expect(selectStaleReleaseTags([{ publishedAt: "2026-01-01T00:00:00Z", tagName: "v1.0.0" }])).toEqual([]);
   });
 
   test("keeps newest by publishedAt and returns the rest", () => {
     const releases = [
-      { tagName: "v1.0.0", publishedAt: "2026-01-01T00:00:00Z" },
-      { tagName: "v1.1.0", publishedAt: "2026-02-01T00:00:00Z" },
-      { tagName: "v1.0.1", publishedAt: "2026-01-15T00:00:00Z" },
+      { publishedAt: "2026-01-01T00:00:00Z", tagName: "v1.0.0" },
+      { publishedAt: "2026-02-01T00:00:00Z", tagName: "v1.1.0" },
+      { publishedAt: "2026-01-15T00:00:00Z", tagName: "v1.0.1" },
     ];
     expect(selectStaleReleaseTags(releases)).toEqual(["v1.0.1", "v1.0.0"]);
   });
@@ -46,7 +43,7 @@ describe("buildReleaseArchive", () => {
 
   afterEach(() => {
     for (const dir of workDirs.splice(0)) {
-      rmSync(dir, { recursive: true, force: true });
+      rmSync(dir, { force: true, recursive: true });
     }
   });
 

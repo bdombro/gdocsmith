@@ -2,7 +2,7 @@
 
 Selectors / ops: [mechanics.md](mechanics.md). Taste: [style.md](style.md). Images: [images.md](images.md). Comments: [comments.md](comments.md).
 
-One `gdocsmith run` document: `kind: query` to bind aliases, mutate, `kind: dump` what you need. Prefer one invocation over query/apply ping-pong.
+One `gdocsmith run` document: `kind: query` to bind aliases (writes `dumped`), mutate, optionally `kind: dump` again. Prefer one invocation over query/apply ping-pong.
 
 ```mermaid
 flowchart LR
@@ -36,15 +36,15 @@ gdocsmith run < workflow.yaml
 
 Use the Doc ID the user gave (extract from URL between `/d/` and `/edit`) — not another Drive copy.
 
-`kind: query` maps headings and heading-scoped ids (`h.arch.9a1b`). Scope with `under:`, `contains:`, and `tab:`. Copy `at` / `after` / `before` from dumped ids. Do not invent nodes. Do not find headings with `:contains` CSS.
+`kind: query` maps headings and heading-scoped ids (`h.arch.9a1b`). Scope with `under:`, `contains:`, and `tab:`. `output: markdown` (or `yaml`) serializes the match set. Copy `at` / `after` / `before` from dumped ids. Do not invent nodes. Do not find headings with `:contains` CSS.
 
-Multi-tab: set `tab:` on the step (`id` or unique title). Lifecycle: `kind: addTab` / `renameTab` / `deleteTab`.
+Multi-tab: set `tab:` on the step (`id` or unique title). Lifecycle: `kind: tabAdd` / `tabRename` / `tabDelete`.
 
 Header/footer chrome is not on the body tape and is not a `run` kind yet — use the Docs UI.
 
 ## 2. Add steps
 
-Each step is one action. `kind: replace` / `innerText` may include `style` on the same step. Inserts (`element` / `elements` / `insertMarkdown`) and `remove` stay exclusive.
+Each step is one action. `kind: replace` / `innerText` may include `style` on the same step. Inserts (`element` / `elements` / `markdownInsert`) and `remove` stay exclusive.
 
 Several related edits = one `steps` list. Use `as:` to label new docs, tabs, and nodes so later steps can reference them (`after: name`, `at: name.0.1`).
 

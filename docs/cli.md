@@ -20,8 +20,13 @@ Google Docs surgical authoring and workflow engine
 Execute an ordered Google Docs workflow from YAML or JSON (`steps` with `kind`).
 
 > • Pipe stdin or pass one document (`run < file.yaml`). Knobs live in the document (`dryRun`, `force`, `json`, `quiet`).
-> • Canonical list: `steps: [{ kind: open|close|createDoc|copyDoc|query|dump|insertMarkdown|… }]`. `ops`/`op`/`action`/`step` are aliases.
-> • `kind: dump` with `as:` copies that alias into `dumped` in the response.
+> • Each step requires `kind` (e.g. open|close|docCreate|docCopy|query|dump|markdownInsert|replaceSection|…).
+> • Raw IDs only: extract between `/document/d/` and `/edit`. Full URLs are rejected.
+> • Surgical targeting: copy heading-scoped ids from `kind: query` into `at`, `after`, or `before` (e.g. `h.arch.9a1b`). NEVER compute startIndex/endIndex or write raw batchUpdate scripts.
+> • In-place updates: prefer `replaceSection`, `replaceMarkdown`, or `replace` over deleting and re-inserting content (no demolish-and-rebuild).
+> • Real headings only (`TITLE`, `HEADING_1`–`HEADING_3`). No bullet glyphs in surgical text; use run-in bold (`**Label**: value`).
+> • Bindings: only `open` and `query` set aliases. `query` with `as:` writes `dumped[as]` (use `output: markdown` or `yaml` to serialize a doc/tab/section). `dump` re-emits an alias; dump of an open alias is `{ id, title }` only.
+> • Prefer one `run` per phase until step kinds are proven; then batch related steps. Chip/table/clone writes use `kind: surgical`.
 > • Dry run: `dryRun: true` returns a unified git diff without writing.
 
 #### Output
@@ -37,10 +42,6 @@ JSON Schema for output when/if handler emits JSON
       "type": "string",
       "description": "Unified git diff of changes (populated on dryRun)."
     },
-    "documentId": {
-      "type": "string",
-      "description": "Document ID mutations were applied to (legacy shape)."
-    },
     "dryRun": {
       "type": "boolean",
       "description": "True when `dryRun: true` previewed without writing."
@@ -48,7 +49,7 @@ JSON Schema for output when/if handler emits JSON
     "dumped": {
       "type": "object",
       "additionalProperties": {},
-      "description": "Values extracted by `kind: dump`."
+      "description": "Values extracted by `kind: query` (with `as:`) and `kind: dump`."
     },
     "highlights": {
       "type": "array",
@@ -61,9 +62,9 @@ JSON Schema for output when/if handler emits JSON
       "type": "boolean",
       "description": "Status confirmation for minimal response."
     },
-    "opsCount": {
+    "stepsCount": {
       "type": "number",
-      "description": "Steps executed."
+      "description": "Workflow steps executed."
     }
   },
   "additionalProperties": false,

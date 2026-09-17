@@ -1,55 +1,57 @@
-/*
+/* Image upload and URI resolution for insertInlineImage. */
 
-Image upload and URI resolution for insertInlineImage.
-
-Stores: drive: (private blob via Apps Script), https: passthrough.
-
-*/
-
-import { AppsScriptImages } from "./apps-script-images.ts";
-import type { GwsClient } from "./gws.ts";
-import { gws } from "./gws.ts";
+import { AppsScriptImages } from "./appsScriptImages.ts";
+import { type GwsClient, gws } from "./gws.ts";
 import { DriveImages } from "./images.ts";
 
-export type UploadedImage = {
-  /** Value stored on upload (drive: or https:). */
-  src: string;
-  /** Public HTTPS URL when applicable; drive: uses blob insert. */
-  publicUrl: string;
-  name: string;
-  store: "drive" | "https";
-  fileId?: string;
-  parentFolderId?: string;
+/** Options for sizing and positioning an inserted image. */
+export type ImageInsertOpts = {
+  align?: string;
+  heightPt?: number;
+  widthPt?: number;
 };
 
+/** Image storage strategy mode. */
 export type ImageStoreMode = "auto" | "drive";
 
-export type ImageInsertOpts = {
-  widthPt?: number;
-  heightPt?: number;
-  align?: string;
+/** Configuration options for instantiating an ImageStore. */
+export type ImageStoreOpts = {
+  appsScript?: AppsScriptImages;
+  client?: GwsClient;
+  drive?: DriveImages;
+  getDriveFolderId?: () => string | undefined;
+  mode?: ImageStoreMode;
+  setDriveFolderId?: (folderId: string) => void;
 };
 
+/** Interface for image storage and insertion providers. */
 export interface ImageStore {
-  upload(documentId: string, localPath: string, name?: string): Promise<UploadedImage>;
-  resolve(src: string, documentId: string, localBase?: string): Promise<string>;
-  usesDriveBlobInsert?(src: string): boolean;
+  /** Inserts a Drive blob into the document using Apps Script. */
   insertDriveBlob?(documentId: string, fileId: string, index: number, opts: ImageInsertOpts): Promise<void>;
+  /** Resolves an image source reference to an accessible URI. */
+  resolve(src: string, documentId: string, localBase?: string): Promise<string>;
+  /** Uploads a local file to storage for the given document. */
+  upload(documentId: string, localPath: string, name?: string): Promise<UploadedImage>;
+  /** Checks if the image source requires Apps Script Drive blob insertion. */
+  usesDriveBlobInsert?(src: string): boolean;
 }
 
-export type ImageStoreOpts = {
-  client?: GwsClient;
-  mode?: ImageStoreMode;
-  getDriveFolderId?: () => string | undefined;
-  setDriveFolderId?: (folderId: string) => void;
-  appsScript?: AppsScriptImages;
-  drive?: DriveImages;
+/** Information about an uploaded image asset. */
+export type UploadedImage = {
+  fileId?: string;
+  name: string;
+  parentFolderId?: string;
+  /** Public HTTPS URL when applicable; drive: uses blob insert. */
+  publicUrl: string;
+  /** Value stored on upload (drive: or https:). */
+  src: string;
+  store: "drive" | "https";
 };
 
 /** Routes uploads/resolves across Apps Script Drive blobs and https. */
 export class CompositeImageStore implements ImageStore {
-  readonly #drive: DriveImages;
   readonly #appsScript: AppsScriptImages;
+  readonly #drive: DriveImages;
   readonly #getDriveFolderId?: () => string | undefined;
   readonly #setDriveFolderId?: (folderId: string) => void;
 
@@ -61,14 +63,17 @@ export class CompositeImageStore implements ImageStore {
     this.#setDriveFolderId = opts.setDriveFolderId;
   }
 
+  /** Checks if the src uses a drive: scheme. */
   usesDriveBlobInsert(src: string): boolean {
     return src.trim().startsWith("drive:");
   }
 
+  /** Inserts a Drive blob via Apps Script. */
   async insertDriveBlob(documentId: string, fileId: string, index: number, opts: ImageInsertOpts = {}): Promise<void> {
     await this.#appsScript.insertDriveImage(documentId, fileId, index, opts);
   }
 
+  /** Uploads an image to Google Drive. */
   async upload(documentId: string, localPath: string, name?: string): Promise<UploadedImage> {
     try {
       return await this.#uploadDrive(documentId, localPath, name);
@@ -80,6 +85,7 @@ export class CompositeImageStore implements ImageStore {
     }
   }
 
+  /** Resolves a URL or relative file path to an insertable image URI. */
   async resolve(src: string, documentId: string, localBase?: string): Promise<string> {
     const trimmed = src.trim();
     if (trimmed.startsWith("https://") || trimmed.startsWith("http://")) {
@@ -88,7 +94,7 @@ export class CompositeImageStore implements ImageStore {
     if (trimmed.startsWith("drive:")) {
       throw new Error(
         `drive:${trimmed.slice("drive:".length)} must be inserted via Apps Script blob path — ` +
-          "ensure Apps Script bootstrap succeeded (src/core/apps-script-images.ts) and src is drive:ID",
+          "ensure Apps Script bootstrap succeeded (src/core/appsScriptImages.ts) and src is drive:ID",
       );
     }
     if (trimmed.startsWith("file:")) {
@@ -119,6 +125,9 @@ export class CompositeImageStore implements ImageStore {
 }
 
 /** Builds a composite store with optional Drive folder cache. */
-export function createImageStore(opts: ImageStoreOpts = {}): CompositeImageStore {
+export function imageStoreCreate(opts: ImageStoreOpts = {}): CompositeImageStore {
   return new CompositeImageStore(opts);
 }
+
+/** Builds a composite store with optional Drive folder cache (alias for imageStoreCreate). */
+export const createImageStore = imageStoreCreate;

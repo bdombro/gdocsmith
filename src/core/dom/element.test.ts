@@ -1,8 +1,5 @@
-/*
+/* Unit tests for createElement guards, code block generation, and alias refusal. */
 
-Unit tests for createElement guards and alias refusal.
-
-*/
 import { describe, expect, test } from "bun:test";
 import { createCodeBlock, createElement } from "./element.ts";
 import { DOUBLE_NUMBER_MSG, EMPTY_BULLET_MSG, FAKE_BULLET_MSG, HEADING_BULLET_MSG } from "./guards.ts";
@@ -182,7 +179,7 @@ describe("createElement", () => {
     const el = createElement("paragraph", {
       bullet: { preset: "NUMBERED_DECIMAL_ALPHA_ROMAN" },
       namedStyleType: "NORMAL_TEXT",
-      style: { indentStart: 18, indentFirstLine: 0 },
+      style: { indentFirstLine: 0, indentStart: 18 },
       text: "Step",
     });
     expect(el.bullet?.preset).toBe("NUMBERED_DECIMAL_ALPHA_ROMAN");

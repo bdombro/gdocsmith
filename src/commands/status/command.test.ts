@@ -1,3 +1,5 @@
+/* Tests for the status command definition and schema. */
+
 import { describe, expect, test } from "bun:test";
 import { statusCommand } from "./command.ts";
 

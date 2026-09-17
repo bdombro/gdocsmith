@@ -1,33 +1,38 @@
-/**
- * Minimal LCS unified diff generator for text.
- * Generates standard git-compatible unified diff format.
- */
+/* Minimal LCS unified diff generator for text. */
 
+/**
+ * Configuration options for generating unified diffs.
+ */
 export type UnifiedDiffOptions = {
+  /** Number of surrounding context lines to include in hunks. */
   contextLines?: number;
+  /** Optional label for new file/target in header. */
   newLabel?: string;
+  /** Display path for new file/target. */
   newPath: string;
+  /** Optional label for old file/target in header. */
   oldLabel?: string;
+  /** Display path for old file/target. */
   oldPath: string;
 };
 
-type DiffHunk = {
-  lines: Array<{ text: string; type: "+" | "-" | " " }>;
-  newCount: number;
-  newStart: number;
-  oldCount: number;
-  oldStart: number;
-};
-
-/** Computes unified diff string between oldText and newText. */
-export function formatUnifiedDiff(oldText: string, newText: string, opts: UnifiedDiffOptions): string {
+/**
+ * Computes unified diff string between oldText and newText.
+ */
+export function diffUnifiedFormat(
+  /** Baseline original text. */
+  oldText: string,
+  /** Modified target text. */
+  newText: string,
+  /** Formatting options including headers and paths. */
+  opts: UnifiedDiffOptions,
+): string {
   if (oldText === newText) return "";
 
   const oldLines = oldText ? oldText.split(/\r?\n/) : [];
   const newLines = newText ? newText.split(/\r?\n/) : [];
   const context = opts.contextLines ?? 3;
 
-  // Build Myers-like or LCS edit script
   const edits = computeLineEdits(oldLines, newLines);
   const hunks = buildHunks(edits, context);
 
@@ -46,6 +51,19 @@ export function formatUnifiedDiff(oldText: string, newText: string, opts: Unifie
 
   return [...header, ...hunkStrs].join("\n");
 }
+
+/**
+ * Alias for diffUnifiedFormat.
+ */
+export const formatUnifiedDiff = diffUnifiedFormat;
+
+type DiffHunk = {
+  lines: Array<{ text: string; type: "+" | "-" | " " }>;
+  newCount: number;
+  newStart: number;
+  oldCount: number;
+  oldStart: number;
+};
 
 type Edit = { text: string; type: "+" | "-" | "=" };
 
@@ -101,7 +119,6 @@ function buildHunks(edits: Edit[], context: number): DiffHunk[] {
           pendingEquals.shift();
         }
       } else {
-        // Lookahead to see if next change is within 2 * context
         let nextChangeDist = -1;
         for (let k = e; k < edits.length; k++) {
           if (edits[k]?.type !== "=") {
@@ -115,12 +132,10 @@ function buildHunks(edits: Edit[], context: number): DiffHunk[] {
           currentHunk.oldCount++;
           currentHunk.newCount++;
         } else {
-          // Add trailing context
           currentHunk.lines.push({ text: edit.text, type: " " });
           currentHunk.oldCount++;
           currentHunk.newCount++;
           if (currentHunk.lines.filter((l) => l.type === " ").length >= context) {
-            // Trim to exactly context trailing
             hunks.push(currentHunk);
             currentHunk = null;
             pendingEquals = [{ text: edit.text, type: " " }];

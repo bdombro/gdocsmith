@@ -1,3 +1,5 @@
+/* Tests for DOM node and cell checksum computation, scoped IDs, and section removal. */
+
 import { describe, expect, test } from "bun:test";
 import { computeCellChecksum, computeNodeChecksum } from "./checksum.ts";
 import { applyOps, executeDangerousClear, parseDomOps, resolveTarget } from "./ops.ts";
@@ -71,35 +73,35 @@ describe("assignScopedIds", () => {
     const nodes: DocNode[] = [
       {
         end: 10,
-        tapeIndex: 1,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 1,
+        tapeIndex: 1,
         text: "Preamble note",
       },
       {
         end: 20,
         headingId: "h.arch",
-        tapeIndex: 2,
         kind: "paragraph",
         namedStyleType: "HEADING_1",
         start: 10,
+        tapeIndex: 2,
         text: "Architecture",
       },
       {
         end: 30,
-        tapeIndex: 3,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 20,
+        tapeIndex: 3,
         text: "Same content",
       },
       {
         end: 40,
-        tapeIndex: 4,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 30,
+        tapeIndex: 4,
         text: "Same content",
       },
     ];
@@ -119,15 +121,14 @@ describe("assignScopedIds", () => {
       {
         end: 20,
         headingId: "h.data",
-        tapeIndex: 1,
         kind: "paragraph",
         namedStyleType: "HEADING_2",
         start: 1,
+        tapeIndex: 1,
         text: "Data Model",
       },
       {
         end: 100,
-        tapeIndex: 2,
         kind: "table",
         start: 20,
         table: {
@@ -142,6 +143,7 @@ describe("assignScopedIds", () => {
             ],
           ],
         },
+        tapeIndex: 2,
       },
     ];
 
@@ -159,35 +161,35 @@ describe("resolveTarget with scoped IDs", () => {
       {
         end: 20,
         headingId: "h.intro",
-        tapeIndex: 1,
         kind: "paragraph",
         namedStyleType: "HEADING_1",
         start: 1,
+        tapeIndex: 1,
         text: "Introduction",
       },
       {
         end: 40,
-        tapeIndex: 2,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 20,
+        tapeIndex: 2,
         text: "First section intro paragraph",
       },
       {
         end: 60,
         headingId: "h.arch",
-        tapeIndex: 3,
         kind: "paragraph",
         namedStyleType: "HEADING_2",
         start: 40,
+        tapeIndex: 3,
         text: "Architecture",
       },
       {
         end: 80,
-        tapeIndex: 4,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 60,
+        tapeIndex: 4,
         text: "Component overview",
       },
     ];
@@ -236,52 +238,52 @@ describe("dangerousRemoveSection", () => {
     const nodes: DocNode[] = [
       {
         end: 10,
-        tapeIndex: 1,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 1,
+        tapeIndex: 1,
         text: "Preamble",
       },
       {
         end: 20,
         headingId: "h.target",
-        tapeIndex: 2,
         kind: "paragraph",
         namedStyleType: "HEADING_2",
         start: 10,
+        tapeIndex: 2,
         text: "Section to remove",
       },
       {
         end: 30,
-        tapeIndex: 3,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 20,
+        tapeIndex: 3,
         text: "Child paragraph 1",
       },
       {
         end: 40,
-        tapeIndex: 4,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 30,
+        tapeIndex: 4,
         text: "Child paragraph 2",
       },
       {
         end: 50,
         headingId: "h.next",
-        tapeIndex: 5,
         kind: "paragraph",
         namedStyleType: "HEADING_2",
         start: 40,
+        tapeIndex: 5,
         text: "Next Section",
       },
       {
         end: 60,
-        tapeIndex: 6,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 50,
+        tapeIndex: 6,
         text: "Next Section child",
       },
     ];
@@ -299,9 +301,9 @@ describe("dangerousRemoveSection", () => {
 describe("executeDangerousClear", () => {
   test("clears all nodes except the last paragraph which is emptied", () => {
     const nodes: DocNode[] = [
-      { end: 10, tapeIndex: 1, kind: "paragraph", namedStyleType: "HEADING_1", start: 1, text: "Title" },
-      { end: 20, tapeIndex: 2, kind: "paragraph", namedStyleType: "NORMAL_TEXT", start: 10, text: "Body 1" },
-      { end: 30, tapeIndex: 3, kind: "paragraph", namedStyleType: "NORMAL_TEXT", start: 20, text: "Body 2" },
+      { end: 10, kind: "paragraph", namedStyleType: "HEADING_1", start: 1, tapeIndex: 1, text: "Title" },
+      { end: 20, kind: "paragraph", namedStyleType: "NORMAL_TEXT", start: 10, tapeIndex: 2, text: "Body 1" },
+      { end: 30, kind: "paragraph", namedStyleType: "NORMAL_TEXT", start: 20, tapeIndex: 3, text: "Body 2" },
     ];
     const writer = new DomWriter(nodes);
     executeDangerousClear(writer);

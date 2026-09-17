@@ -1,8 +1,5 @@
-/*
+/* Unit tests for DOM mutation JSON → DomWriter. */
 
-Unit tests for DOM mutation JSON → DomWriter.
-
-*/
 import { describe, expect, test } from "bun:test";
 import { formatYaml, parseInput } from "../../cli/format.ts";
 import { compileDom } from "./apply.ts";
@@ -1702,6 +1699,59 @@ Conclusion paragraph
     expect(writer.nodes[2]?.tapeIndex).toBe(5);
   });
 
+  /** Tests that replaceSection updates nested bullet indentation when item nesting level changes. */
+  test("replaceSection updates nested bullet indentation when item nesting level changes", () => {
+    const nodes: DocNode[] = [
+      {
+        end: 15,
+        headingId: "h.list",
+        kind: "paragraph",
+        namedStyleType: "HEADING_2",
+        start: 0,
+        tapeIndex: 1,
+        text: "List Section",
+      },
+      {
+        bullet: { nestingLevel: 0, preset: "BULLET_DISC_CIRCLE_SQUARE", type: "BULLET" },
+        end: 30,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 15,
+        tapeIndex: 2,
+        text: "Parent bullet",
+      },
+      {
+        bullet: { nestingLevel: 0, preset: "BULLET_DISC_CIRCLE_SQUARE", type: "BULLET" },
+        end: 45,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 30,
+        tapeIndex: 3,
+        text: "Child bullet",
+      },
+      {
+        end: 60,
+        headingId: "h.next",
+        kind: "paragraph",
+        namedStyleType: "HEADING_2",
+        start: 45,
+        tapeIndex: 4,
+        text: "Next Section",
+      },
+    ];
+    const writer = new DomWriter(nodes);
+
+    const md = `## List Section\n- Parent bullet\n  - Child bullet`;
+    applyOps(writer, [{ at: "h.list", replaceSection: md }]);
+
+    expect(writer.nodes.map((n) => n.text)).toEqual(["List Section", "Parent bullet", "Child bullet", "Next Section"]);
+    // Parent bullet unchanged (preserved)
+    expect(writer.nodes[1]?.tapeIndex).toBe(2);
+    expect(writer.nodes[1]?.bullet?.nestingLevel).toBe(0);
+    // Child bullet nesting level updated to 1
+    expect(writer.nodes[2]?.bullet?.nestingLevel).toBe(1);
+  });
+
   test("anti-demolition guard catches re-creating nodes after dangerousClear", () => {
     const nodes: DocNode[] = [
       { end: 10, tapeIndex: 1, kind: "paragraph", namedStyleType: "NORMAL_TEXT", start: 0, text: "Important Note" },
@@ -1890,7 +1940,7 @@ Conclusion paragraph
     expect(writer.nodes.map((n) => n.text)).toEqual(["New Sec", "New text"]);
   });
 
-  test("markdownFrontmatter attribute on op applies custom styles", () => {
+  test("markdownStyles attribute on op applies custom styles", () => {
     const nodes: DocNode[] = [
       { end: 10, tapeIndex: 1, kind: "paragraph", namedStyleType: "TITLE", start: 0, text: "Title" },
     ];
@@ -1899,12 +1949,10 @@ Conclusion paragraph
     applyOps(writer, [
       {
         after: 1,
-        markdownFrontmatter: {
-          styles: {
-            alert: { color: "#ff0000", bold: true },
-          },
-        },
         insertMarkdown: "::alert[Warning:]:: system overload",
+        markdownStyles: {
+          alert: { bold: true, color: "#ff0000" },
+        },
       },
     ]);
 
@@ -1918,27 +1966,23 @@ Conclusion paragraph
     expect(spec.runs?.some((r) => r.foregroundColor === "#ff0000")).toBe(true);
   });
 
-  test("frontmatter attribute alias on op also works", () => {
+  test("h1IsTitle on insertMarkdown maps the first # to TITLE", () => {
     const nodes: DocNode[] = [
-      { end: 10, tapeIndex: 1, kind: "paragraph", namedStyleType: "TITLE", start: 0, text: "Title" },
+      { end: 10, tapeIndex: 1, kind: "paragraph", namedStyleType: "NORMAL_TEXT", start: 0, text: "" },
     ];
     const writer = new DomWriter(nodes);
 
     applyOps(writer, [
       {
         after: 1,
-        frontmatter: {
-          styles: {
-            blueNote: { color: "#0000ff" },
-          },
-        },
-        insertMarkdown: "::blueNote[Note:]:: blue info",
+        h1IsTitle: true,
+        insertMarkdown: "# Doc Title\n\nBody",
       },
     ]);
 
-    const mutations = writer.mutations();
-    const spec = (mutations[0] as any)?.spec as { runs?: Array<{ foregroundColor?: string }> };
-    expect(spec.runs?.some((r) => r.foregroundColor === "#0000ff")).toBe(true);
+    expect(writer.nodes[1]?.namedStyleType).toBe("TITLE");
+    expect(writer.nodes[1]?.text).toBe("Doc Title");
+    expect(writer.nodes[2]?.text).toBe("Body");
   });
 
   test("insertMarkdown and replaceSection directly accept file path", () => {

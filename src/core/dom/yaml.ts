@@ -1,8 +1,4 @@
-/*
-
-YAML DOM tree serialization and deserialization for lossless exports and structural imports.
-
-*/
+/* YAML DOM tree serialization and deserialization for lossless exports and structural imports. */
 
 import YAML from "yaml";
 import {
@@ -24,69 +20,311 @@ import {
   type ParagraphAlignment,
 } from "./types.ts";
 
-export type YamlParagraphSpec = {
-  alignment?: ParagraphAlignment;
-  bullet?: {
-    nestingLevel?: number;
-    preset?: BulletPreset;
-  };
-  indentStart?: number;
-  kind: "paragraph";
-  namedStyleType: NamedStyle;
-  style?: StylePatch;
-  text: string;
-};
-
-export type YamlTableSpec = {
-  borderColor?: string;
-  cellPadding?: number;
-  columnWidth?: number;
-  contentAlignment?: CellContentAlignment;
-  kind: "table";
-  rows: string[][];
-};
-
-export type YamlCodeBlockSpec = {
-  alignment?: ParagraphAlignment;
-  kind: "codeBlock";
-  language?: string;
-  style?: StylePatch;
-  text: string;
-};
-
-export type YamlPageBreakSpec = {
-  kind: "pageBreak";
-};
-
-export type YamlNodeSpec = YamlParagraphSpec | YamlTableSpec | YamlCodeBlockSpec | YamlPageBreakSpec;
-
-export type YamlTabTreePayload = {
-  audit?: ExportAuditSummary;
-  nodes: YamlNodeSpec[];
-  tabId?: string;
-  tabTitle?: string;
-};
-
-export type YamlTreePayload = {
-  audit?: ExportAuditSummary;
-  documentId?: string;
-  nodes: YamlNodeSpec[];
-  revision?: string;
-  revisionId?: string;
-  tabCount?: number;
-  tabId?: string;
-  tabTitle?: string;
-  tabs?: YamlTabTreePayload[];
-};
-
+/**
+ * Result structure of exporting to YAML including audit and string payload.
+ */
 export type ExportYamlResult = {
+  /** Conversion audit summary. */
   audit: ExportAuditSummary;
+  /** Parsed YAML tree payload. */
   data: YamlTreePayload;
+  /** Rendered YAML text. */
   yaml: string;
 };
 
-/** Converts a parsed DocNode into a YAML-serializable node spec. */
-export function nodeToYamlSpec(node: DocNode): YamlNodeSpec | null {
+/**
+ * Serialized YAML code block node specification.
+ */
+export type YamlCodeBlockSpec = {
+  /** Paragraph alignment. */
+  alignment?: ParagraphAlignment;
+  /** Structural kind discriminator. */
+  kind: "codeBlock";
+  /** Optional language syntax identifier. */
+  language?: string;
+  /** Style patch. */
+  style?: StylePatch;
+  /** Raw text content. */
+  text: string;
+};
+
+/**
+ * Union of serialized YAML node representations.
+ */
+export type YamlNodeSpec = YamlParagraphSpec | YamlTableSpec | YamlCodeBlockSpec | YamlPageBreakSpec;
+
+/**
+ * Serialized YAML page break specification.
+ */
+export type YamlPageBreakSpec = {
+  /** Structural kind discriminator. */
+  kind: "pageBreak";
+};
+
+/**
+ * Serialized YAML paragraph specification.
+ */
+export type YamlParagraphSpec = {
+  /** Text alignment. */
+  alignment?: ParagraphAlignment;
+  /** Bullet configuration. */
+  bullet?: {
+    /** Indentation level. */
+    nestingLevel?: number;
+    /** Bullet glyph preset. */
+    preset?: BulletPreset;
+  };
+  /** Start indentation in points. */
+  indentStart?: number;
+  /** Structural kind discriminator. */
+  kind: "paragraph";
+  /** Named style classification. */
+  namedStyleType: NamedStyle;
+  /** Custom style overrides. */
+  style?: StylePatch;
+  /** Text content. */
+  text: string;
+};
+
+/**
+ * Serialized YAML table specification.
+ */
+export type YamlTableSpec = {
+  /** Border color hex string. */
+  borderColor?: string;
+  /** Cell padding in points. */
+  cellPadding?: number;
+  /** Column width in points. */
+  columnWidth?: number;
+  /** Vertical content alignment. */
+  contentAlignment?: CellContentAlignment;
+  /** Structural kind discriminator. */
+  kind: "table";
+  /** 2D grid of cell string contents. */
+  rows: string[][];
+};
+
+/**
+ * Serialized YAML representation of a single document tab.
+ */
+export type YamlTabTreePayload = {
+  /** Tab conversion audit report. */
+  audit?: ExportAuditSummary;
+  /** Array of serialized nodes. */
+  nodes: YamlNodeSpec[];
+  /** Tab ID. */
+  tabId?: string;
+  /** Tab title. */
+  tabTitle?: string;
+};
+
+/**
+ * Root YAML payload structure for documents.
+ */
+export type YamlTreePayload = {
+  /** Overall document conversion audit report. */
+  audit?: ExportAuditSummary;
+  /** Target document ID. */
+  documentId?: string;
+  /** Array of serialized nodes. */
+  nodes: YamlNodeSpec[];
+  /** Revision string. */
+  revision?: string;
+  /** Revision ID. */
+  revisionId?: string;
+  /** Count of tabs. */
+  tabCount?: number;
+  /** Tab identifier. */
+  tabId?: string;
+  /** Array of individual tab tree payloads. */
+  tabs?: YamlTabTreePayload[];
+  /** Tab title. */
+  tabTitle?: string;
+};
+
+/**
+ * Exports one or more document tabs into a lossless YAML DOM tree.
+ */
+export function documentExportToYaml(
+  /** Array of tab inputs. */
+  tabs: ExportTabInput[],
+  /** Configuration options. */
+  opts: {
+    documentId?: string;
+    includeStyles?: boolean;
+    revision?: string;
+    revisionId?: string;
+  } = {},
+): ExportYamlResult {
+  if (tabs.length === 0) {
+    const emptyAudit: ExportAuditSummary = {
+      documentId: opts.documentId,
+      issues: [],
+      lossless: true,
+      nodeCount: 0,
+      styledNodesCount: 0,
+    };
+    const payload: YamlTreePayload = {
+      audit: emptyAudit,
+      documentId: opts.documentId,
+      nodes: [],
+    };
+    return {
+      audit: emptyAudit,
+      data: payload,
+      yaml: `${YAML.stringify(payload, { lineWidth: 0 }).trimEnd()}\n`,
+    };
+  }
+
+  if (tabs.length === 1) {
+    const single = tabs[0]!;
+    return tabExportToYaml(single.nodes, {
+      documentId: opts.documentId,
+      includeStyles: opts.includeStyles,
+      revision: opts.revision,
+      revisionId: opts.revisionId,
+      tabId: single.tabId,
+      tabTitle: single.tabTitle,
+    });
+  }
+
+  const tabAudits: ExportAuditSummary[] = [];
+  const aggregatedIssues: string[] = [];
+  let totalNodeCount = 0;
+  let totalStyledCount = 0;
+
+  const yamlTabs: YamlTabTreePayload[] = [];
+
+  for (let i = 0; i < tabs.length; i++) {
+    const t = tabs[i]!;
+    const tabAudit = auditDocNodes(t.nodes, {
+      documentId: opts.documentId,
+      includeStyles: opts.includeStyles,
+      tabId: t.tabId,
+      tabTitle: t.tabTitle,
+    });
+    tabAudits.push(tabAudit);
+    totalNodeCount += tabAudit.nodeCount;
+    totalStyledCount += tabAudit.styledNodesCount;
+
+    const label = t.tabTitle || t.tabId || `Tab ${i + 1}`;
+    for (const issue of tabAudit.issues) {
+      aggregatedIssues.push(`[${label}] ${issue}`);
+    }
+
+    const serializableNodes: YamlNodeSpec[] = [];
+    for (const node of t.nodes) {
+      const spec = yamlSpecFromNode(node);
+      if (spec) serializableNodes.push(spec);
+    }
+
+    yamlTabs.push({
+      audit: tabAudit,
+      nodes: serializableNodes,
+      tabId: t.tabId,
+      tabTitle: t.tabTitle,
+    });
+  }
+
+  const aggregatedAudit: ExportAuditSummary = {
+    documentId: opts.documentId,
+    issues: aggregatedIssues,
+    lossless: aggregatedIssues.length === 0,
+    nodeCount: totalNodeCount,
+    styledNodesCount: totalStyledCount,
+    tabCount: tabs.length,
+    tabs: tabs.map((t, idx) => ({
+      issues: tabAudits[idx]?.issues ?? [],
+      lossless: tabAudits[idx]?.lossless ?? true,
+      nodeCount: tabAudits[idx]?.nodeCount ?? 0,
+      tabId: t.tabId ?? "",
+      tabTitle: t.tabTitle ?? "",
+    })),
+  };
+
+  const payload: YamlTreePayload = {
+    audit: aggregatedAudit,
+    documentId: opts.documentId,
+    nodes: yamlTabs.flatMap((t) => t.nodes),
+    tabCount: tabs.length,
+    tabs: yamlTabs,
+  };
+
+  if (opts.revision) payload.revision = opts.revision;
+  if (opts.revisionId) payload.revisionId = opts.revisionId;
+
+  const yaml = `${YAML.stringify(payload, { lineWidth: 0 }).trimEnd()}\n`;
+
+  return {
+    audit: aggregatedAudit,
+    data: payload,
+    yaml,
+  };
+}
+
+/**
+ * Alias for documentExportToYaml.
+ */
+export const exportDocumentToYaml = documentExportToYaml;
+
+/**
+ * Exports a tab's DocNodes into a structured, lossless YAML DOM tree.
+ */
+export function tabExportToYaml(
+  /** Array of document nodes on this tab. */
+  nodes: DocNode[],
+  /** Configuration options. */
+  opts: {
+    documentId?: string;
+    includeStyles?: boolean;
+    revision?: string;
+    revisionId?: string;
+    tabId?: string;
+    tabTitle?: string;
+  } = {},
+): ExportYamlResult {
+  const audit = auditDocNodes(nodes, opts);
+  const serializableNodes: YamlNodeSpec[] = [];
+
+  for (const node of nodes) {
+    const spec = yamlSpecFromNode(node);
+    if (spec) {
+      serializableNodes.push(spec);
+    }
+  }
+
+  const payload: YamlTreePayload = {
+    nodes: serializableNodes,
+  };
+
+  if (opts.documentId) payload.documentId = opts.documentId;
+  if (opts.revision) payload.revision = opts.revision;
+  if (opts.revisionId) payload.revisionId = opts.revisionId;
+  if (opts.tabId) payload.tabId = opts.tabId;
+  if (opts.tabTitle) payload.tabTitle = opts.tabTitle;
+  payload.audit = audit;
+
+  const yaml = `${YAML.stringify(payload, { lineWidth: 0 }).trimEnd()}\n`;
+
+  return {
+    audit,
+    data: payload,
+    yaml,
+  };
+}
+
+/**
+ * Alias for tabExportToYaml.
+ */
+export const exportTabToYaml = tabExportToYaml;
+
+/**
+ * Converts a parsed DocNode into a YAML-serializable node spec.
+ */
+export function yamlSpecFromNode(
+  /** Document node to convert. */
+  node: DocNode,
+): YamlNodeSpec | null {
   if (node.kind === "sectionBreak" || node.kind === "tableOfContents") {
     return null;
   }
@@ -169,166 +407,18 @@ export function nodeToYamlSpec(node: DocNode): YamlNodeSpec | null {
   return null;
 }
 
-/** Exports a tab's DocNodes into a structured, lossless YAML DOM tree. */
-export function exportTabToYaml(
-  nodes: DocNode[],
-  opts: {
-    documentId?: string;
-    includeStyles?: boolean;
-    revision?: string;
-    revisionId?: string;
-    tabId?: string;
-    tabTitle?: string;
-  } = {},
-): ExportYamlResult {
-  const audit = auditDocNodes(nodes, opts);
-  const serializableNodes: YamlNodeSpec[] = [];
+/**
+ * Alias for yamlSpecFromNode.
+ */
+export const nodeToYamlSpec = yamlSpecFromNode;
 
-  for (const node of nodes) {
-    const spec = nodeToYamlSpec(node);
-    if (spec) {
-      serializableNodes.push(spec);
-    }
-  }
-
-  const payload: YamlTreePayload = {
-    nodes: serializableNodes,
-  };
-
-  if (opts.documentId) payload.documentId = opts.documentId;
-  if (opts.revision) payload.revision = opts.revision;
-  if (opts.revisionId) payload.revisionId = opts.revisionId;
-  if (opts.tabId) payload.tabId = opts.tabId;
-  if (opts.tabTitle) payload.tabTitle = opts.tabTitle;
-  payload.audit = audit;
-
-  const yaml = `${YAML.stringify(payload, { lineWidth: 0 }).trimEnd()}\n`;
-
-  return {
-    audit,
-    data: payload,
-    yaml,
-  };
-}
-
-/** Exports one or more document tabs into a lossless YAML DOM tree. */
-export function exportDocumentToYaml(
-  tabs: ExportTabInput[],
-  opts: {
-    documentId?: string;
-    includeStyles?: boolean;
-    revision?: string;
-    revisionId?: string;
-  } = {},
-): ExportYamlResult {
-  if (tabs.length === 0) {
-    const emptyAudit: ExportAuditSummary = {
-      documentId: opts.documentId,
-      issues: [],
-      lossless: true,
-      nodeCount: 0,
-      styledNodesCount: 0,
-    };
-    const payload: YamlTreePayload = {
-      audit: emptyAudit,
-      documentId: opts.documentId,
-      nodes: [],
-    };
-    return {
-      audit: emptyAudit,
-      data: payload,
-      yaml: `${YAML.stringify(payload, { lineWidth: 0 }).trimEnd()}\n`,
-    };
-  }
-
-  if (tabs.length === 1) {
-    const single = tabs[0]!;
-    return exportTabToYaml(single.nodes, {
-      documentId: opts.documentId,
-      includeStyles: opts.includeStyles,
-      revision: opts.revision,
-      revisionId: opts.revisionId,
-      tabId: single.tabId,
-      tabTitle: single.tabTitle,
-    });
-  }
-
-  const tabAudits: ExportAuditSummary[] = [];
-  const aggregatedIssues: string[] = [];
-  let totalNodeCount = 0;
-  let totalStyledCount = 0;
-
-  const yamlTabs: YamlTabTreePayload[] = [];
-
-  for (let i = 0; i < tabs.length; i++) {
-    const t = tabs[i]!;
-    const tabAudit = auditDocNodes(t.nodes, {
-      documentId: opts.documentId,
-      includeStyles: opts.includeStyles,
-      tabId: t.tabId,
-      tabTitle: t.tabTitle,
-    });
-    tabAudits.push(tabAudit);
-    totalNodeCount += tabAudit.nodeCount;
-    totalStyledCount += tabAudit.styledNodesCount;
-
-    const label = t.tabTitle || t.tabId || `Tab ${i + 1}`;
-    for (const issue of tabAudit.issues) {
-      aggregatedIssues.push(`[${label}] ${issue}`);
-    }
-
-    const serializableNodes: YamlNodeSpec[] = [];
-    for (const node of t.nodes) {
-      const spec = nodeToYamlSpec(node);
-      if (spec) serializableNodes.push(spec);
-    }
-
-    yamlTabs.push({
-      audit: tabAudit,
-      nodes: serializableNodes,
-      tabId: t.tabId,
-      tabTitle: t.tabTitle,
-    });
-  }
-
-  const aggregatedAudit: ExportAuditSummary = {
-    documentId: opts.documentId,
-    issues: aggregatedIssues,
-    lossless: aggregatedIssues.length === 0,
-    nodeCount: totalNodeCount,
-    styledNodesCount: totalStyledCount,
-    tabCount: tabs.length,
-    tabs: tabs.map((t, idx) => ({
-      issues: tabAudits[idx]?.issues,
-      lossless: tabAudits[idx]?.lossless,
-      nodeCount: tabAudits[idx]?.nodeCount,
-      tabId: t.tabId ?? "",
-      tabTitle: t.tabTitle ?? "",
-    })),
-  };
-
-  const payload: YamlTreePayload = {
-    audit: aggregatedAudit,
-    documentId: opts.documentId,
-    nodes: yamlTabs.flatMap((t) => t.nodes),
-    tabCount: tabs.length,
-    tabs: yamlTabs,
-  };
-
-  if (opts.revision) payload.revision = opts.revision;
-  if (opts.revisionId) payload.revisionId = opts.revisionId;
-
-  const yaml = `${YAML.stringify(payload, { lineWidth: 0 }).trimEnd()}\n`;
-
-  return {
-    audit: aggregatedAudit,
-    data: payload,
-    yaml,
-  };
-}
-
-/** Parses and normalizes a YAML string or object into typed ElementSpecs. */
-export function parseYamlTree(input: unknown): {
+/**
+ * Parses and normalizes a YAML string or object into typed ElementSpecs.
+ */
+export function yamlTreeParse(
+  /** Raw YAML string or pre-parsed object. */
+  input: unknown,
+): {
   elements: ElementSpec[];
   meta: Record<string, unknown>;
 } {
@@ -372,7 +462,7 @@ export function parseYamlTree(input: unknown): {
       continue;
     }
     const node = item as Record<string, unknown>;
-    const parsed = parseSingleYamlNode(node, idx);
+    const parsed = singleYamlNodeParse(node, idx);
     if (parsed) {
       if (Array.isArray(parsed)) {
         elements.push(...parsed);
@@ -385,41 +475,40 @@ export function parseYamlTree(input: unknown): {
   return { elements, meta };
 }
 
-/** Parses a single YAML node object (canonical or shorthand) into an ElementSpec or ElementSpec[]. */
-function parseSingleYamlNode(node: Record<string, unknown>, index: number): ElementSpec | ElementSpec[] | null {
-  // Page break
+/**
+ * Alias for yamlTreeParse.
+ */
+export const parseYamlTree = yamlTreeParse;
+
+function singleYamlNodeParse(node: Record<string, unknown>, _index: number): ElementSpec | ElementSpec[] | null {
   if (node.kind === "pageBreak" || node.pageBreak === true) {
     return createElement("pageBreak");
   }
 
-  // Table
   if (node.kind === "table" || Array.isArray(node.rows) || Array.isArray(node.table)) {
     let rawRows = (node.rows ?? node.table) as unknown;
     if (node.table && typeof node.table === "object" && Array.isArray((node.table as Record<string, unknown>).rows)) {
       rawRows = (node.table as Record<string, unknown>).rows;
     }
     if (!Array.isArray(rawRows)) {
-      throw new Error(`Node at index ${index}: table requires a 2D rows array`);
+      throw new Error(`Node at index ${_index}: table requires a 2D rows array`);
     }
 
     const rows: string[][] = (rawRows as unknown[]).map((r) => {
       if (!Array.isArray(r)) return [String(r ?? "")];
       return r.map((c) => (c == null ? "" : String(c)));
     });
-
     return createElement("table", { rows });
   }
 
-  // Code block
-  if (node.kind === "codeBlock" || typeof node.codeBlock === "string") {
-    const text = typeof node.codeBlock === "string" ? node.codeBlock : String(node.text ?? "");
+  if (node.kind === "codeBlock" || typeof node.codeBlock === "string" || typeof node.code === "string") {
+    const text = typeof node.codeBlock === "string" ? node.codeBlock : String(node.text ?? node.code ?? "");
     const language = typeof node.language === "string" ? node.language : undefined;
     const alignment = asAlignment(node.alignment as string | undefined);
     const style = node.style && typeof node.style === "object" ? (node.style as StylePatch) : undefined;
     return createCodeBlock({ alignment, language, style, text });
   }
 
-  // Paragraph / Headings (Canonical or Shorthands)
   let namedStyleType: NamedStyle = "NORMAL_TEXT";
   let text = "";
 

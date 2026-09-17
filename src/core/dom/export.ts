@@ -1,44 +1,73 @@
-/*
-
-Export tab DOM to Markdown with frontmatter styles, directives, and degradation auditing.
-
-*/
+/* Export tab DOM to Markdown with degradation auditing. */
 
 import type { DocNode, QueryTextStyle, TableCell } from "./types.ts";
 
+/**
+ * Summary of degradation issues and styling statistics produced during export.
+ */
 export type ExportAuditSummary = {
+  /** Document ID being exported. */
   documentId?: string;
+  /** List of human-readable warnings and lossy conversion explanations. */
   issues: string[];
+  /** True when export has zero lossy omissions or degradations. */
   lossless: boolean;
+  /** Total count of nodes processed. */
   nodeCount: number;
+  /** Total count of nodes carrying non-default styles. */
   styledNodesCount: number;
+  /** Mapped dictionary of custom styles. */
   styles?: Record<string, QueryTextStyle>;
+  /** Total tab count in multi-tab documents. */
   tabCount?: number;
+  /** Target tab ID. */
   tabId?: string;
+  /** Target tab title. */
   tabTitle?: string;
+  /** Per-tab breakdown in multi-tab exports. */
   tabs?: Array<{
+    /** List of issues in this tab. */
     issues: string[];
+    /** True if this tab converted losslessly. */
     lossless: boolean;
+    /** Node count in this tab. */
     nodeCount: number;
+    /** Tab identifier. */
     tabId: string;
+    /** Tab title. */
     tabTitle: string;
   }>;
 };
 
-export type ExportTabInput = {
-  nodes: DocNode[];
-  tabId?: string;
-  tabTitle?: string;
-};
-
+/**
+ * Markdown export result containing rendered text and conversion audit.
+ */
 export type ExportMarkdownResult = {
+  /** Conversion audit report. */
   audit: ExportAuditSummary;
+  /** Body-only Markdown. Custom styles and omissions live on {@link ExportAuditSummary}. */
   markdown: string;
 };
 
-/** Audits a list of DocNodes for lossy degradations (images, chips, footnotes). */
-export function auditDocNodes(
+/**
+ * Tab input definition for document export.
+ */
+export type ExportTabInput = {
+  /** Array of document nodes on this tab's tape. */
+  nodes: DocNode[];
+  /** Unique tab identifier. */
+  tabId?: string;
+  /** Tab title. */
+  tabTitle?: string;
+};
+
+/**
+ * Audits a list of DocNodes for lossy degradations (images, chips, footnotes).
+ */
+export function docNodesAudit(
+  /** Candidate document nodes to audit. */
   nodes: DocNode[],
+  /** Audit configuration options. */
   opts: {
     documentId?: string;
     includeStyles?: boolean;
@@ -109,71 +138,195 @@ export function auditDocNodes(
   return summary;
 }
 
-/** Formats a table node into CommonMark pipe table. */
-function tableToMarkdown(cells: TableCell[][]): string {
-  if (!cells.length) return "";
-  const lines: string[] = [];
-  const colCount = Math.max(...cells.map((r) => r.length));
+/**
+ * Alias for docNodesAudit.
+ */
+export const auditDocNodes = docNodesAudit;
 
-  for (let r = 0; r < cells.length; r++) {
-    const row = cells[r]!;
-    const rowContent = Array.from({ length: colCount }, (_, c) => {
-      const cell = row[c];
-      if (!cell) return "";
-      const text = (cell.paragraphs && cell.paragraphs.length > 0 ? cell.paragraphs : [cell])
-        .map((p) => p.markup ?? p.text ?? "")
-        .join(" ")
-        .replace(/\|/g, "\\|")
-        .replace(/\n+/g, " ");
-      return text;
+/**
+ * Exports one or more document tabs into unified Markdown.
+ * Lossy conversions and custom run styles live on {@link ExportMarkdownResult.audit}, not in the markdown string.
+ */
+export function documentExportToMarkdown(
+  /** Array of tabs to export. */
+  tabs: ExportTabInput[],
+  /** Export configuration options. */
+  opts: {
+    documentId?: string;
+    includeStyles?: boolean;
+  } = {},
+): ExportMarkdownResult {
+  if (tabs.length === 0) {
+    return {
+      audit: {
+        documentId: opts.documentId,
+        issues: [],
+        lossless: true,
+        nodeCount: 0,
+        styledNodesCount: 0,
+      },
+      markdown: "",
+    };
+  }
+
+  if (tabs.length === 1) {
+    const single = tabs[0]!;
+    const audit = docNodesAudit(single.nodes, {
+      documentId: opts.documentId,
+      includeStyles: opts.includeStyles,
+      tabId: single.tabId,
+      tabTitle: single.tabTitle,
     });
-    lines.push(`| ${rowContent.join(" | ")} |`);
 
-    if (r === 0) {
-      const divider = Array.from({ length: colCount }, () => "---");
-      lines.push(`| ${divider.join(" | ")} |`);
+    const bodyLines = nodesRenderToMarkdown(single.nodes);
+
+    return {
+      audit,
+      markdown: `${bodyLines.join("\n\n")}\n`,
+    };
+  }
+
+  const tabAudits: ExportAuditSummary[] = [];
+  const aggregatedIssues: string[] = [];
+  let totalNodeCount = 0;
+  let totalStyledCount = 0;
+  const mergedStyles: Record<string, QueryTextStyle> = {};
+
+  for (let i = 0; i < tabs.length; i++) {
+    const t = tabs[i]!;
+    const tabAudit = docNodesAudit(t.nodes, {
+      documentId: opts.documentId,
+      includeStyles: opts.includeStyles,
+      tabId: t.tabId,
+      tabTitle: t.tabTitle,
+    });
+    tabAudits.push(tabAudit);
+    totalNodeCount += tabAudit.nodeCount;
+    totalStyledCount += tabAudit.styledNodesCount;
+    if (tabAudit.styles) {
+      Object.assign(mergedStyles, tabAudit.styles);
+    }
+    const tabLabel = t.tabTitle || t.tabId || `Tab ${i + 1}`;
+    for (const issue of tabAudit.issues) {
+      aggregatedIssues.push(`[${tabLabel}] ${issue}`);
     }
   }
 
-  return lines.join("\n");
-}
+  const tabBodies: string[] = [];
+  for (const t of tabs) {
+    const bodyLines = nodesRenderToMarkdown(t.nodes);
 
-function buildFrontmatterLines(
-  styleDefs: Map<string, { name: string; style: QueryTextStyle }>,
-  issues: string[],
-): string[] {
-  const lines: string[] = [];
-  if (styleDefs.size > 0 || issues.length > 0) {
-    lines.push("---");
-    if (styleDefs.size > 0) {
-      lines.push("styles:");
-      for (const { name, style } of styleDefs.values()) {
-        lines.push(`  ${name}:`);
-        if (style.fontSize != null) {
-          lines.push(`    fontSize: ${style.fontSize}`);
-        }
-        if (style.foregroundColor != null) {
-          lines.push(`    foregroundColor: "${style.foregroundColor}"`);
-        }
-        if (style.italic != null) {
-          lines.push(`    italic: ${style.italic}`);
-        }
-      }
+    const firstMeaningful = t.nodes.find((n) => n.kind === "paragraph" && (n.text?.trim() || n.markup?.trim()));
+    const firstText = (firstMeaningful?.text ?? "").trim().toLowerCase();
+    const titleText = (t.tabTitle ?? "").trim().toLowerCase();
+    const hasMatchingTitle =
+      firstMeaningful &&
+      (firstMeaningful.namedStyleType === "TITLE" || firstMeaningful.namedStyleType === "HEADING_1") &&
+      firstText === titleText;
+
+    let content = bodyLines.join("\n\n");
+    if (!hasMatchingTitle && t.tabTitle?.trim()) {
+      content = `# ${t.tabTitle.trim()}${content ? `\n\n${content}` : ""}`;
     }
-    if (issues.length > 0) {
-      lines.push("omissions:");
-      for (const issue of issues) {
-        lines.push(`  - "${issue.replace(/"/g, '\\"')}"`);
-      }
-    }
-    lines.push("---");
+    tabBodies.push(content);
   }
-  return lines;
+
+  const audit: ExportAuditSummary = {
+    documentId: opts.documentId,
+    issues: aggregatedIssues,
+    lossless: aggregatedIssues.length === 0,
+    nodeCount: totalNodeCount,
+    styledNodesCount: totalStyledCount,
+    tabCount: tabs.length,
+    tabs: tabs.map((t, idx) => ({
+      issues: tabAudits[idx]?.issues ?? [],
+      lossless: tabAudits[idx]?.lossless ?? true,
+      nodeCount: tabAudits[idx]?.nodeCount ?? 0,
+      tabId: t.tabId ?? "",
+      tabTitle: t.tabTitle ?? "",
+    })),
+  };
+
+  if (opts.includeStyles && totalStyledCount > 0) {
+    audit.styles = mergedStyles;
+  }
+
+  return {
+    audit,
+    markdown: `${tabBodies.join("\n\n---\n\n")}\n`,
+  };
 }
 
-function renderNodesToMarkdown(
+/**
+ * Alias for documentExportToMarkdown.
+ */
+export const exportDocumentToMarkdown = documentExportToMarkdown;
+
+/**
+ * Exports a single tab's DocNodes into Markdown.
+ */
+export function tabExportToMarkdown(
+  /** Array of nodes on the tab tape. */
   nodes: DocNode[],
-  styleDefs: Map<string, { name: string; style: QueryTextStyle }>,
+  /** Configuration options. */
+  opts: {
+    documentId?: string;
+    includeStyles?: boolean;
+    tabId?: string;
+    tabTitle?: string;
+  } = {},
+): ExportMarkdownResult {
+  return documentExportToMarkdown([{ nodes, tabId: opts.tabId, tabTitle: opts.tabTitle }], opts);
+}
+
+/**
+ * Alias for tabExportToMarkdown.
+ */
+export const exportTabToMarkdown = tabExportToMarkdown;
+
+function bridgingEmptyLineCountGet(nodes: DocNode[], fromIndex: number, maxEmpty = 2): number {
+  let count = 0;
+  for (let k = fromIndex; k < nodes.length; k++) {
+    const candidate = nodes[k]!;
+    if (
+      candidate.kind === "paragraph" &&
+      !candidate.text?.trim() &&
+      !candidate.images?.length &&
+      !candidate.chips?.length &&
+      !candidate.bullet
+    ) {
+      count++;
+      if (count > maxEmpty) return 0;
+    } else if (candidate.isCode) {
+      return count;
+    } else {
+      return 0;
+    }
+  }
+  return 0;
+}
+
+function codeFenceGet(lines: string[]): string {
+  let maxTicks = 0;
+  for (const line of lines) {
+    const matches = line.match(/`+/g);
+    if (matches) {
+      for (const m of matches) {
+        if (m.length > maxTicks) {
+          maxTicks = m.length;
+        }
+      }
+    }
+  }
+  return "`".repeat(Math.max(3, maxTicks + 1));
+}
+
+/**
+ * Renders tape nodes to Markdown body lines (no YAML frontmatter, no style directives).
+ */
+function nodesRenderToMarkdown(
+  /** Tape nodes to serialize. */
+  nodes: DocNode[],
 ): string[] {
   const bodyLines: string[] = [];
 
@@ -210,7 +363,7 @@ function renderNodesToMarkdown(
             !next.chips?.length &&
             !next.bullet
           ) {
-            const bridgeCount = getBridgingEmptyLineCount(nodes, j);
+            const bridgeCount = bridgingEmptyLineCountGet(nodes, j);
             if (bridgeCount > 0) {
               for (let b = 0; b < bridgeCount; b++) {
                 codeLines.push(nodes[j + b]?.text ?? "");
@@ -225,7 +378,7 @@ function renderNodesToMarkdown(
         }
         i = j - 1;
 
-        const fence = getCodeFence(codeLines);
+        const fence = codeFenceGet(codeLines);
         const bqPrefix =
           node.indentStart?.magnitude && node.indentStart.magnitude >= 18
             ? "> ".repeat(Math.round(node.indentStart.magnitude / 18))
@@ -240,33 +393,49 @@ function renderNodesToMarkdown(
         rawText = rawText.trim() ? `${rawText} [Image]` : "[Image]";
       }
 
-      const styleDef = node.style ? styleDefs.get(JSON.stringify(node.style)) : undefined;
-      const text = styleDef ? `::${styleDef.name}[${rawText}]::` : rawText;
-
       const named = node.namedStyleType ?? "NORMAL_TEXT";
       if (named === "TITLE" || named === "HEADING_1") {
-        bodyLines.push(`# ${text}`);
+        bodyLines.push(`# ${rawText}`);
       } else if (named === "SUBTITLE" || named === "HEADING_2") {
-        bodyLines.push(`## ${text}`);
+        bodyLines.push(`## ${rawText}`);
       } else if (named === "HEADING_3") {
-        bodyLines.push(`### ${text}`);
+        bodyLines.push(`### ${rawText}`);
       } else if (named === "HEADING_4") {
-        bodyLines.push(`#### ${text}`);
+        bodyLines.push(`#### ${rawText}`);
       } else if (named === "HEADING_5") {
-        bodyLines.push(`##### ${text}`);
+        bodyLines.push(`##### ${rawText}`);
       } else if (named === "HEADING_6") {
-        bodyLines.push(`###### ${text}`);
+        bodyLines.push(`###### ${rawText}`);
       } else if (node.bullet) {
-        const indent = "  ".repeat(node.bullet.nestingLevel ?? 0);
-        if (node.bullet.type === "CHECKBOX") {
-          bodyLines.push(`${indent}- [ ] ${text}`);
-        } else if (node.bullet.type === "NUMBERED") {
-          bodyLines.push(`${indent}1. ${text}`);
-        } else {
-          bodyLines.push(`${indent}- ${text}`);
+        const listLines: string[] = [];
+        let j = i;
+        while (j < nodes.length) {
+          const itemNode = nodes[j]!;
+          if (itemNode.kind !== "paragraph" || !itemNode.bullet) {
+            break;
+          }
+          let rawItemText = itemNode.markup ?? itemNode.text ?? "";
+          if (itemNode.images?.length && !rawItemText.includes("[Image]")) {
+            rawItemText = rawItemText.trim() ? `${rawItemText} [Image]` : "[Image]";
+          }
+          const indent = "  ".repeat(itemNode.bullet.nestingLevel ?? 0);
+          const isCheckbox = itemNode.bullet.type === "CHECKBOX" || itemNode.bullet.preset === "BULLET_CHECKBOX";
+          const isNumbered =
+            itemNode.bullet.type === "NUMBERED" || Boolean(itemNode.bullet.preset?.startsWith("NUMBERED"));
+
+          if (isCheckbox) {
+            listLines.push(`${indent}- [ ] ${rawItemText}`);
+          } else if (isNumbered) {
+            listLines.push(`${indent}1. ${rawItemText}`);
+          } else {
+            listLines.push(`${indent}- ${rawItemText}`);
+          }
+          j++;
         }
+        i = j - 1;
+        bodyLines.push(listLines.join("\n"));
       } else {
-        bodyLines.push(text);
+        bodyLines.push(rawText);
       }
     }
   }
@@ -274,213 +443,30 @@ function renderNodesToMarkdown(
   return bodyLines;
 }
 
-/** CommonMark fence string (``` or ```` if content contains backticks). */
-function getCodeFence(lines: string[]): string {
-  let maxTicks = 0;
-  for (const line of lines) {
-    const matches = line.match(/`+/g);
-    if (matches) {
-      for (const m of matches) {
-        if (m.length > maxTicks) {
-          maxTicks = m.length;
-        }
-      }
-    }
-  }
-  return "`".repeat(Math.max(3, maxTicks + 1));
-}
+function tableToMarkdown(cells: TableCell[][]): string {
+  if (!cells.length) return "";
+  const lines: string[] = [];
+  const colCount = Math.max(...cells.map((r) => r.length));
 
-/**
- * Counts consecutive empty paragraphs that can be bridged inside a code block,
- * provided they are followed by another code paragraph (at most maxEmpty).
- */
-function getBridgingEmptyLineCount(nodes: DocNode[], fromIndex: number, maxEmpty = 2): number {
-  let count = 0;
-  for (let k = fromIndex; k < nodes.length; k++) {
-    const candidate = nodes[k]!;
-    if (
-      candidate.kind === "paragraph" &&
-      !candidate.text?.trim() &&
-      !candidate.images?.length &&
-      !candidate.chips?.length &&
-      !candidate.bullet
-    ) {
-      count++;
-      if (count > maxEmpty) return 0;
-    } else if (candidate.isCode) {
-      return count;
-    } else {
-      return 0;
-    }
-  }
-  return 0;
-}
-
-/**
- * Exports one or more document tabs into unified Markdown with YAML frontmatter
- * for custom styles and lossy degradation auditing.
- */
-export function exportDocumentToMarkdown(
-  tabs: ExportTabInput[],
-  opts: {
-    documentId?: string;
-    includeStyles?: boolean;
-  } = {},
-): ExportMarkdownResult {
-  if (tabs.length === 0) {
-    return {
-      audit: {
-        documentId: opts.documentId,
-        issues: [],
-        lossless: true,
-        nodeCount: 0,
-        styledNodesCount: 0,
-      },
-      markdown: "",
-    };
-  }
-
-  // Single tab fast-path / exact backwards compatibility
-  if (tabs.length === 1) {
-    const single = tabs[0]!;
-    const audit = auditDocNodes(single.nodes, {
-      documentId: opts.documentId,
-      includeStyles: opts.includeStyles,
-      tabId: single.tabId,
-      tabTitle: single.tabTitle,
+  for (let r = 0; r < cells.length; r++) {
+    const row = cells[r]!;
+    const rowContent = Array.from({ length: colCount }, (_, c) => {
+      const cell = row[c];
+      if (!cell) return "";
+      const text = (cell.paragraphs && cell.paragraphs.length > 0 ? cell.paragraphs : [cell])
+        .map((p) => p.markup ?? p.text ?? "")
+        .join(" ")
+        .replace(/\|/g, "\\|")
+        .replace(/\n+/g, " ");
+      return text;
     });
+    lines.push(`| ${rowContent.join(" | ")} |`);
 
-    const styleDefs = new Map<string, { name: string; style: QueryTextStyle }>();
-    let styleCounter = 1;
-
-    for (const node of single.nodes) {
-      if (!node.isCode && node.style && Object.keys(node.style).length > 0) {
-        const key = JSON.stringify(node.style);
-        if (!styleDefs.has(key)) {
-          const name = `style${styleCounter++}`;
-          styleDefs.set(key, { name, style: node.style });
-        }
-      }
-    }
-
-    const frontmatterLines = buildFrontmatterLines(styleDefs, audit.issues);
-    const bodyLines = renderNodesToMarkdown(single.nodes, styleDefs);
-
-    const markdownParts: string[] = [];
-    if (frontmatterLines.length > 0) {
-      markdownParts.push(frontmatterLines.join("\n"));
-    }
-    markdownParts.push(bodyLines.join("\n\n"));
-
-    return {
-      audit,
-      markdown: `${markdownParts.join("\n\n")}\n`,
-    };
-  }
-
-  // Multi-tab document
-  const tabAudits: ExportAuditSummary[] = [];
-  const aggregatedIssues: string[] = [];
-  let totalNodeCount = 0;
-  let totalStyledCount = 0;
-  const mergedStyles: Record<string, QueryTextStyle> = {};
-
-  for (let i = 0; i < tabs.length; i++) {
-    const t = tabs[i]!;
-    const tabAudit = auditDocNodes(t.nodes, {
-      documentId: opts.documentId,
-      includeStyles: opts.includeStyles,
-      tabId: t.tabId,
-      tabTitle: t.tabTitle,
-    });
-    tabAudits.push(tabAudit);
-    totalNodeCount += tabAudit.nodeCount;
-    totalStyledCount += tabAudit.styledNodesCount;
-    if (tabAudit.styles) {
-      Object.assign(mergedStyles, tabAudit.styles);
-    }
-    const tabLabel = t.tabTitle || t.tabId || `Tab ${i + 1}`;
-    for (const issue of tabAudit.issues) {
-      aggregatedIssues.push(`[${tabLabel}] ${issue}`);
+    if (r === 0) {
+      const divider = Array.from({ length: colCount }, () => "---");
+      lines.push(`| ${divider.join(" | ")} |`);
     }
   }
 
-  const styleDefs = new Map<string, { name: string; style: QueryTextStyle }>();
-  let styleCounter = 1;
-  for (const t of tabs) {
-    for (const node of t.nodes) {
-      if (!node.isCode && node.style && Object.keys(node.style).length > 0) {
-        const key = JSON.stringify(node.style);
-        if (!styleDefs.has(key)) {
-          const name = `style${styleCounter++}`;
-          styleDefs.set(key, { name, style: node.style });
-        }
-      }
-    }
-  }
-
-  const frontmatterLines = buildFrontmatterLines(styleDefs, aggregatedIssues);
-
-  const tabBodies: string[] = [];
-  for (const t of tabs) {
-    const bodyLines = renderNodesToMarkdown(t.nodes, styleDefs);
-
-    const firstMeaningful = t.nodes.find((n) => n.kind === "paragraph" && (n.text?.trim() || n.markup?.trim()));
-    const firstText = (firstMeaningful?.text ?? "").trim().toLowerCase();
-    const titleText = (t.tabTitle ?? "").trim().toLowerCase();
-    const hasMatchingTitle =
-      firstMeaningful &&
-      (firstMeaningful.namedStyleType === "TITLE" || firstMeaningful.namedStyleType === "HEADING_1") &&
-      firstText === titleText;
-
-    let content = bodyLines.join("\n\n");
-    if (!hasMatchingTitle && t.tabTitle?.trim()) {
-      content = `# ${t.tabTitle.trim()}${content ? `\n\n${content}` : ""}`;
-    }
-    tabBodies.push(content);
-  }
-
-  const audit: ExportAuditSummary = {
-    documentId: opts.documentId,
-    issues: aggregatedIssues,
-    lossless: aggregatedIssues.length === 0,
-    nodeCount: totalNodeCount,
-    styledNodesCount: totalStyledCount,
-    tabCount: tabs.length,
-    tabs: tabs.map((t, idx) => ({
-      issues: tabAudits[idx]?.issues,
-      lossless: tabAudits[idx]?.lossless,
-      nodeCount: tabAudits[idx]?.nodeCount,
-      tabId: t.tabId ?? "",
-      tabTitle: t.tabTitle ?? "",
-    })),
-  };
-
-  if (opts.includeStyles && totalStyledCount > 0) {
-    audit.styles = mergedStyles;
-  }
-
-  const markdownParts: string[] = [];
-  if (frontmatterLines.length > 0) {
-    markdownParts.push(frontmatterLines.join("\n"));
-  }
-  markdownParts.push(tabBodies.join("\n\n---\n\n"));
-
-  return {
-    audit,
-    markdown: `${markdownParts.join("\n\n")}\n`,
-  };
-}
-
-/** Exports a tab's DocNodes into Markdown with YAML frontmatter for custom styles. */
-export function exportTabToMarkdown(
-  nodes: DocNode[],
-  opts: {
-    documentId?: string;
-    includeStyles?: boolean;
-    tabId?: string;
-    tabTitle?: string;
-  } = {},
-): ExportMarkdownResult {
-  return exportDocumentToMarkdown([{ nodes, tabId: opts.tabId, tabTitle: opts.tabTitle }], opts);
+  return lines.join("\n");
 }

@@ -50,7 +50,7 @@ Use names that describe the domain role, not generic placeholders like `data` or
 
 ### Structure
 
-After imports, put **exported** symbols first (alphabetical within each kind), then **module-private** helpers at the bottom. Use `~/…` only where you would otherwise use `../` (or deeper) to reach another module under `src/`. Same-directory (`./`) and child (`./foo/…`) imports stay relative. Use `.ts` extensions.
+After imports, put **exported** symbols first (alphabetical within each kind), then **module-private** helpers at the bottom. Use `~/…` only where you would otherwise use `../` (or deeper) to reach another module under `src/`. Same-directory (`./`) and child (`./foo/…`) imports stay relative. Use `.ts` extensions. TypeScript module **file names** are camelCase (e.g. `applyScript.ts`, `markdownParser.ts`), not kebab-case.
 
 ### Module boundaries
 
@@ -93,8 +93,10 @@ Avoid needless extraction: keep single-use helpers in the calling file by defaul
 ## Code quality
 
 - Changes must be summarized in CHANGELOG.md under the UNRELEASED section
-- JSDocs: Types, interfaces, functions (exported **and** module-private), objects, object properties, classes, class properties, module-level constants, and test `describe`/`test` blocks must have a very human-readable JSDoc directly above the symbol. No exceptions in `src/**` or `scripts/**`. When adding JSDoc to functions, favor putting a JSDoc on each arg instead of using `@param`. Skip comments on short test callbacks and pure re-export files
-- All files should start with a `/* {multi-line description} */` of why the file exists and what it does
+- JSDocs: Types, interfaces, functions (exported **and** module-private), objects, object properties, classes, class properties, module-level constants  must have a very human-readable JSDoc directly above the symbol. No exceptions in `src/**` or `scripts/**` except tests, generated. When adding JSDoc to functions, favor putting a JSDoc on each arg instead of using `@param`. Skip comments on short test callbacks and pure re-export files
+- Prefer naming to be more ref/target oriented/leading. For example, createDoc --> docCreate
+- In objects, types, order attrs by key alphabetically by default unless there is reason not to.
+- All files should start with a `/* {single-line core-responsibility} */`
 - All imports must be ordered alphabetically by their source module path (the `from` clause)
 - Avoid needless extraction: keep single-use helpers in the calling file by default. Split only when reused elsewhere, the caller is large or hard to follow, or extraction clarifies a substantial unit. Do not create tiny one-off helpers
   - ❌ `utils/formatX.ts` — 60-line helper used by one command

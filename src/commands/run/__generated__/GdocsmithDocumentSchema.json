@@ -18,12 +18,9 @@
       "type": "boolean",
       "description": "Output JSON instead of YAML."
     },
-    "ops": {
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/GdocsmithStepInput"
-      },
-      "description": "Alias for `steps`."
+    "pageSetup": {
+      "$ref": "#/definitions/PageSetup",
+      "description": "Document paper size and margins (applied once on live writes)."
     },
     "quiet": {
       "type": "boolean",
@@ -39,28 +36,107 @@
   },
   "additionalProperties": false,
   "definitions": {
+    "PageSetup": {
+      "type": "object",
+      "properties": {
+        "margins": {
+          "type": "object",
+          "properties": {
+            "bottom": {
+              "type": "number"
+            },
+            "left": {
+              "type": "number"
+            },
+            "right": {
+              "type": "number"
+            },
+            "top": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "orientation": {
+          "type": "string",
+          "enum": [
+            "LANDSCAPE",
+            "PORTRAIT"
+          ]
+        },
+        "pageHeight": {
+          "type": "number"
+        },
+        "pageSize": {
+          "type": "string",
+          "enum": [
+            "LETTER",
+            "LEGAL",
+            "TABLOID",
+            "A3",
+            "A4",
+            "A5",
+            "CUSTOM"
+          ]
+        },
+        "pageWidth": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Document page setup geometry and margins."
+    },
     "GdocsmithStepInput": {
       "type": "object",
       "properties": {
-        "action": {
-          "type": "string",
-          "description": "Alias for `kind`."
-        },
         "after": {
-          "type": ["number", "string"],
-          "description": "Anchor node to insert after."
+          "type": "string",
+          "description": "Anchor node to insert after (heading-scoped id from query)."
+        },
+        "alignment": {
+          "$ref": "#/definitions/ParagraphAlignment",
+          "description": "Paragraph or table-cell alignment (START / CENTER / END / JUSTIFIED)."
         },
         "as": {
           "type": "string",
-          "description": "Label for later steps in this document."
+          "description": "On open/query: binds a doc or node alias. On dump: existing alias to extract into `dumped`."
         },
         "at": {
-          "type": ["number", "string"],
+          "type": "string",
           "description": "Heading-scoped id from query (e.g. h.arch.9a1b)."
         },
         "before": {
-          "type": ["number", "string"],
-          "description": "Anchor node to insert before."
+          "type": "string",
+          "description": "Anchor node to insert before (heading-scoped id from query)."
+        },
+        "bullet": {
+          "$ref": "#/definitions/BulletProps",
+          "description": "Convert this paragraph (and siblings sharing listId) to a Docs bullet preset."
+        },
+        "cloneNode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/definitions/CloneNodeRef"
+            }
+          ],
+          "description": "Clone an existing node with style/bullet fidelity (heading-scoped id or ref)."
+        },
+        "cloneNodes": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/definitions/CloneNodeRef"
+              }
+            ]
+          },
+          "description": "Batch cloning of existing nodes."
         },
         "contains": {
           "type": "string",
@@ -68,7 +144,7 @@
         },
         "copyFrom": {
           "type": "string",
-          "description": "Source doc ID or alias for copyDoc."
+          "description": "Source doc ID or alias for docCopy."
         },
         "dangerousClear": {
           "type": "boolean",
@@ -78,13 +154,63 @@
           "type": "boolean",
           "description": "Remove the heading and its following section."
         },
+        "deleteTableColumn": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "col": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            }
+          ],
+          "description": "Delete a table column."
+        },
+        "deleteTableRow": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "row": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            }
+          ],
+          "description": "Delete a table row."
+        },
         "doc": {
           "type": "string",
           "description": "Target document ID or alias."
         },
-        "docId": {
-          "type": "string",
-          "description": "Alias for doc."
+        "duplicateTableRow": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "insertBelow": {
+                  "type": "boolean"
+                },
+                "row": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            }
+          ],
+          "description": "Duplicate a table row."
         },
         "element": {
           "type": "object",
@@ -105,7 +231,15 @@
         },
         "find": {
           "type": "string",
-          "description": "String to find for replaceText."
+          "description": "String to find for textReplace."
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Force destructive mutation even if targeting a fragile node."
+        },
+        "full": {
+          "type": "boolean",
+          "description": "Keep every node in query dumps (no heading-only truncation; include table cells)."
         },
         "h1IsTitle": {
           "type": "boolean",
@@ -113,31 +247,248 @@
         },
         "index": {
           "type": "number",
-          "description": "Position index for addTab."
+          "description": "Position index for tabAdd."
         },
         "innerText": {
           "type": "string",
           "description": "In-place paragraph text."
         },
+        "insertAdjacentElement": {
+          "type": "object",
+          "properties": {
+            "cloneNode": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/definitions/CloneNodeRef"
+                }
+              ]
+            },
+            "cloneNodes": {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/definitions/CloneNodeRef"
+                  }
+                ]
+              }
+            },
+            "element": {
+              "type": "object",
+              "additionalProperties": {}
+            },
+            "elements": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": {}
+              }
+            },
+            "position": {
+              "$ref": "#/definitions/InsertPosition"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Nested insertAdjacentElement payload."
+        },
+        "insertDate": {
+          "type": "object",
+          "properties": {
+            "dateFormat": {
+              "type": "string"
+            },
+            "displayText": {
+              "type": "string"
+            },
+            "timestamp": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Insert a native date chip."
+        },
+        "insertFootnote": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Insert a footnote reference."
+        },
+        "insertImage": {
+          "type": "object",
+          "properties": {
+            "heightPt": {
+              "type": "number"
+            },
+            "uri": {
+              "type": "string"
+            },
+            "widthPt": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "uri"
+          ],
+          "additionalProperties": false,
+          "description": "Insert a public HTTPS inline image."
+        },
         "insertMarkdown": {
-          "type": ["string", "boolean"],
-          "description": "Insert rendered markdown at the anchor."
+          "type": [
+            "string",
+            "boolean"
+          ],
+          "description": "Insert rendered markdown at the anchor (surgical; prefer kind: markdownInsert)."
+        },
+        "insertPerson": {
+          "type": "object",
+          "properties": {
+            "email": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "email"
+          ],
+          "additionalProperties": false,
+          "description": "Insert a person mention chip."
+        },
+        "insertRichLink": {
+          "type": "object",
+          "properties": {
+            "mimeType": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "uri"
+          ],
+          "additionalProperties": false,
+          "description": "Insert a rich link chip."
+        },
+        "insertSectionBreak": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "sectionType": {
+                  "type": "string",
+                  "enum": [
+                    "CONTINUOUS",
+                    "NEXT_PAGE"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          ],
+          "description": "Insert a section break."
+        },
+        "insertTableColumn": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "col": {
+                  "type": "number"
+                },
+                "insertRight": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            }
+          ],
+          "description": "Insert a table column."
+        },
+        "insertTableRow": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "cells": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "insertBelow": {
+                  "type": "boolean"
+                },
+                "row": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            }
+          ],
+          "description": "Insert a table row."
         },
         "kind": {
-          "type": "string",
-          "description": "Step kind: open, close, createDoc, copyDoc, query, dump, insertMarkdown, …"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkflowStepKind"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "Workflow step kind."
         },
         "markdown": {
           "type": "string",
           "description": "Markdown text string."
         },
-        "op": {
-          "type": "string",
-          "description": "Alias for `kind`."
+        "markdownStyles": {
+          "type": "object",
+          "additionalProperties": {},
+          "description": "Named `::styleName[]::` directive styles (`{ alert: { color: \"#f00\" } }`). Distinct from native `style`."
+        },
+        "namedStyleType": {
+          "$ref": "#/definitions/NamedStyle",
+          "description": "Change namedStyleType on an existing paragraph."
+        },
+        "output": {
+          "$ref": "#/definitions/QueryOutputFormat",
+          "description": "Query serialization format (default nodes)."
         },
         "permanent": {
           "type": "boolean",
-          "description": "Permanently delete document (deleteDoc)."
+          "description": "Permanently delete document (docDelete)."
+        },
+        "position": {
+          "$ref": "#/definitions/InsertPosition",
+          "description": "Sibling insert position."
         },
         "remove": {
           "type": "boolean",
@@ -145,23 +496,38 @@
         },
         "replace": {
           "type": "string",
-          "description": "In-place text replacement (alias for innerText) or replaceText replacement."
+          "description": "In-place text for `kind: replace` / `innerText`, or replacement string for `textReplace`."
         },
         "replaceMarkdown": {
-          "type": ["string", "boolean"],
+          "type": [
+            "string",
+            "boolean"
+          ],
           "description": "Replace one node with markdown."
         },
         "replaceSection": {
-          "type": ["string", "boolean"],
+          "type": [
+            "string",
+            "boolean"
+          ],
           "description": "Diff-replace a heading section with markdown."
         },
-        "step": {
-          "type": "string",
-          "description": "Alias for `kind`."
+        "replaceSectionMarkdown": {
+          "type": [
+            "string",
+            "boolean"
+          ],
+          "description": "Alias for replaceSection."
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/InlineRunInput"
+          },
+          "description": "Explicit styled text runs for inline formatting."
         },
         "style": {
-          "type": "object",
-          "additionalProperties": {},
+          "$ref": "#/definitions/StylePatch",
           "description": "Native style fields."
         },
         "stylesOnly": {
@@ -172,21 +538,21 @@
           "type": "string",
           "description": "Target tab ID or title."
         },
-        "tabId": {
-          "type": "string",
-          "description": "Alias for tab."
+        "tableAlignment": {
+          "$ref": "#/definitions/ParagraphAlignment",
+          "description": "Refused at apply time — Docs REST API has no table page alignment."
         },
-        "target": {
-          "type": "string",
-          "description": "Dump target alias (kind: dump)."
+        "tableStyle": {
+          "$ref": "#/definitions/StylePatch",
+          "description": "Table styling (pinnedHeaderRows, preventOverflow, columnWidth, etc.)."
         },
         "text": {
           "type": "string",
-          "description": "Text content for insertMarkdown / replace."
+          "description": "Text content for markdownInsert / replace."
         },
         "title": {
           "type": "string",
-          "description": "Title for createDoc / copyDoc / addTab / renameDoc / renameTab."
+          "description": "Title for docCreate / docCopy / tabAdd / docRename / tabRename."
         },
         "under": {
           "type": "string",
@@ -198,7 +564,337 @@
         }
       },
       "additionalProperties": {},
-      "description": "One workflow step. Canonical discriminator is `kind`; `action`, `op`, and `step` are accepted aliases."
+      "description": "One workflow step; discriminator is `kind`."
+    },
+    "ParagraphAlignment": {
+      "type": "string",
+      "enum": [
+        "START",
+        "CENTER",
+        "END",
+        "JUSTIFIED"
+      ],
+      "description": "Docs paragraph alignment (updateParagraphStyle.alignment)."
+    },
+    "BulletProps": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "nestingLevel": {
+              "type": "number",
+              "description": "Nesting level index (0-based)."
+            },
+            "preset": {
+              "$ref": "#/definitions/BulletPreset",
+              "description": "Bullet glyph preset."
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "boolean"
+        }
+      ],
+      "description": "Agent-supplied bullet on a NORMAL_TEXT paragraph."
+    },
+    "BulletPreset": {
+      "type": "string",
+      "enum": [
+        "BULLET_DISC_CIRCLE_SQUARE",
+        "BULLET_DIAMONDX_ARROW3D_SQUARE",
+        "BULLET_CHECKBOX",
+        "BULLET_ARROW_DIAMOND_DISC",
+        "BULLET_STAR_CIRCLE_SQUARE",
+        "BULLET_ARROW3D_CIRCLE_SQUARE",
+        "BULLET_LEFTTRIANGLE_DIAMOND_DISC",
+        "BULLET_DIAMONDX_HOLLOWDIAMOND_SQUARE",
+        "BULLET_DIAMOND_CIRCLE_SQUARE",
+        "NUMBERED_DECIMAL_ALPHA_ROMAN",
+        "NUMBERED_DECIMAL_ALPHA_ROMAN_PARENS",
+        "NUMBERED_DECIMAL_NESTED",
+        "NUMBERED_UPPERALPHA_ALPHA_ROMAN",
+        "NUMBERED_UPPERROMAN_UPPERALPHA_DECIMAL",
+        "NUMBERED_ZERODECIMAL_ALPHA_ROMAN"
+      ],
+      "description": "Docs createParagraphBullets presets."
+    },
+    "CloneNodeRef": {
+      "type": "object",
+      "properties": {
+        "fromDoc": {
+          "type": "string",
+          "description": "Optional document ID to clone from."
+        },
+        "fromNode": {
+          "type": [
+            "number",
+            "string"
+          ],
+          "description": "Alias for nodeId."
+        },
+        "fromTab": {
+          "type": "string",
+          "description": "Optional tab ID to clone from."
+        },
+        "innerText": {
+          "type": "string",
+          "description": "Replacement text content."
+        },
+        "nodeId": {
+          "type": [
+            "number",
+            "string"
+          ],
+          "description": "Scoped ID or tape index of the node to clone."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Reference pointing to an existing node to clone."
+    },
+    "InsertPosition": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SiblingPosition"
+        },
+        {
+          "type": "string",
+          "const": "afterbegin"
+        },
+        {
+          "type": "string",
+          "const": "beforeend"
+        }
+      ],
+      "description": "Sibling and parent insert positions."
+    },
+    "SiblingPosition": {
+      "type": "string",
+      "enum": [
+        "afterend",
+        "beforebegin"
+      ],
+      "description": "Sibling insert positions (HTML insertAdjacentElement names)."
+    },
+    "WorkflowStepKind": {
+      "type": "string",
+      "enum": [
+        "close",
+        "docCopy",
+        "docCreate",
+        "docDelete",
+        "docRename",
+        "docTrash",
+        "dump",
+        "innerText",
+        "markdownInsert",
+        "open",
+        "query",
+        "remove",
+        "replace",
+        "replaceMarkdown",
+        "replaceSection",
+        "surgical",
+        "tabAdd",
+        "tabDelete",
+        "tabRename",
+        "textReplace"
+      ],
+      "description": "Canonical workflow step kinds handled by the apply script engine."
+    },
+    "NamedStyle": {
+      "type": "string",
+      "enum": [
+        "NORMAL_TEXT",
+        "TITLE",
+        "SUBTITLE",
+        "HEADING_1",
+        "HEADING_2",
+        "HEADING_3",
+        "HEADING_4",
+        "HEADING_5",
+        "HEADING_6"
+      ],
+      "description": "Docs named paragraph styles, including TITLE and SUBTITLE."
+    },
+    "QueryOutputFormat": {
+      "type": "string",
+      "enum": [
+        "markdown",
+        "nodes",
+        "yaml"
+      ],
+      "description": "Serializer for `kind: query` matches written to `dumped`."
+    },
+    "InlineRunInput": {
+      "type": "object",
+      "properties": {
+        "backgroundColor": {
+          "type": "string"
+        },
+        "bold": {
+          "type": "boolean"
+        },
+        "code": {
+          "type": "boolean"
+        },
+        "end": {
+          "type": "number"
+        },
+        "fontFamily": {
+          "type": "string"
+        },
+        "fontSize": {
+          "type": "number"
+        },
+        "foregroundColor": {
+          "type": "string"
+        },
+        "italic": {
+          "type": "boolean"
+        },
+        "link": {
+          "type": "string"
+        },
+        "start": {
+          "type": "number"
+        },
+        "strikethrough": {
+          "type": "boolean"
+        },
+        "text": {
+          "type": "string"
+        },
+        "underline": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Input specification for an inline styled run."
+    },
+    "StylePatch": {
+      "type": "object",
+      "properties": {
+        "alignment": {
+          "$ref": "#/definitions/ParagraphAlignment",
+          "description": "Paragraph alignment."
+        },
+        "backgroundColor": {
+          "type": "string",
+          "description": "Text highlight background color hex string (updateTextStyle.backgroundColor)."
+        },
+        "bold": {
+          "type": "boolean",
+          "description": "Bold text flag."
+        },
+        "borderColor": {
+          "type": "string",
+          "description": "#RRGGBB on all four cell borders. Default width 1pt. Table or cell."
+        },
+        "borderWidth": {
+          "type": "number",
+          "description": "Border width in PT. Requires borderColor."
+        },
+        "cellBackground": {
+          "type": "string",
+          "description": "Table cell fill color hex string. Table node = every cell; cell id = that cell."
+        },
+        "cellPadding": {
+          "type": "number",
+          "description": "Cell padding in PT (all four sides). Table or cell."
+        },
+        "cellTextAlignment": {
+          "$ref": "#/definitions/ParagraphAlignment",
+          "description": "Explicit alias for cell paragraph alignment across a table or cell."
+        },
+        "columnCount": {
+          "type": "number",
+          "description": "Section columns (Format > Columns). Only on sectionBreak."
+        },
+        "columnWidth": {
+          "type": "number",
+          "description": "FIXED_WIDTH column(s) in PT (min 5). Table = all columns; cell = that column."
+        },
+        "contentAlignment": {
+          "$ref": "#/definitions/CellContentAlignment",
+          "description": "Vertical cell alignment. Table or cell."
+        },
+        "fontFamily": {
+          "type": "string",
+          "description": "Font family name."
+        },
+        "fontSize": {
+          "type": "number",
+          "description": "Font size in points."
+        },
+        "foregroundColor": {
+          "type": "string",
+          "description": "Text foreground color hex string."
+        },
+        "indentEnd": {
+          "type": "number",
+          "description": "Right indent in PT (updateParagraphStyle.indentEnd)."
+        },
+        "indentFirstLine": {
+          "type": "number",
+          "description": "Glyph position in PT. Docs hanging lists: glyph here, text at indentStart. On a bullet, omitted with indentStart → indentStart − 18."
+        },
+        "indentStart": {
+          "type": "number",
+          "description": "Text indent in PT. Same field on insert and restyle. Flush level-0 list: indentStart 18 + indentFirstLine 0. Not a nest — use nestingLevel."
+        },
+        "italic": {
+          "type": "boolean",
+          "description": "Italic text flag."
+        },
+        "lineSpacing": {
+          "type": "number",
+          "description": "100 = single, 150 = 1.5, 200 = double."
+        },
+        "minRowHeight": {
+          "type": "number",
+          "description": "Minimum row height in PT. Table = all rows; cell = that row."
+        },
+        "pinnedHeaderRows": {
+          "type": "number",
+          "description": "Number of pinned header rows. Table node only."
+        },
+        "preventOverflow": {
+          "type": "boolean",
+          "description": "Prevent table row from overflowing across page boundaries. Table or cell/row."
+        },
+        "shading": {
+          "type": "string",
+          "description": "Paragraph fill (updateParagraphStyle.shading)."
+        },
+        "spaceAbove": {
+          "type": "number",
+          "description": "Space above paragraph in points."
+        },
+        "spaceBelow": {
+          "type": "number",
+          "description": "Space below paragraph in points."
+        },
+        "strikethrough": {
+          "type": "boolean",
+          "description": "Strikethrough text flag."
+        },
+        "underline": {
+          "type": "boolean",
+          "description": "Underline text flag."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Optional style fields on a write op (`style`) or createElement."
+    },
+    "CellContentAlignment": {
+      "type": "string",
+      "enum": [
+        "TOP",
+        "MIDDLE",
+        "BOTTOM"
+      ],
+      "description": "Vertical alignment inside a table cell (updateTableCellStyle.contentAlignment)."
     }
   }
 }

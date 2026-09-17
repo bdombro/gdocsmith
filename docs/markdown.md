@@ -1,17 +1,17 @@
-# Markdown Ingestion (`kind: insertMarkdown`)
+# Markdown Ingestion (`kind: markdownInsert`)
 
 Specification of supported CommonMark / GFM syntax, custom style directives, and limitations when inserting markdown into Google Docs.
 
 ## Overview
 
-`kind: insertMarkdown` translates standard Markdown into native Google Docs DOM elements (`paragraphs`, `namedStyleType` headings, `lists`, 0-margin code block callouts, and native `tables`).
+`kind: markdownInsert` translates standard Markdown into native Google Docs DOM elements (`paragraphs`, `namedStyleType` headings, `lists`, 0-margin code block callouts, and native `tables`).
 
 ```yaml
 steps:
   - kind: open
     doc: <documentId>
     as: spec
-  - kind: insertMarkdown
+  - kind: markdownInsert
     doc: spec
     tab: Architecture
     after: h.arch.9a1b
@@ -26,10 +26,9 @@ gdocsmith run < workflow.yaml
 `dryRun: true` on the document validates without writing. Treat the first `#` as `TITLE` with `h1IsTitle: true`.
 
 ### Ingestion Pipeline
-1. **Frontmatter Extraction**: YAML frontmatter (`---` block at the top) is stripped and parsed for custom style definitions (`Bun.YAML.parse`).
-2. **Block Lexing**: The markdown body is tokenized into AST block nodes (`marked.lexer`).
-3. **Chunking**: Non-table elements and tables are partitioned into isolated batches to satisfy Google Docs API table isolation constraints.
-4. **DOM Application**: Blocks are mapped to `ElementSpec` nodes, styled via `InlineMarkup.withStyles`, and written atomically with revision pinning.
+1. **Block Lexing**: The markdown body is tokenized into AST block nodes (`marked.lexer`). A leading `---` is a page break, not YAML.
+2. **Chunking**: Non-table elements and tables are partitioned into isolated batches to satisfy Google Docs API table isolation constraints.
+3. **DOM Application**: Blocks are mapped to `ElementSpec` nodes, styled via `InlineMarkup.withStyles`, and written atomically with revision pinning. Custom `::styleName[text]::` directives use `markdownStyles` on the step (not YAML in the markdown string).
 
 ---
 
@@ -64,34 +63,37 @@ Inline markup is stripped of delimiters and converted into Google Docs API `upda
 
 ---
 
-## Custom Font Styles via YAML Frontmatter
+## Custom Font Styles via `markdownStyles`
 
-Agents can define reusable typographic styles in a YAML frontmatter block at the top of the markdown document, then apply them inline using `::styleName[content]::` directives.
+Agents define reusable typographic styles on the insert/replace step (`markdownStyles`), then apply them inline with `::styleName[content]::` directives. Do not put a YAML `---` block in the markdown string — `---` is a page break. Distinct from native `style` (Docs paragraph/run patch on an existing node).
 
 ### Syntax Example
 
-```markdown
----
-styles:
-  footnote:
-    style: italic
-    color: "#6b7280"
-    size: 9
-  alert:
-    style: bold
-    color: "#e11d48"
-  pill:
-    background: "#f3f4f6"
-    font: "Courier New"
-    size: 9
----
-# Migration RFC
+```yaml
+steps:
+  - kind: markdownInsert
+    doc: spec
+    after: h.arch.9a1b
+    markdownStyles:
+      footnote:
+        style: italic
+        color: "#6b7280"
+        size: 9
+      alert:
+        style: bold
+        color: "#e11d48"
+      pill:
+        background: "#f3f4f6"
+        font: "Courier New"
+        size: 9
+    markdown: |
+      # Migration RFC
 
-Status: ::pill[IN_PROGRESS]::
+      Status: ::pill[IN_PROGRESS]::
 
-::alert[Warning: Breaking change affects all v1 clients.]::
+      ::alert[Warning: Breaking change affects all v1 clients.]::
 
-See the ::footnote[architecture notes in [Reference Spec](https://internal.corp/spec)]:: for details.
+      See the ::footnote[architecture notes in [Reference Spec](https://internal.corp/spec)]:: for details.
 ```
 
 ### Supported Style Properties
@@ -120,10 +122,10 @@ These CommonMark/GFM features are currently not supported or degrade when writte
 | Feature | Syntax | Behavior in Google Docs | Workaround / Solution |
 |---|---|---|---|
 | **Definition Lists** | `Term\n: Definition` | Rendered as separate plain text paragraphs | Use bold prefix: `**Term**: Definition` |
-| **Footnotes** | `[^1]` / `[^1]: Note` | Emitted as literal text (`[^1]`) | Use custom directive `::footnote[Note]` or plain italic |
+| **Footnotes** | `[^1]` / `[^1]: Note` | Emitted as literal text (`[^1]`) | Use surgical step `insertFootnote`, custom directive `::footnote[Note]`, or plain italic |
 | **Internal Anchor Links** | `[Section](#heading-id)` | Emitted as web link URL `#heading-id` (not a Docs jump) | Docs REST API requires internal bookmark/heading IDs |
-| **Markdown Images** | `![alt](https://example.com/img.png)` | REST API cannot upload arbitrary web images into doc body | Use Google Drive upload + Script API (see [docs/images.md](images.md)) |
+| **Markdown Images** | `![alt](https://example.com/img.png)` | CommonMark image tags not directly embedded in doc body | Use surgical step `insertImage` (public HTTPS) or Drive upload + Apps Script (see [docs/images.md](images.md)) |
 | **Raw HTML** | `<a href="...">`, `<b>`, `<div style="...">` | Emitted as literal plaintext string (e.g. `<b>bold</b>`) | Use standard Markdown (`**bold**`, `[link](url)`) |
 | **Reference Link Tags** | `[label][ref]` + `[ref]: url` | `[label][ref]` emitted as literal plain text | Use standard inline links: `[label](url)` |
-| **Smart Chips** | `@person`, `@file` | Emitted as plain text or standard hyperlinks | Docs REST API has no smart chip insertion endpoint |
+| **Smart Chips** | `@person`, `@file` | Emitted as plain text or standard hyperlinks | Standard markdown lexer does not emit chips; use surgical steps: `insertPerson`, `insertRichLink`, or `insertDate` |
 | **Task List Toggling** | Clicking checkbox in Docs | Creates standard Docs interactive checkbox | Checkboxes can be checked/unchecked in the Google Docs UI |

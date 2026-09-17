@@ -4,6 +4,7 @@
 | --- | --- |
 | **Using the CLI** | [../README.md](../README.md) |
 | **Agent skill router** | [../skills/gdocsmith/SKILL.md](../skills/gdocsmith/SKILL.md) |
+| **Architecture / Internals** | [architecture.md](architecture.md) |
 | **Edit loop** | [runbook-diagram.md](runbook-diagram.md) |
 | **Selectors / ops** | [mechanics.md](mechanics.md) |
 | **Taste** | [style.md](style.md) |

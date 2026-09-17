@@ -1,8 +1,4 @@
-/*
-
-Unit tests for Drive revision pin + restore hint.
-
-*/
+/* Unit tests for Drive revision pin + restore hint. */
 
 import { describe, expect, test } from "bun:test";
 import type { GwsClient } from "./gws.ts";

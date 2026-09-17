@@ -1,14 +1,18 @@
-/*
-
-Public exports for the document tape + DOM query layer.
-
-*/
+/* Public exports for the document tape and DOM query layer. */
 
 export type { CompiledDomWrite, ListIndent } from "./apply.ts";
 export {
   applyDom,
+  batchUpdateErrorWrap,
+  buildDocumentStyleRequest,
   compileDom,
+  documentStyleRequestBuilder,
+  domApply,
+  domCompile,
+  googleRequestIndexParse,
   LAST_PARAGRAPH_MSG,
+  nestingIndentResolve,
+  nestingStyleResolve,
   parseGoogleRequestIndex,
   resolveNestingIndent,
   resolveNestingStyle,
@@ -16,18 +20,33 @@ export {
   STOCK_NESTING_INDENT_PT,
   wrapBatchUpdateError,
 } from "./apply.ts";
-export { computeCellChecksum, computeNodeChecksum } from "./checksum.ts";
+
+export {
+  cellChecksumCompute,
+  computeCellChecksum,
+  computeNodeChecksum,
+  nodeChecksumCompute,
+} from "./checksum.ts";
+
 export type {
   CloneNodeRef,
   CloneResolutionContext,
 } from "./clone.ts";
 export {
+  cloneNodeOpsResolve,
+  elementSpecFromNode,
+  intraDocCloneNodeResolve,
   nodeToElementSpec,
   resolveCloneNodeOps,
   resolveIntraDocCloneNode,
 } from "./clone.ts";
+
 export type { UnifiedDiffOptions } from "./diff.ts";
-export { formatUnifiedDiff } from "./diff.ts";
+export {
+  diffUnifiedFormat,
+  formatUnifiedDiff,
+} from "./diff.ts";
+
 export type {
   BulletPreset,
   BulletProps,
@@ -48,7 +67,16 @@ export type {
   SiblingPosition,
   TableSpec,
 } from "./element.ts";
-export { asBulletPreset, BULLET_GLYPH_PRESETS, createCodeBlock, createElement } from "./element.ts";
+export {
+  asBulletPreset,
+  BULLET_GLYPH_PRESETS,
+  bulletPresetAs,
+  codeBlockCreate,
+  createCodeBlock,
+  createElement,
+  elementCreate,
+} from "./element.ts";
+
 export type {
   ExportAuditSummary,
   ExportMarkdownResult,
@@ -56,21 +84,35 @@ export type {
 } from "./export.ts";
 export {
   auditDocNodes,
+  docNodesAudit,
+  documentExportToMarkdown,
   exportDocumentToMarkdown,
   exportTabToMarkdown,
+  tabExportToMarkdown,
 } from "./export.ts";
+
 export {
   assertWritable,
+  bulletTextIsEmpty,
   CHIP_MUTATE_MSG,
+  chipsHave,
   DOUBLE_NUMBER_MSG,
   EMPTY_BULLET_MSG,
   EXISTING_NEST_MSG,
   FAKE_BULLET_MSG,
+  fakeBulletPrefixIs,
   HEADING_BULLET_MSG,
   hasChips,
+  isEmptyBulletText,
+  isFakeBulletPrefix,
+  isNumberedPrefix,
+  numberedPrefixIs,
+  writableAssert,
 } from "./guards.ts";
+
 export type {
   AppliedOpPlan,
+  AppliedOpPlanPreview,
   CellSummary,
   DomOp,
   DomOpFile,
@@ -80,55 +122,109 @@ export type {
   PageSetup,
   ParsedDomFile,
   TabDomOp,
+  TapeMutation,
+  TapeMutationKey,
+  WriteAt,
 } from "./ops.ts";
 export {
   applyOps,
   assertDomDocument,
+  assertNotFragile,
   CELL_FIELD_MSG,
   cellId,
+  dangerousClearExecute,
+  domDocumentAssert,
+  domOpsParse,
   elementFromJson,
   executeDangerousClear,
   extractPageSetup,
   formatUnrecoverableWarning,
   liveDump,
+  nodeSummarize,
+  notFragileAssert,
+  opsApply,
+  pageSetupExtract,
   parseDomOps,
   parseWriteAt,
   resolveTarget,
   summarizeNode,
   TABLE_INSERT_MIX_MSG,
   TAPE_ECHO_CAP,
+  TAPE_MUTATION_KEYS,
+  tapeMutationsApply,
+  targetResolve,
+  unrecoverableWarningFormat,
   WRITE_AT_ONLY_MSG,
+  writeAtParse,
   wrongDocumentMsg,
   wrongTabMsg,
 } from "./ops.ts";
-export type { ParsedDocument, ParsedTape } from "./parse.ts";
-export { parseDocument, parseTape } from "./parse.ts";
-export type { FindHeadingTextOptions, FindNodeTextOptions } from "./query.ts";
+
+export type {
+  ParsedDocument,
+  ParsedTape,
+} from "./parse.ts";
+export {
+  documentParse,
+  parseDocument,
+  parseTape,
+  scopedIdsAssign,
+  tapeParse,
+} from "./parse.ts";
+
+export type {
+  FindHeadingTextOptions,
+  FindNodeTextOptions,
+} from "./query.ts";
 export {
   DocDom,
   findHeadingsByText,
   findNodeAt,
   findNodesByText,
+  followingSiblingsFormat,
   formatFollowingSiblings,
+  formatMissingScopedTargetMsg,
+  headingsByTextFind,
   missingNodeIdMsg,
+  missingScopedTargetMsgFormat,
   neighborhoodFrom,
   nextElementSibling,
+  nodeAtFind,
+  nodeIdMissingMsg,
+  nodeQuery,
+  nodesByTextFind,
+  nodesQueryAll,
+  nodesQueryFrom,
   previousElementSibling,
   queryFrom,
   querySelector,
   querySelectorAll,
 } from "./query.ts";
+
 export type { StylePatch } from "./style.ts";
 export {
+  colorHex,
+  colorOptional,
+  colorRgb,
+  firstLineHanging,
   hangingFirstLine,
   hasIndent,
   hasStyle,
   hasTableChrome,
   hexColor,
+  indentHas,
+  indentOmit,
   isMonospaceFont,
+  monospaceFontIs,
+  point,
+  pt,
+  queryTextStyleUniform,
   rgbColor,
+  styleHas,
+  tableChromeHas,
   uniformQueryTextStyle,
 } from "./style.ts";
+
 export type {
   CellContentAlignment,
   CellParagraph,
@@ -136,6 +232,7 @@ export type {
   DocSegment,
   DocSegmentKind,
   DocSegmentUse,
+  InlineChip,
   InlineImage,
   NamedStyle,
   NodeKind,
@@ -144,22 +241,36 @@ export type {
   TableCell,
 } from "./types.ts";
 export {
+  alignmentAs,
   asAlignment,
   asContentAlignment,
   asNamedStyle,
+  contentAlignmentAs,
   HEADING_STYLES,
+  headingStyleIs,
   isHeadingStyle,
   NAMED_STYLES,
+  namedStyleAs,
   STYLE_TO_LEVEL,
 } from "./types.ts";
-export type { DomMutation, DomWriterOpts } from "./write.ts";
+
+export type {
+  DomMutation,
+  DomWriterOpts,
+  ElementSpec as WriteElementSpec,
+  InsertPosition as WriteInsertPosition,
+} from "./write.ts";
 export {
   DomHandle,
   DomWriter,
+  elementInsertAdjacent,
+  innerTextSet,
   insertAdjacentElement,
+  nodeRemove,
   remove,
   setInnerText,
 } from "./write.ts";
+
 export type {
   ExportYamlResult,
   YamlCodeBlockSpec,
@@ -171,8 +282,12 @@ export type {
   YamlTreePayload,
 } from "./yaml.ts";
 export {
+  documentExportToYaml,
   exportDocumentToYaml,
   exportTabToYaml,
   nodeToYamlSpec,
   parseYamlTree,
+  tabExportToYaml,
+  yamlSpecFromNode,
+  yamlTreeParse,
 } from "./yaml.ts";

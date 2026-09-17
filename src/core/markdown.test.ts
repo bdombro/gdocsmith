@@ -1,8 +1,5 @@
-/*
+/* Unit tests for markdown ingestion to Google Docs DOM ElementSpec. */
 
-Unit tests for markdown ingestion to Google Docs DOM ElementSpec.
-
-*/
 import { describe, expect, test } from "bun:test";
 import { compileDom, DomWriter, type ElementSpec, type ParagraphSpec, parseDocument } from "./dom/index.ts";
 import {
@@ -10,7 +7,7 @@ import {
   chunkMarkdownElements,
   executeMarkdownInsert,
   executeYamlInsert,
-  extractFrontmatter,
+  markdownStylesParse,
   normalizeCustomStyle,
   parseMarkdownToElements,
 } from "./markdown.ts";
@@ -450,33 +447,25 @@ Final paragraph.
     expect(batchUpdateCalls).toBe(3);
   });
 
-  test("extractFrontmatter parses YAML frontmatter and returns clean markdown content", () => {
-    const raw = `---
-styles:
-  myStyle:
-    italic: true
-    color: "#999999"
----
-# Hello World
-Some body content.
-`;
-    const { content, frontmatter } = extractFrontmatter(raw);
-    expect(frontmatter).toEqual({
-      styles: {
-        myStyle: {
-          italic: true,
-          color: "#999999",
-        },
+  test("markdownStylesParse reads a flattened named-style map", () => {
+    const styles = markdownStylesParse({
+      myStyle: {
+        italic: true,
+        color: "#999999",
       },
     });
-    expect(content.trim()).toBe("# Hello World\nSome body content.");
+    expect(styles.myStyle).toEqual({
+      foregroundColor: "#999999",
+      italic: true,
+    });
   });
 
-  test("extractFrontmatter handles markdown without frontmatter", () => {
-    const raw = "# Just Markdown\nNo frontmatter.";
-    const { content, frontmatter } = extractFrontmatter(raw);
-    expect(frontmatter).toBeNull();
-    expect(content).toBe(raw);
+  test("markdownStylesParse does not unwrap a nested styles key", () => {
+    expect(
+      markdownStylesParse({
+        styles: { alert: { color: "#e11d48" } },
+      }).alert,
+    ).toBeUndefined();
   });
 
   test("normalizeCustomStyle normalizes friendly style keys", () => {
@@ -508,29 +497,42 @@ Some body content.
     });
   });
 
-  test("parseMarkdownToElements strips frontmatter from generated elements", () => {
+  test("parseMarkdownToElements treats leading --- as a page break, not YAML styles", () => {
     const md = `---
 styles:
   alert:
     color: "#e11d48"
-    bold: true
 ---
 # First Heading
-A paragraph with ::alert[critical alert]:: here.
 `;
     const elements = parseMarkdownToElements(md);
-    expect(elements).toHaveLength(2);
-    expect(asParagraph(elements[0]).namedStyleType).toBe("HEADING_1");
-    expect(asParagraph(elements[0]).text).toBe("First Heading");
-
-    expect(asParagraph(elements[1]).namedStyleType).toBe("NORMAL_TEXT");
-    expect(asParagraph(elements[1]).text).toBe("A paragraph with ::alert[critical alert]:: here.");
+    expect(elements[0]?.kind).toBe("pageBreak");
+    expect(elements.some((el) => el.kind === "paragraph" && asParagraph(el).text === "First Heading")).toBe(true);
+    expect(elements.length).toBeGreaterThan(2);
   });
 
-  test("executeMarkdownInsert applies custom style directives defined in frontmatter", async () => {
+  test("parseMarkdownToElements applies ::styleName[]:: from customStyles, not from markdown YAML", () => {
+    const md = `# First Heading
+A paragraph with ::alert[critical alert]:: here.
+`;
+    const elements = parseMarkdownToElements(md, {
+      customStyles: markdownStylesParse({
+        alert: {
+          color: "#e11d48",
+          bold: true,
+        },
+      }),
+    });
+    expect(elements).toHaveLength(2);
+    expect(asParagraph(elements[0]).namedStyleType).toBe("HEADING_1");
+    expect(asParagraph(elements[1]).text).toBe("A paragraph with ::alert[critical alert]:: here.");
+    expect(asParagraph(elements[1]).runs?.length).toBeGreaterThan(0);
+  });
+
+  test("executeMarkdownInsert applies custom style directives from customStyles", async () => {
     const batchRequests: object[][] = [];
     const docWithContent = {
-      documentId: "doc-test-frontmatter",
+      documentId: "doc-test-styles",
       revisionId: "rev-1",
       body: {
         content: [
@@ -553,20 +555,20 @@ A paragraph with ::alert[critical alert]:: here.
       },
     };
 
-    const md = `---
-styles:
-  greyNote:
-    style: italic
-    color: "#6b7280"
-    size: 9
----
-# Welcome
+    const md = `# Welcome
 Here is a ::greyNote[subtle grey footnote]::.
 `;
 
     const result = await executeMarkdownInsert({
       client: mockClient as any,
-      documentId: "doc-test-frontmatter",
+      customStyles: markdownStylesParse({
+        greyNote: {
+          style: "italic",
+          color: "#6b7280",
+          size: 9,
+        },
+      }),
+      documentId: "doc-test-styles",
       markdown: md,
     });
 
@@ -712,5 +714,24 @@ nodes:
     // Verifies splitAfter was called at index 30 (end of second paragraph)
     const splitReq = batchUpdatePayload.find((r) => r.insertText?.location?.index === 29);
     expect(splitReq).toBeDefined();
+  });
+
+  /** Tests that chunkOpsBuild handles replaceAnchor on nested bullets by inserting and removing empty anchor. */
+  test("chunkOpsBuild handles replaceAnchor on nested bullets by inserting and removing empty anchor", () => {
+    const chunk = {
+      kind: "elements" as const,
+      specs: [
+        {
+          bullet: { nestingLevel: 1, preset: "BULLET_DISC_CIRCLE_SQUARE" as const },
+          kind: "paragraph" as const,
+          namedStyleType: "NORMAL_TEXT" as const,
+          text: "Nested first item",
+        },
+      ],
+    };
+    const ops = buildChunkOps(1, "afterend", chunk, true);
+    expect(ops).toHaveLength(2);
+    expect(ops[0]?.insertAdjacentElement).toBeDefined();
+    expect(ops[1]?.remove).toBe(true);
   });
 });

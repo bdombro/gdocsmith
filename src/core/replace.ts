@@ -1,12 +1,4 @@
-/*
-
-Core find-and-replace execution.
-
-Supports:
-1. Native Google Docs API replaceAllText requests for fast whole-doc / whole-tab literal batch replaces.
-2. DOM-based regex engine (executeRegexReplace) for pattern matching with capture groups and heading section neighborhood scoping (--at).
-
-*/
+/* Core find-and-replace execution. */
 
 import {
   type AppliedOpPlan,
@@ -118,7 +110,7 @@ export const MULTI_TAB_REPLACE_REQUIRED_MSG =
   "This Doc has multiple tabs. Specify --tab <id|title> to target a single tab, or --all-tabs to replace across the entire document.";
 
 /** Constructs a global RegExp with appropriate flags. */
-export function createGlobalRegex(pattern: string | RegExp, ignoreCase = false): RegExp {
+export function globalRegexCreate(pattern: string | RegExp, ignoreCase = false): RegExp {
   if (pattern instanceof RegExp) {
     let flags = pattern.flags;
     if (!flags.includes("g")) flags += "g";
@@ -138,11 +130,18 @@ export function createGlobalRegex(pattern: string | RegExp, ignoreCase = false):
   return new RegExp(str, flags);
 }
 
+/** Constructs a global RegExp with appropriate flags (alias for globalRegexCreate). */
+export const createGlobalRegex = globalRegexCreate;
+
 /** Escapes special regex characters in a literal string. */
-export function escapeRegExp(str: string): string {
+export function regExpEscape(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** Escapes special regex characters in a literal string (alias for regExpEscape). */
+export const escapeRegExp = regExpEscape;
+
+/** Tests whether a string matches a RegExp pattern without mutating sticky indices. */
 function hasRegexMatch(str: string, regex: RegExp): boolean {
   const clone = new RegExp(regex.source, regex.flags);
   return clone.test(str);
@@ -151,7 +150,7 @@ function hasRegexMatch(str: string, regex: RegExp): boolean {
 /**
  * Executes batch find-and-replace using Google Docs native replaceAllText.
  */
-export async function executeBatchReplace(
+export async function batchReplaceExecute(
   documentId: string,
   options: BatchReplaceOptions,
 ): Promise<BatchReplaceSummary> {
@@ -281,10 +280,13 @@ export async function executeBatchReplace(
   };
 }
 
+/** Executes batch find-and-replace using Google Docs native replaceAllText (alias for batchReplaceExecute). */
+export const executeBatchReplace = batchReplaceExecute;
+
 /**
  * Executes regex-based or heading-scoped find-and-replace using the DOM surgical engine.
  */
-export async function executeRegexReplace(
+export async function regexReplaceExecute(
   documentId: string,
   options: RegexReplaceOptions,
 ): Promise<RegexReplaceSummary> {
@@ -534,6 +536,9 @@ export async function executeRegexReplace(
   };
 }
 
+/** Executes regex-based or heading-scoped find-and-replace using the DOM surgical engine (alias for regexReplaceExecute). */
+export const executeRegexReplace = regexReplaceExecute;
+
 /** Collects node ids whose text contains any of the find strings (pre-replace). */
 function collectTouchedNodeIds(
   gdoc: Gdoc,
@@ -571,6 +576,7 @@ function collectTouchedNodeIds(
   return ids;
 }
 
+/** Checks whether a node or its table cells contain any of the given search strings. */
 function nodeMatchesFinds(node: DocNode, finds: string[], matchCase: boolean): boolean {
   const hay = node.text ?? "";
   const markup = node.markup ?? "";
@@ -592,12 +598,14 @@ function nodeMatchesFinds(node: DocNode, finds: string[], matchCase: boolean): b
   return false;
 }
 
+/** Determines whether a haystack string contains a needle substring with case sensitivity option. */
 function containsText(hay: string, needle: string, matchCase: boolean): boolean {
   if (!needle) return false;
   if (matchCase) return hay.includes(needle);
   return hay.toLowerCase().includes(needle.toLowerCase());
 }
 
+/** Extracts unique node anchor IDs from a list of replacement match records. */
 function uniqueMatchIds(matches: RegexReplacementMatch[]): Array<number | string> {
   const ids: Array<number | string> = [];
   const seen = new Set<string>();

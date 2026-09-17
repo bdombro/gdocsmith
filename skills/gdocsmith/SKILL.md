@@ -10,20 +10,26 @@ enabled: true
 
 # gdocsmith
 
-> Auth: `gws auth export` credentials. If missing, run `gws generate-skills` / sign in with the shared Google Workspace skill.
+Surgical Google Docs authoring via sequential declarative steps. Prefer the MCP tool `run` (or CLI `gdocsmith run`). No bash heredocs or raw `documents.batchUpdate` scripts.
 
-Prefer one MCP `run` call with ordered `steps`. Do not generate bash heredocs for this app.
+> **Auth:** `gws auth export` credentials. If missing, use the shared Google Workspace skill or `gws`.
 
-## Hard rules
+> CLI: Do use the CLI directly
 
-- Raw IDs only: extract between `/document/d/` and `/edit`. Full URLs are rejected.
-- NEVER compute `startIndex` / `endIndex` or write `batchUpdate` scripts.
-- Copy heading-scoped ids from `kind: query` into `at` / `after` / `before` (e.g. `h.arch.9a1b`).
-- Prefer one `run` with ordered `steps` over many round trips. Use `kind: dump` + `as:` to return only what you need.
-- No demolish-and-rebuild: never delete a section/tab only to re-insert identical content. Use `replaceSection` / `replaceMarkdown` / `replace`.
-- Real headings only (`TITLE` / `HEADING_1`–`HEADING_3`). No bullet glyphs in surgical text. Run-in bold: `**Label**: value`.
+## Agent protocol
 
-## Workflow
+1. **Probe first:** one doc, `open` then `query` with `as:` (query writes `dumped`). Succeed once before batching unfamiliar `kind`s.
+2. **Bindings:** only `open` and `query` create aliases. `query` with `as:` also writes `dumped[as]`. `dump` re-emits an existing alias; dump of an open alias is `{ id, title }` only.
+3. **Unfamiliar steps:** read MCP `run` schema or `gdocsmith run --help` for that `kind` before use. This file is not the full step reference.
+4. **Errors:** stop and report. No CLI fallback unless the user allows it. MCP tool rejection on write is a blocker — ask the user to approve or unblock.
+
+## Execution model
+
+Prefer one `run` per phase (read → copy → edit). Batch steps only after each `kind` in the batch has worked in this session.
+
+Step schemas: `gdocsmith run --help` or MCP tool description.
+
+### Canonical workflow
 
 ```yaml
 dryRun: false
@@ -38,14 +44,11 @@ steps:
   - kind: replace
     at: statusNode
     replace: "Status: APPROVED"
-  - kind: dump
-    as: statusNode
 ```
 
-Step kinds: `open`, `close`, `createDoc`, `copyDoc`, `renameDoc`, `trashDoc`, `deleteDoc`, `addTab`, `renameTab`, `deleteTab`, `insertMarkdown`, `replaceText`, `query`, `dump`, plus surgical edits (`replace`, `innerText`, `remove`, `replaceMarkdown`, `replaceSection`, `element`).
+Full-doc markdown: `kind: query` + `output: markdown` + `as:` (add `tab:` for one tab, `under:` for a section). Dump of the open alias is metadata only.
 
-Aliases: `ops` for `steps`; `action` / `op` / `step` for `kind`.
-
-- `dryRun: true` → unified git diff, no write.
-- Live → `highlights` and `dumped`.
-
+1. **`open`** — bind document handle to `as`.
+2. **`query`** — locate nodes; bind matches to `as` (heading-scoped ids like `h.arch.9a1b`); writes `dumped`. Use `output: markdown` or `yaml` to serialize.
+3. **Edits** (`replace`, `replaceMarkdown`, `replaceSection`, `markdownInsert`, `kind: surgical` for chips/tables/clones) — anchor with `at`, `after`, or `before`.
+4. **`dump`** — optional re-emit of a bound alias into `dumped`.

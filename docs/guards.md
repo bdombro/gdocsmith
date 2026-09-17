@@ -22,19 +22,18 @@ Two agents on the **same** Doc: last write wins; restore the pinned Drive revisi
 
 ## Agent mistakes the API catches
 
-| Agent does | Skill does |
-|------------|------------|
+| Agent does | gdocsmith does |
+|------------|----------------|
 | Pass UTF-16 `start` as `at` | `at` is snapshot id only. A leftover offset like `4457` errors (“looks like a leftover startIndex”). Query never prints `start`. |
 | Guess the tape / skip query | Loop: `kind: query` + `dump`, then mutate using those ids. |
-| Coarse range delete + insert | Surgical steps only: one node, one action. No range replace on this path. |
+| Coarse range delete + insert | Surgical steps only: one node, one action. Use `replaceSection` to diff and preserve unchanged nodes. |
 | `insertAdjacentElement("afterbegin")` into a heading | Refused. Siblings only (`beforebegin` / `afterend`). `innerText` does not change `namedStyleType`. |
-| `HEADING_2 NORMAL_TEXT` (descendant) | Refused. Headings do not wrap body. Use `+` or `~`. |
-| `:nth-of-type` for “3rd under this heading” | Document-global. Walk dumped nodes + `at`, or query with `under:` / `contains:`. |
+| Assume headings wrap body | Refused. Headings do not wrap body. Use `under:` to query section neighborhoods. |
 | Ambiguous query | Throws with matches. Write steps still need `at`. |
 | `createElement("ul")` / paste `- item` | Unknown kind / fake-bullet refuse. Real `bullet` + `nestingLevel`; glyph not in the text. |
 | Bullet on a heading, empty `"-"`, or `"1. "` with `bullet` | Refused (`assertWritable`). Placeholder: `"<item>"`. |
 | `remove` the last paragraph | Refused (Docs trailing newline). `innerText` to clear. |
-| Markdown importer / paste markdown | Not this path. The tape apply prints is the verification. |
+| Demolish-and-rebuild (delete section & re-insert) | Refused by Anti-Demolition Guard if nodes are identical. Use `replaceSection` for diff-preserving updates, or `replaceMarkdown` / `markdownInsert`. |
 | Retry the same file after failure | Indexes moved. Stop. Restore pin if half-written. New query. |
 | Inherit bold from a template placeholder | Insert/innerText clear inline styles, then apply markup. |
 | Nest a list by setting only `indentStart` | Apply prefixes leading tabs from `nestingLevel`, then `createParagraphBullets`. |

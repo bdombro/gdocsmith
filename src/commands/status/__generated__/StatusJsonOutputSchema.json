@@ -7,7 +7,9 @@
       "description": "App version from program root."
     }
   },
-  "required": ["version"],
+  "required": [
+    "version"
+  ],
   "additionalProperties": false,
   "definitions": {}
 }

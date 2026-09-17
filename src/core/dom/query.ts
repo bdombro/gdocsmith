@@ -1,41 +1,7 @@
-/*
+/* DOM-ish query over the sibling tape. No descendant combinator — headings */
 
-DOM-ish query over the sibling tape. No descendant combinator — headings
-do not wrap following paragraphs.
-
-Selector grammar:
-  selector  := compound ( combinator compound )*
-  combinator := '+' | '~'
-  compound  := type? extra*
-  type      := '*' | 'paragraph' | 'table' | 'tableOfContents' | 'sectionBreak'
-             | 'pageBreak' | 'heading' | NamedStyle
-  extra     := '[bullet]' | ':not([bullet])' | '[image]' | ':not([image])'
-             | ':empty' | ':contains(' text ')'
-             | ':first-of-type' | ':last-of-type' | ':last-child'
-             | ':nth-of-type(' INTEGER ')' | ':nth-sibling(' INTEGER ')'
-             | ':nth(' INTEGER ')'
-
-`heading` matches TITLE, SUBTITLE, or HEADING_*. Adjacent `+` selects the
-immediate right-hand sibling. Chained `+` walks further siblings
-(`HEADING_2 + NORMAL_TEXT + NORMAL_TEXT` = second after that H2).
-
-`~` is following-sibling, filtered: walk forward, keep matches, stop before
-the next heading whose outline level is <= the left node's
-(`HEADING_2 ~ NORMAL_TEXT[bullet]:nth(1)` = first bullet after that H2,
-skipping a tip paragraph). Not unbounded rest-of-doc.
-
-:nth-of-type(n) is 1-indexed among **all body siblings** of that type.
-:nth-sibling(n) is 1-indexed following siblings from the previous `+` compound
-(counts non-matches). n=1 ≡ adjacent `+`.
-:nth(n) is 1-indexed among matches of this compound in a `~` step.
-
-:contains() matches unique-or-not substring on node.text (not CSS; jQuery-like).
-:empty matches whitespace-only / missing text **and no images or chips** (spacers, blank headings).
-
-*/
-
-import type { Gdoc } from "../gdoc.ts";
-import type { GoogleDoc } from "../types.ts";
+import type { Gdoc } from "~/core/gdoc.ts";
+import type { GoogleDoc } from "~/core/types.ts";
 import { type ParsedTape, parseTape } from "./parse.ts";
 import { type DocNode, isHeadingStyle, NAMED_STYLES, type NamedStyle, STYLE_TO_LEVEL } from "./types.ts";
 
@@ -52,6 +18,7 @@ type Compound = {
   hasImage?: boolean;
   lastChild?: boolean;
   lastOfType?: boolean;
+  nestingLevel?: number;
   nth?: number;
   nthOfType?: number;
   nthSibling?: number;
@@ -68,7 +35,7 @@ const RELATIVE_NTH_MSG =
   ":nth-sibling(n) and :nth(n) are relative to the previous combinator. Use HEADING_2 + NORMAL_TEXT:nth-sibling(3) or HEADING_2 ~ NORMAL_TEXT[bullet]:nth(1).";
 
 /** Error when `at` does not match a heading-scoped id on this tape. */
-export function missingNodeIdMsg(id: number | string, tapeLen: number, kind: "node" | "heading" = "node"): string {
+export function nodeIdMissingMsg(id: number | string, tapeLen: number, kind: "node" | "heading" = "node"): string {
   const what = kind === "heading" ? "heading" : "node";
   if (typeof id === "string" && (id.includes(".") || id.startsWith("h."))) {
     return `No ${what} with id "${id}". Copy id from query (heading-scoped, e.g. h.arch.9a1b).`;
@@ -81,15 +48,21 @@ export function missingNodeIdMsg(id: number | string, tapeLen: number, kind: "no
   return `No ${what} with id ${id}.${hint}`;
 }
 
+/** Error when `at` does not match a heading-scoped id on this tape (alias for nodeIdMissingMsg). */
+export const missingNodeIdMsg = nodeIdMissingMsg;
+
 /** Finds a tape node by heading-scoped id, headingId, or numeric snapshot id. */
-export function findNodeAt(nodes: DocNode[], at: number | string): DocNode | undefined {
+export function nodeAtFind(nodes: DocNode[], at: number | string): DocNode | undefined {
   return nodes.find(
     (n) => n.tapeIndex === at || n.scopedId === at || n.headingId === at || String(n.tapeIndex) === String(at),
   );
 }
 
+/** Finds a tape node by heading-scoped id, headingId, or numeric snapshot id (alias for nodeAtFind). */
+export const findNodeAt = nodeAtFind;
+
 /** Formats a rich error message for missing heading-scoped targets with available headings or section nodes. */
-export function formatMissingScopedTargetMsg(nodes: DocNode[], rawAt: string | number): string {
+export function missingScopedTargetMsgFormat(nodes: DocNode[], rawAt: string | number): string {
   const atStr = String(rawAt);
   const parts = atStr.split(".");
   const headingPart = atStr.startsWith("h.") && parts.length > 1 ? `${parts[0]}.${parts[1]}` : parts[0]!;
@@ -115,12 +88,18 @@ export function formatMissingScopedTargetMsg(nodes: DocNode[], rawAt: string | n
 
   const sectionNodes = targetHeading ? neighborhoodFrom(nodes, targetHeading.tapeIndex) : nodes.slice(0, 10);
   const current = sectionNodes
-    .map((n) => `  - ${n.scopedId ?? n.tapeIndex} (${n.namedStyleType ?? n.kind}): "${previewText(n.text ?? "")}"`)
+    .map(
+      (n) =>
+        `  - ${n.scopedId ?? n.tapeIndex} (${n.namedStyleType ?? n.kind}${n.bullet ? `[bullet${n.bullet.nestingLevel ? `:${n.bullet.nestingLevel}` : ""}]` : ""}): "${previewText(n.text ?? "")}"`,
+    )
     .slice(0, 15)
     .join("\n");
 
   return `Node '${atStr}' not found under section '${headingPart}'.\nCurrent nodes in this section:\n${current || "  (none)"}`;
 }
+
+/** Formats a rich error message for missing heading-scoped targets (alias for missingScopedTargetMsgFormat). */
+export const formatMissingScopedTargetMsg = missingScopedTargetMsgFormat;
 
 /**
  * Contiguous tape slice from `startId` through following siblings, stopping
@@ -221,12 +200,15 @@ export class DocDom {
 }
 
 /** First match of `sel` on a node list. */
-export function querySelector(nodes: DocNode[], sel: string): DocNode | null {
-  return querySelectorAll(nodes, sel)[0] ?? null;
+export function nodeQuery(nodes: DocNode[], sel: string): DocNode | null {
+  return nodesQueryAll(nodes, sel)[0] ?? null;
 }
 
+/** First match of `sel` on a node list (alias for nodeQuery). */
+export const querySelector = nodeQuery;
+
 /** All matches of `sel` on a node list, in tape order. */
-export function querySelectorAll(nodes: DocNode[], sel: string): DocNode[] {
+export function nodesQueryAll(nodes: DocNode[], sel: string): DocNode[] {
   const steps = parseSelector(sel);
   const first = steps[0];
   if (!first) return [];
@@ -235,12 +217,15 @@ export function querySelectorAll(nodes: DocNode[], sel: string): DocNode[] {
   return walkCompounds(nodes, candidates, steps.slice(1));
 }
 
+/** All matches of `sel` on a node list (alias for nodesQueryAll). */
+export const querySelectorAll = nodesQueryAll;
+
 /**
  * Matches `select` with the first compound pinned to `start`.
  * `HEADING_2 + NORMAL_TEXT:nth-sibling(3)` from a titled H2 is the 3rd sibling after it.
  * `HEADING_2 ~ NORMAL_TEXT[bullet]:nth(1)` is the first matching sibling, skipping others.
  */
-export function queryFrom(nodes: DocNode[], start: DocNode, select: string): DocNode[] {
+export function nodesQueryFrom(nodes: DocNode[], start: DocNode, select: string): DocNode[] {
   const steps = parseSelector(select);
   const first = steps[0];
   if (!first) return [];
@@ -253,11 +238,14 @@ export function queryFrom(nodes: DocNode[], start: DocNode, select: string): Doc
   return walkCompounds(nodes, [start], steps.slice(1));
 }
 
+/** Matches select with the first compound pinned to start (alias for nodesQueryFrom). */
+export const queryFrom = nodesQueryFrom;
+
 /**
  * Compact dump of following siblings until the next same-or-higher heading
  * (capped). Used when a heading-relative select misses.
  */
-export function formatFollowingSiblings(nodes: DocNode[], from: DocNode): string {
+export function followingSiblingsFormat(nodes: DocNode[], from: DocNode): string {
   const lines: string[] = [];
   const stopLevel = headingLevel(from);
   let sib = nextElementSibling(nodes, from);
@@ -265,7 +253,7 @@ export function formatFollowingSiblings(nodes: DocNode[], from: DocNode): string
   while (sib && lines.length < SIBLING_DUMP_CAP) {
     i++;
     const style = sib.namedStyleType ?? sib.kind;
-    const bullet = sib.bullet ? "[bullet]" : "";
+    const bullet = sib.bullet ? `[bullet${sib.bullet.nestingLevel ? `:${sib.bullet.nestingLevel}` : ""}]` : "";
     const image = sib.images?.length ? "[image]" : "";
     const text = sib.kind === "paragraph" ? ` ${JSON.stringify(previewText(sib.text ?? ""))}` : "";
     lines.push(`  ${i} ${style}${bullet}${image}${text}`);
@@ -280,6 +268,10 @@ export function formatFollowingSiblings(nodes: DocNode[], from: DocNode): string
   return lines.join("\n");
 }
 
+/** Compact dump of following siblings (alias for followingSiblingsFormat). */
+export const formatFollowingSiblings = followingSiblingsFormat;
+
+/** Walks candidates across combinator steps (+ or ~) and returns matches. */
 function walkCompounds(nodes: DocNode[], start: DocNode[], rest: SelectorStep[]): DocNode[] {
   let candidates = start;
   for (const step of rest) {
@@ -306,6 +298,7 @@ function walkCompounds(nodes: DocNode[], start: DocNode[], rest: SelectorStep[])
   return candidates;
 }
 
+/** Finds adjacent siblings matching compound selectors. */
 function adjacentMatch(nodes: DocNode[], a: DocNode, compound: Compound): DocNode[] {
   const steps = compound.nthSibling ?? 1;
   let sib: DocNode | null = a;
@@ -317,6 +310,7 @@ function adjacentMatch(nodes: DocNode[], a: DocNode, compound: Compound): DocNod
   return [sib];
 }
 
+/** Finds following siblings matching compound selectors within the current outline level. */
 function followingMatches(nodes: DocNode[], a: DocNode, compound: Compound): DocNode[] {
   const matches: DocNode[] = [];
   const stopLevel = headingLevel(a);
@@ -333,12 +327,14 @@ function followingMatches(nodes: DocNode[], a: DocNode, compound: Compound): Doc
   return matches;
 }
 
+/** Asserts relative nth rules on compound selectors. */
 function assertRelativeNthOnRest(compound: Compound): void {
   if (compound.nthSibling != null || compound.nth != null) {
     throw new Error(RELATIVE_NTH_MSG);
   }
 }
 
+/** Formats a compact preview string of node text. */
 function previewText(text: string): string {
   const one = text.split(/\s+/).join(" ").trim();
   return one.length <= 40 ? one : `${one.slice(0, 39)}…`;
@@ -363,7 +359,7 @@ export function previousElementSibling(nodes: DocNode[], node: DocNode): DocNode
  * Throws on ambiguous different titles or same-level duplicate titles
  * unless `opts.at` is the heading snapshot id from query.
  */
-export function findHeadingsByText(nodes: DocNode[], needle: string, opts: FindHeadingTextOptions = {}): DocNode {
+export function headingsByTextFind(nodes: DocNode[], needle: string, opts: FindHeadingTextOptions = {}): DocNode {
   const headings = nodes.filter((n) => isHeading(n));
   if (opts.at !== undefined) {
     const hit = headings.find((h) => h.tapeIndex === opts.at);
@@ -406,11 +402,14 @@ export function findHeadingsByText(nodes: DocNode[], needle: string, opts: FindH
   return ranked[0]!;
 }
 
+/** Resolves a heading by text (alias for headingsByTextFind). */
+export const findHeadingsByText = headingsByTextFind;
+
 /**
  * Resolves any paragraph by exact text or unique substring.
  * Throws on duplicates unless `opts.at` is the snapshot id from query.
  */
-export function findNodesByText(nodes: DocNode[], needle: string, opts: FindNodeTextOptions = {}): DocNode {
+export function nodesByTextFind(nodes: DocNode[], needle: string, opts: FindNodeTextOptions = {}): DocNode {
   const paras = nodes.filter((n) => n.kind === "paragraph");
   if (opts.at !== undefined) {
     const hit = paras.find((p) => p.tapeIndex === opts.at);
@@ -440,6 +439,9 @@ export function findNodesByText(nodes: DocNode[], needle: string, opts: FindNode
   }
   return hits[0]!;
 }
+
+/** Resolves any paragraph by text (alias for nodesByTextFind). */
+export const findNodesByText = nodesByTextFind;
 
 /** Splits a selector on `+` / `~`; rejects descendant combinators. */
 function parseSelector(input: string): SelectorStep[] {
@@ -521,8 +523,36 @@ function parseCompound(raw: string): Compound {
   return compound;
 }
 
+/** Consumes an extra filter (e.g. [bullet], :empty, :nth-of-type) from a selector compound. */
 function consumeExtra(rest: string, pos: number, compound: Compound, raw: string): number {
   const slice = rest.slice(pos);
+  const bulletLevelMatch = /^\[bullet:(\d+)\]/.exec(slice);
+  if (bulletLevelMatch) {
+    if (compound.hasBullet === false) {
+      throw new Error(`Conflicting bullet filters: ${raw}`);
+    }
+    compound.hasBullet = true;
+    compound.nestingLevel = Number(bulletLevelMatch[1]);
+    return pos + bulletLevelMatch[0].length;
+  }
+  const levelAttrMatch = /^\[(?:nesting[lL]evel|level)=\s*(\d+)\s*\]/.exec(slice);
+  if (levelAttrMatch) {
+    if (compound.hasBullet === false) {
+      throw new Error(`Conflicting bullet filters: ${raw}`);
+    }
+    compound.hasBullet = true;
+    compound.nestingLevel = Number(levelAttrMatch[1]);
+    return pos + levelAttrMatch[0].length;
+  }
+  const levelPseudoMatch = /^:level\(\s*(\d+)\s*\)/.exec(slice);
+  if (levelPseudoMatch) {
+    if (compound.hasBullet === false) {
+      throw new Error(`Conflicting bullet filters: ${raw}`);
+    }
+    compound.hasBullet = true;
+    compound.nestingLevel = Number(levelPseudoMatch[1]);
+    return pos + levelPseudoMatch[0].length;
+  }
   if (slice.startsWith("[bullet]")) {
     if (compound.hasBullet === false) {
       throw new Error(`Conflicting bullet filters: ${raw}`);
@@ -610,10 +640,14 @@ function consumeExtra(rest: string, pos: number, compound: Compound, raw: string
   throw new Error(`Invalid selector: ${raw}`);
 }
 
+/** Tests if a candidate document node satisfies the compound selector criteria. */
 function matchesCompound(nodes: DocNode[], node: DocNode, c: Compound): boolean {
   if (!matchesType(node, c.type)) return false;
   if (c.hasBullet === true && !node.bullet) return false;
   if (c.hasBullet === false && node.bullet) return false;
+  if (c.nestingLevel != null) {
+    if (!node.bullet || (node.bullet.nestingLevel ?? 0) !== c.nestingLevel) return false;
+  }
   if (c.hasImage === true && !node.images?.length) return false;
   if (c.hasImage === false && node.images?.length) return false;
   if (c.empty) {
@@ -647,6 +681,7 @@ function matchesCompound(nodes: DocNode[], node: DocNode, c: Compound): boolean 
   return true;
 }
 
+/** Matches node against tag kind, heading wildcard, or named style type. */
 function matchesType(node: DocNode, type: string | undefined): boolean {
   if (!type || type === "*") return true;
   if (type === "heading") return isHeading(node);
@@ -669,18 +704,22 @@ function ofTypeIndex(nodes: DocNode[], node: DocNode, type: string | undefined):
   return n;
 }
 
+/** Determines whether a node is a document heading. */
 function isHeading(node: DocNode): boolean {
   return node.kind === "paragraph" && isHeadingStyle(node.namedStyleType);
 }
 
+/** Returns the numeric outline hierarchy level of a heading node. */
 function headingLevel(node: DocNode): number {
   return STYLE_TO_LEVEL[(node.namedStyleType ?? "NORMAL_TEXT") as NamedStyle] ?? 99;
 }
 
+/** Finds index of a node in the tape node array by tapeIndex. */
 function indexOfNode(nodes: DocNode[], node: DocNode): number {
   return nodes.findIndex((n) => n.tapeIndex === node.tapeIndex);
 }
 
+/** Normalizes whitespace and casing for string comparison. */
 function normalize(s: string): string {
   return s.split(/\s+/).join(" ").toLowerCase();
 }

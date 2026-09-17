@@ -1,8 +1,5 @@
-/*
+/* Unit tests for Paragraph read helpers. */
 
-Unit tests for Paragraph read helpers.
-
-*/
 import { describe, expect, test } from "bun:test";
 import { Paragraph } from "./paragraph.ts";
 

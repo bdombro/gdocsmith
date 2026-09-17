@@ -1,8 +1,4 @@
-/*
-
-Read-only helpers for extracting text and style facts from API paragraph objects.
-
-*/
+/* Read-only helpers for extracting text and style facts from API paragraph objects. */
 
 import type { DocElement } from "./types.ts";
 

@@ -1,114 +1,56 @@
 #!/usr/bin/env bun
-/** Bump version, build, publish zip release; optional `--purge` to drop stale GitHub releases. */
+/* Release management script: bumps version, builds binary, tags, pushes, and publishes GitHub releases. */
 
 import * as fs from "node:fs";
 import { stdin as input, stdout as output } from "node:process";
 import * as readline from "node:readline/promises";
 import { $ } from "bun";
-import { createIdentity } from "./create-identity.ts";
+import { identityCreate } from "./createIdentity.ts";
 import {
-  buildReleaseArchive,
   type ReleaseTag,
+  releaseArchiveBuild,
+  releaseFormulaRender,
   releaseRepoSlug,
-  renderReleaseFormula,
-  selectStaleReleaseTags,
-} from "./formula-shared.ts";
+  releaseTagsSelectStale,
+} from "./formulaShared.ts";
 
-const { key } = createIdentity;
-const formulaPath = `Formula/${key}.rb`;
-const binaryPath = `dist/${key}`;
-const programPath = "src/program.ts";
-
-/** Allowed semver bump kinds for `scripts/release.ts`. */
+/** Allowed semver bump kinds for release automation. */
 type Bump = "major" | "minor" | "patch";
 
+/** Parsed command-line options for release. */
 interface ReleaseOptions {
+  /** Semver segment to increment. */
   bump?: Bump;
-  purge: boolean;
-  yes: boolean;
+  /** Whether to simulate actions without mutating. */
   dryRun: boolean;
+  /** Whether to delete older GitHub releases. */
+  purge: boolean;
+  /** Whether to skip interactive confirmation prompts. */
+  yes: boolean;
 }
 
-/** Entry point: release bump, purge-only, or release then purge. */
-async function main(): Promise<void> {
-  const options = parseOptions(process.argv.slice(2));
-  if (options.purge && !options.bump) {
-    await purgeStaleReleases(options);
-    return;
-  }
-  if (!options.bump) {
-    usage();
-  }
-  await runRelease(options.bump, options);
-}
-
-/** Prints usage and exits. */
-function usage(): never {
-  process.stderr.write(
-    "Usage:\n" +
-      "  bun scripts/release.ts <major|minor|patch> [--purge]\n" +
-      "  bun scripts/release.ts --purge [--yes] [--dry-run]\n",
-  );
-  process.exit(1);
-}
-
-/** Parses argv into release options. */
-function parseOptions(argv: string[]): ReleaseOptions {
-  const yes = argv.includes("--yes");
-  const dryRun = argv.includes("--dry-run");
-  const purge = argv.includes("--purge");
-  const bump = argv.find((a): a is Bump => a === "major" || a === "minor" || a === "patch");
-  for (const arg of argv) {
-    if (arg.startsWith("--") && arg !== "--purge" && arg !== "--yes" && arg !== "--dry-run") {
-      usage();
-    }
-  }
-  if (!purge && !bump) {
-    usage();
-  }
-  return { bump, purge, yes, dryRun };
-}
-
-/** Full release pipeline for a semver bump. */
-async function runRelease(bump: Bump, options: ReleaseOptions): Promise<void> {
-  const testResult = await $`just test`.nothrow();
-  if (testResult.exitCode !== 0) process.exit(testResult.exitCode);
-
-  const currentVersion = readCurrentVersion();
-  const newVersion = applyBump(currentVersion, bump);
-  console.log(`Releasing ${currentVersion} → ${newVersion}`);
-
-  updateVersion(newVersion);
-  updateChangelog(newVersion);
-
-  const buildResult = await $`just build`.nothrow();
-  if (buildResult.exitCode !== 0) process.exit(buildResult.exitCode);
-
-  const archivePath = await updateReleaseFormula(newVersion);
-
-  const docgenResult = await $`just docgen`.nothrow();
-  if (docgenResult.exitCode !== 0) process.exit(docgenResult.exitCode);
-
-  await commitAndTag(newVersion);
-  await createGithubRelease(`v${newVersion}`, archivePath);
-
-  console.log(`Released v${newVersion}`);
-
-  if (options.purge) {
-    await purgeStaleReleases(options);
-  }
-}
-
-/** Applies a semver bump to `current` and returns the new version string. */
-function applyBump(current: string, bump: Bump): string {
+/**
+ * Calculates a new semver string by incrementing the requested segment.
+ */
+function semverBumpApply(
+  /** Current semantic version string. */
+  current: string,
+  /** Segment to increment. */
+  bump: Bump,
+): string {
   const [major, minor, patch] = current.split(".").map(Number) as [number, number, number];
   if (bump === "major") return `${major + 1}.0.0`;
   if (bump === "minor") return `${major}.${minor + 1}.0`;
   return `${major}.${minor}.${patch + 1}`;
 }
 
-/** Commits all staged changes, creates an annotated tag, and pushes both to origin. */
-async function commitAndTag(newVersion: string): Promise<void> {
+/**
+ * Commits staged changes, creates an annotated git tag, and pushes to origin.
+ */
+async function gitCommitAndTag(
+  /** Newly incremented version string. */
+  newVersion: string,
+): Promise<void> {
   await $`git add -A`;
   await $`git commit -m ${`chore: release v${newVersion}`}`;
   await $`git tag v${newVersion}`;
@@ -116,13 +58,22 @@ async function commitAndTag(newVersion: string): Promise<void> {
   await $`git push origin v${newVersion}`;
 }
 
-/** Creates a GitHub release for `tag` with the zip archive attached. */
-async function createGithubRelease(tag: string, archivePath: string): Promise<void> {
+/**
+ * Creates a release on GitHub and attaches the compiled zip archive.
+ */
+async function githubReleaseCreate(
+  /** Release tag name. */
+  tag: string,
+  /** File path to the zip archive asset. */
+  archivePath: string,
+): Promise<void> {
   await $`gh release create ${tag} ${archivePath} --title ${tag} --generate-notes`;
 }
 
-/** Reads the CLI version from `src/program.ts`. */
-function readCurrentVersion(): string {
+/**
+ * Reads the current semantic version from src/program.ts.
+ */
+function versionCurrentRead(): string {
   const content = fs.readFileSync(programPath, "utf-8");
   const match = /version:\s*"([^"]+)"/.exec(content);
   if (!match) {
@@ -142,8 +93,13 @@ function readCurrentVersion(): string {
   return version;
 }
 
-/** Promotes `[Unreleased]` to a dated version section in `CHANGELOG.md`. */
-function updateChangelog(newVersion: string): void {
+/**
+ * Appends the new release section with date under [Unreleased] in CHANGELOG.md.
+ */
+function changelogUpdate(
+  /** Newly incremented version string. */
+  newVersion: string,
+): void {
   const changelogPath = "CHANGELOG.md";
   const content = fs.readFileSync(changelogPath, "utf-8");
   const date = new Date().toISOString().slice(0, 10);
@@ -153,26 +109,41 @@ function updateChangelog(newVersion: string): void {
   );
 }
 
-/** Overwrites the version literal in `src/program.ts`. */
-function updateVersion(newVersion: string): void {
+/**
+ * Updates the version literal in src/program.ts.
+ */
+function programVersionUpdate(
+  /** Newly incremented version string. */
+  newVersion: string,
+): void {
   const content = fs.readFileSync(programPath, "utf-8");
   fs.writeFileSync(programPath, content.replace(/version:\s*"[^"]+"/, `version: "${newVersion}"`));
 }
 
-/** Writes the release formula with zip URL and archive sha256; returns the archive path. */
-async function updateReleaseFormula(version: string): Promise<string> {
-  const { archivePath, sha256 } = await buildReleaseArchive(binaryPath);
-  fs.writeFileSync(formulaPath, renderReleaseFormula(version, sha256));
+/**
+ * Re-renders the Homebrew formula file with updated release URL and sha256 checksum.
+ */
+async function releaseFormulaUpdate(
+  /** Newly incremented version string. */
+  version: string,
+): Promise<string> {
+  const { archivePath, sha256 } = await releaseArchiveBuild(binaryPath);
+  fs.writeFileSync(formulaPath, releaseFormulaRender(version, sha256));
   return archivePath;
 }
 
-/** Deletes all GitHub releases except the most recent. */
-async function purgeStaleReleases(options: ReleaseOptions): Promise<void> {
+/**
+ * Deletes older releases from GitHub, retaining only the most recent.
+ */
+async function staleReleasesPurge(
+  /** Options configuring purge behavior. */
+  options: ReleaseOptions,
+): Promise<void> {
   const list = await $`gh release list -R ${releaseRepoSlug} --json tagName,publishedAt`.nothrow();
   if (list.exitCode !== 0) process.exit(list.exitCode);
 
   const releases = JSON.parse(list.stdout.toString()) as ReleaseTag[];
-  const toDelete = selectStaleReleaseTags(releases);
+  const toDelete = releaseTagsSelectStale(releases);
 
   if (toDelete.length === 0) {
     console.log("No stale releases to delete.");
@@ -208,5 +179,96 @@ async function purgeStaleReleases(options: ReleaseOptions): Promise<void> {
     console.log(`Deleted ${tag}`);
   }
 }
+
+/**
+ * Prints usage guidance and exits.
+ */
+function usage(): never {
+  process.stderr.write(
+    "Usage:\n" +
+      "  bun scripts/release.ts <major|minor|patch> [--purge]\n" +
+      "  bun scripts/release.ts --purge [--yes] [--dry-run]\n",
+  );
+  process.exit(1);
+}
+
+/**
+ * Parses argv into ReleaseOptions.
+ */
+function optionsParse(
+  /** Command line arguments excluding runtime binary. */
+  argv: string[],
+): ReleaseOptions {
+  const bump = argv.find((a): a is Bump => a === "major" || a === "minor" || a === "patch");
+  const dryRun = argv.includes("--dry-run");
+  const purge = argv.includes("--purge");
+  const yes = argv.includes("--yes");
+  for (const arg of argv) {
+    if (arg.startsWith("--") && arg !== "--purge" && arg !== "--yes" && arg !== "--dry-run") {
+      usage();
+    }
+  }
+  if (!purge && !bump) {
+    usage();
+  }
+  return { bump, dryRun, purge, yes };
+}
+
+/**
+ * Orchestrates the full release process: test, bump, build, formula, tag, push, release.
+ */
+async function releaseRun(
+  /** Semver segment to increment. */
+  bump: Bump,
+  /** Options controlling purge and execution. */
+  options: ReleaseOptions,
+): Promise<void> {
+  const testResult = await $`just test`.nothrow();
+  if (testResult.exitCode !== 0) process.exit(testResult.exitCode);
+
+  const currentVersion = versionCurrentRead();
+  const newVersion = semverBumpApply(currentVersion, bump);
+  console.log(`Releasing ${currentVersion} → ${newVersion}`);
+
+  programVersionUpdate(newVersion);
+  changelogUpdate(newVersion);
+
+  const buildResult = await $`just build`.nothrow();
+  if (buildResult.exitCode !== 0) process.exit(buildResult.exitCode);
+
+  const archivePath = await releaseFormulaUpdate(newVersion);
+
+  const docgenResult = await $`just docgen`.nothrow();
+  if (docgenResult.exitCode !== 0) process.exit(docgenResult.exitCode);
+
+  await gitCommitAndTag(newVersion);
+  await githubReleaseCreate(`v${newVersion}`, archivePath);
+
+  console.log(`Released v${newVersion}`);
+
+  if (options.purge) {
+    await staleReleasesPurge(options);
+  }
+}
+
+/**
+ * Main command entry point.
+ */
+async function main(): Promise<void> {
+  const options = optionsParse(process.argv.slice(2));
+  if (options.purge && !options.bump) {
+    await staleReleasesPurge(options);
+    return;
+  }
+  if (!options.bump) {
+    usage();
+  }
+  await releaseRun(options.bump, options);
+}
+
+const { key } = identityCreate;
+const formulaPath = `Formula/${key}.rb`;
+const binaryPath = `dist/${key}`;
+const programPath = "src/program.ts";
 
 await main();

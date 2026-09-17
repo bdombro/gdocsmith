@@ -1,12 +1,7 @@
-/*
+/* Clone / copy node utility for insertAdjacentElement. */
 
-Clone / copy node utility for insertAdjacentElement.
-Supports copying nodes with 100% fidelity (namedStyleType, styles, bullets, indents, alignments).
-
-*/
-
-import { Gdoc } from "../gdoc.ts";
-import { resolveApplyTab } from "../tabs.ts";
+import { Gdoc } from "~/core/gdoc.ts";
+import { resolveApplyTab } from "~/core/tabs.ts";
 import type { ElementSpec, ParagraphSpec, TableSpec } from "./element.ts";
 import type { DomOp } from "./ops.ts";
 import { parseDocument } from "./parse.ts";
@@ -14,16 +9,133 @@ import { findNodeAt, missingNodeIdMsg } from "./query.ts";
 import type { StylePatch } from "./style.ts";
 import type { DocNode, TableCell } from "./types.ts";
 
+/**
+ * Reference pointing to an existing node to clone.
+ */
 export type CloneNodeRef = {
+  /** Optional document ID to clone from. */
   fromDoc?: string;
-  fromTab?: string;
-  innerText?: string;
-  nodeId?: number | string;
+  /** Alias for nodeId. */
   fromNode?: number | string;
+  /** Optional tab ID to clone from. */
+  fromTab?: string;
+  /** Replacement text content. */
+  innerText?: string;
+  /** Scoped ID or tape index of the node to clone. */
+  nodeId?: number | string;
 };
 
-/** Converts a parsed DocNode into an insertable ElementSpec preserving styles and structure. */
-export function nodeToElementSpec(node: DocNode, options?: { innerText?: string }): ElementSpec {
+/**
+ * Context required to resolve cross-document or cross-tab node clones.
+ */
+export type CloneResolutionContext = {
+  /** Pre-loaded default document instance. */
+  defaultDoc?: Gdoc;
+  /** Default document ID. */
+  defaultDocumentId: string;
+  /** Default tab ID. */
+  defaultTabId?: string;
+};
+
+/**
+ * Normalizes cloneNode/cloneNodes specs on ops and resolves cross-document and cross-tab references.
+ * Mutates ops so that op.insertAdjacentElement.elements contains the resolved ElementSpecs.
+ */
+export async function cloneNodeOpsResolve(
+  /** Array of DOM operations to resolve. */
+  ops: DomOp[],
+  /** Resolution context containing active document and tab. */
+  context: CloneResolutionContext,
+): Promise<void> {
+  const docCache = new Map<string, Gdoc>();
+  if (context.defaultDoc) {
+    docCache.set(context.defaultDocumentId, context.defaultDoc);
+  }
+
+  async function getDoc(docId: string): Promise<Gdoc> {
+    if (!docCache.has(docId)) {
+      const loaded = await Gdoc.load(docId);
+      docCache.set(docId, loaded);
+    }
+    return docCache.get(docId)!;
+  }
+
+  for (let i = 0; i < ops.length; i++) {
+    const op = ops[i]!;
+    if (!op.insertAdjacentElement) continue;
+
+    const adj = op.insertAdjacentElement;
+    const refs: CloneNodeRef[] = [];
+
+    if (adj.cloneNode != null) {
+      if (typeof adj.cloneNode === "object") {
+        refs.push(adj.cloneNode as CloneNodeRef);
+      } else {
+        refs.push({ nodeId: adj.cloneNode });
+      }
+    }
+
+    if (Array.isArray(adj.cloneNodes)) {
+      for (const item of adj.cloneNodes) {
+        if (typeof item === "object") {
+          refs.push(item as CloneNodeRef);
+        } else {
+          refs.push({ nodeId: item });
+        }
+      }
+    }
+
+    if (!refs.length) continue;
+
+    const resolvedSpecs: Array<Record<string, unknown>> = [];
+
+    for (const ref of refs) {
+      const docId = ref.fromDoc ?? context.defaultDocumentId;
+      const rawGdoc = await getDoc(docId);
+      const tabRef = ref.fromTab ?? (docId === context.defaultDocumentId ? context.defaultTabId : undefined);
+      const liveTab = resolveApplyTab(rawGdoc.data, tabRef);
+      const targetGdoc = liveTab.tabId ? rawGdoc.withTab(liveTab.tabId) : rawGdoc;
+      const parsed = parseDocument(targetGdoc);
+
+      const targetId = ref.nodeId ?? ref.fromNode;
+      if (targetId == null) {
+        throw new Error(`ops[${i}] cloneNode requires a heading-scoped id, got ${JSON.stringify(ref)}`);
+      }
+
+      const node = findNodeAt(parsed.nodes, targetId);
+      if (!node) {
+        throw new Error(
+          `ops[${i}] cloneNode: ${missingNodeIdMsg(targetId, parsed.nodes.length)} (doc "${docId}" tab "${liveTab.tabId ?? "default"}")`,
+        );
+      }
+
+      const spec = elementSpecFromNode(node, { innerText: ref.innerText });
+      resolvedSpecs.push(spec as unknown as Record<string, unknown>);
+    }
+
+    const existingElements = Array.isArray(adj.elements) ? adj.elements : adj.element ? [adj.element] : [];
+
+    adj.elements = [...existingElements, ...resolvedSpecs];
+    delete adj.element;
+    delete adj.cloneNode;
+    delete adj.cloneNodes;
+  }
+}
+
+/**
+ * Alias for cloneNodeOpsResolve.
+ */
+export const resolveCloneNodeOps = cloneNodeOpsResolve;
+
+/**
+ * Converts a parsed DocNode into an insertable ElementSpec preserving styles and structure.
+ */
+export function elementSpecFromNode(
+  /** Parsed source node. */
+  node: DocNode,
+  /** Optional override options such as replacement innerText. */
+  options?: { innerText?: string },
+): ElementSpec {
   if (node.kind === "paragraph") {
     const warnings: string[] = [];
     let text = options?.innerText ?? node.markup ?? node.text ?? "";
@@ -137,8 +249,20 @@ export function nodeToElementSpec(node: DocNode, options?: { innerText?: string 
   throw new Error(`Cannot clone node ${node.tapeIndex} of unsupported kind "${node.kind}"`);
 }
 
-/** Resolves a CloneNodeRef from a local list of DocNodes. */
-export function resolveIntraDocCloneNode(ref: number | string | CloneNodeRef, nodes: DocNode[]): ElementSpec {
+/**
+ * Alias for elementSpecFromNode.
+ */
+export const nodeToElementSpec = elementSpecFromNode;
+
+/**
+ * Resolves a CloneNodeRef from a local list of DocNodes.
+ */
+export function intraDocCloneNodeResolve(
+  /** Node reference to resolve. */
+  ref: number | string | CloneNodeRef,
+  /** Array of candidate document nodes. */
+  nodes: DocNode[],
+): ElementSpec {
   const idRaw = typeof ref === "object" ? (ref.nodeId ?? ref.fromNode) : ref;
   if (idRaw == null) {
     throw new Error(`cloneNode requires a heading-scoped id, got: ${JSON.stringify(ref)}`);
@@ -148,91 +272,10 @@ export function resolveIntraDocCloneNode(ref: number | string | CloneNodeRef, no
     throw new Error(`cloneNode: ${missingNodeIdMsg(idRaw, nodes.length)}`);
   }
   const innerText = typeof ref === "object" ? ref.innerText : undefined;
-  return nodeToElementSpec(found, { innerText });
+  return elementSpecFromNode(found, { innerText });
 }
-
-export type CloneResolutionContext = {
-  defaultDoc?: Gdoc;
-  defaultDocumentId: string;
-  defaultTabId?: string;
-};
 
 /**
- * Normalizes cloneNode/cloneNodes specs on ops and resolves cross-document and cross-tab references.
- * Mutates ops so that op.insertAdjacentElement.elements contains the resolved ElementSpecs.
+ * Alias for intraDocCloneNodeResolve.
  */
-export async function resolveCloneNodeOps(ops: DomOp[], context: CloneResolutionContext): Promise<void> {
-  const docCache = new Map<string, Gdoc>();
-  if (context.defaultDoc) {
-    docCache.set(context.defaultDocumentId, context.defaultDoc);
-  }
-
-  async function getDoc(docId: string): Promise<Gdoc> {
-    if (!docCache.has(docId)) {
-      const loaded = await Gdoc.load(docId);
-      docCache.set(docId, loaded);
-    }
-    return docCache.get(docId)!;
-  }
-
-  for (let i = 0; i < ops.length; i++) {
-    const op = ops[i]!;
-    if (!op.insertAdjacentElement) continue;
-
-    const adj = op.insertAdjacentElement;
-    const refs: CloneNodeRef[] = [];
-
-    if (adj.cloneNode != null) {
-      if (typeof adj.cloneNode === "object") {
-        refs.push(adj.cloneNode as CloneNodeRef);
-      } else {
-        refs.push({ nodeId: adj.cloneNode });
-      }
-    }
-
-    if (Array.isArray(adj.cloneNodes)) {
-      for (const item of adj.cloneNodes) {
-        if (typeof item === "object") {
-          refs.push(item as CloneNodeRef);
-        } else {
-          refs.push({ nodeId: item });
-        }
-      }
-    }
-
-    if (!refs.length) continue;
-
-    const resolvedSpecs: Array<Record<string, unknown>> = [];
-
-    for (const ref of refs) {
-      const docId = ref.fromDoc ?? context.defaultDocumentId;
-      const rawGdoc = await getDoc(docId);
-      const tabRef = ref.fromTab ?? (docId === context.defaultDocumentId ? context.defaultTabId : undefined);
-      const liveTab = resolveApplyTab(rawGdoc.data, tabRef);
-      const targetGdoc = liveTab.tabId ? rawGdoc.withTab(liveTab.tabId) : rawGdoc;
-      const parsed = parseDocument(targetGdoc);
-
-      const targetId = ref.nodeId ?? ref.fromNode;
-      if (targetId == null) {
-        throw new Error(`ops[${i}] cloneNode requires a heading-scoped id, got ${JSON.stringify(ref)}`);
-      }
-
-      const node = findNodeAt(parsed.nodes, targetId);
-      if (!node) {
-        throw new Error(
-          `ops[${i}] cloneNode: ${missingNodeIdMsg(targetId, parsed.nodes.length)} (doc "${docId}" tab "${liveTab.tabId ?? "default"}")`,
-        );
-      }
-
-      const spec = nodeToElementSpec(node, { innerText: ref.innerText });
-      resolvedSpecs.push(spec as unknown as Record<string, unknown>);
-    }
-
-    const existingElements = Array.isArray(adj.elements) ? adj.elements : adj.element ? [adj.element] : [];
-
-    adj.elements = [...existingElements, ...resolvedSpecs];
-    delete adj.element;
-    delete adj.cloneNode;
-    delete adj.cloneNodes;
-  }
-}
+export const resolveIntraDocCloneNode = intraDocCloneNodeResolve;

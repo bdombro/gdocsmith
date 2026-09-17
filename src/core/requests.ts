@@ -1,8 +1,4 @@
-/*
-
-Pure builders for Google Docs batchUpdate request objects (no API calls).
-
-*/
+/* Pure builders for Google Docs batchUpdate request objects (no API calls). */
 
 import { hangingFirstLine, optionalColor, pt, type StylePatch } from "./dom/style.ts";
 import { InlineMarkup, type TextRun } from "./inline.ts";
@@ -927,6 +923,7 @@ export class RequestBuilder {
   }
 }
 
+/** Builds a Docs API Location object with optional segmentId and tabId. */
 function loc(index: number, segmentId?: string, tabId?: string): { index: number; segmentId?: string; tabId?: string } {
   return {
     index,
@@ -935,6 +932,7 @@ function loc(index: number, segmentId?: string, tabId?: string): { index: number
   };
 }
 
+/** Builds a Docs API Range object with optional segmentId and tabId. */
 function rng(
   startIndex: number,
   endIndex: number,

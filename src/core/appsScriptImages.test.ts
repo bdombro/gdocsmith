@@ -1,14 +1,10 @@
-/*
-
-Unit tests for Apps Script image insert wrapper.
-
-*/
+/* Unit tests for Apps Script image insert wrapper. */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AppsScriptImages } from "./apps-script-images.ts";
+import { AppsScriptImages } from "./appsScriptImages.ts";
 import type { GwsClient } from "./gws.ts";
 
 describe("AppsScriptImages", () => {
@@ -16,19 +12,20 @@ describe("AppsScriptImages", () => {
   let prevConfigDir: string | undefined;
 
   beforeEach(() => {
-    prevConfigDir = process.env.GWS_DOCS_EDIT_CONFIG_DIR;
-    configDir = mkdtempSync(join(tmpdir(), "gws-docs-edit-config-"));
-    process.env.GWS_DOCS_EDIT_CONFIG_DIR = configDir;
+    prevConfigDir = process.env.GDOCSMITH_CONFIG_DIR;
+    configDir = mkdtempSync(join(tmpdir(), "gdocsmith-config-"));
+    process.env.GDOCSMITH_CONFIG_DIR = configDir;
   });
 
   afterEach(() => {
     if (prevConfigDir === undefined) {
-      delete process.env.GWS_DOCS_EDIT_CONFIG_DIR;
+      delete process.env.GDOCSMITH_CONFIG_DIR;
     } else {
-      process.env.GWS_DOCS_EDIT_CONFIG_DIR = prevConfigDir;
+      process.env.GDOCSMITH_CONFIG_DIR = prevConfigDir;
     }
     rmSync(configDir, { recursive: true, force: true });
   });
+
   test("ensureProject creates and uploads when missing", async () => {
     const calls: string[][] = [];
     const client: GwsClient = {

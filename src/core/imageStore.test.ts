@@ -1,12 +1,8 @@
-/*
-
-Unit tests for composite image store (Drive / https). SAS is gone.
-
-*/
+/* Unit tests for composite image store (Drive / https). SAS is gone. */
 
 import { describe, expect, test } from "bun:test";
-import { AppsScriptImages } from "./apps-script-images.ts";
-import { CompositeImageStore } from "./image-store.ts";
+import { AppsScriptImages } from "./appsScriptImages.ts";
+import { CompositeImageStore } from "./imageStore.ts";
 
 describe("CompositeImageStore", () => {
   test("resolve passes through https URLs", async () => {

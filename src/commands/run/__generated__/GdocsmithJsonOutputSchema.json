@@ -6,10 +6,6 @@
       "type": "string",
       "description": "Unified git diff of changes (populated on dryRun)."
     },
-    "documentId": {
-      "type": "string",
-      "description": "Document ID mutations were applied to (legacy shape)."
-    },
     "dryRun": {
       "type": "boolean",
       "description": "True when `dryRun: true` previewed without writing."
@@ -17,7 +13,7 @@
     "dumped": {
       "type": "object",
       "additionalProperties": {},
-      "description": "Values extracted by `kind: dump`."
+      "description": "Values extracted by `kind: query` (with `as:`) and `kind: dump`."
     },
     "highlights": {
       "type": "array",
@@ -30,9 +26,9 @@
       "type": "boolean",
       "description": "Status confirmation for minimal response."
     },
-    "opsCount": {
+    "stepsCount": {
       "type": "number",
-      "description": "Steps executed."
+      "description": "Workflow steps executed."
     }
   },
   "additionalProperties": false,
@@ -56,7 +52,9 @@
           "type": "string"
         }
       },
-      "required": ["id"],
+      "required": [
+        "id"
+      ],
       "additionalProperties": false,
       "description": "Document item in highlights."
     },
@@ -79,7 +77,9 @@
           "type": "string"
         }
       },
-      "required": ["id"],
+      "required": [
+        "id"
+      ],
       "additionalProperties": false,
       "description": "Tab item in highlights."
     },
@@ -93,7 +93,10 @@
           "type": "string"
         }
       },
-      "required": ["id", "text"],
+      "required": [
+        "id",
+        "text"
+      ],
       "additionalProperties": false,
       "description": "Newly created heading item in highlights."
     }

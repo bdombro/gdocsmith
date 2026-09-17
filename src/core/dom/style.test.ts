@@ -1,3 +1,5 @@
+/* Tests for typography and monospace font family recognition. */
+
 import { describe, expect, test } from "bun:test";
 import { isMonospaceFont } from "./style.ts";
 

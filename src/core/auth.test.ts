@@ -1,8 +1,4 @@
-/*
-
-Unit tests for OAuth token handling and gws auth extraction.
-
-*/
+/* Unit tests for OAuth token handling and gws auth extraction. */
 
 import { beforeEach, describe, expect, test } from "bun:test";
 import { type GwsCredentials, refreshAccessToken, resetTokenCache } from "./auth.ts";

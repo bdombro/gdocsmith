@@ -1,13 +1,10 @@
-/*
+/* Unit tests for tape querySelector / siblings / findHeadingsByText. */
 
-Unit tests for tape querySelector / siblings / findHeadingsByText.
-
-*/
 import { describe, expect, test } from "bun:test";
 import { Gdoc } from "../gdoc.ts";
 import { PARAGRAPH_STYLES } from "../styles.ts";
-import { mockDoc } from "../test-fixtures.ts";
-import { DocDom, neighborhoodFrom } from "./query.ts";
+import { mockDoc } from "../testFixtures.ts";
+import { DocDom, followingSiblingsFormat, neighborhoodFrom } from "./query.ts";
 import type { DocNode } from "./types.ts";
 
 function sampleDom() {
@@ -183,6 +180,16 @@ describe("DocDom query", () => {
     expect(dom.querySelector("HEADING_2~NORMAL_TEXT:nth(1)")?.text).toBe("In progress.");
   });
 
+  /** Tests filtering bullets by nestingLevel using [bullet:N], [level=N], or :level(N). */
+  test("filters bullets by nestingLevel using [bullet:N], [level=N], or :level(N)", () => {
+    const dom = sampleDom();
+    const status = dom.findHeadingsByText("Status");
+    expect(dom.queryFrom(status, "HEADING_2 ~ NORMAL_TEXT[bullet:1]").map((n) => n.text)).toEqual(["Nested"]);
+    expect(dom.queryFrom(status, "HEADING_2 ~ NORMAL_TEXT[level=1]").map((n) => n.text)).toEqual(["Nested"]);
+    expect(dom.queryFrom(status, "HEADING_2 ~ NORMAL_TEXT:level(1)").map((n) => n.text)).toEqual(["Nested"]);
+    expect(dom.queryFrom(status, "HEADING_2 ~ NORMAL_TEXT[level=0]").map((n) => n.text)).toEqual(["Field"]);
+  });
+
   test("~ does not leak into the next same-level heading", () => {
     const dom = sampleDom();
     const status = dom.findHeadingsByText("Status");
@@ -334,6 +341,15 @@ describe("DocDom query", () => {
     expect(dom.querySelector("heading[bullet]")?.text).toBe("Agenda");
     expect(dom.querySelector("HEADING_2")?.namedStyleType).toBe("HEADING_2");
     expect(dom.querySelectorAll("NORMAL_TEXT[bullet]").map((n) => n.text)).toEqual(["Item"]);
+  });
+
+  /** Tests that followingSiblingsFormat formats nested bullet levels accurately. */
+  test("followingSiblingsFormat includes nestingLevel annotation for nested bullets", () => {
+    const dom = sampleDom();
+    const status = dom.findHeadingsByText("Status");
+    const dump = followingSiblingsFormat(dom.nodes, status);
+    expect(dump).toContain('NORMAL_TEXT[bullet] "Field"');
+    expect(dump).toContain('NORMAL_TEXT[bullet:1] "Nested"');
   });
 });
 

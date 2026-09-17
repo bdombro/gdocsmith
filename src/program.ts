@@ -1,15 +1,12 @@
-/*
-gdocsmith CliProgram — command registration only.
-
-Regenerate docs: just docgen
-*/
+/* gdocsmith CliProgram — command registration only. */
 
 import type { CliProgram } from "argsbarg";
 import readmeText from "../README.md" with { type: "text" };
-import { createIdentity } from "../scripts/create-identity.ts";
+import { createIdentity } from "../scripts/createIdentity.ts";
 import { runCommand } from "./commands/run/command.ts";
 import { statusCommand } from "./commands/status/command.ts";
 
+/** Root CLI program configuration for gdocsmith. */
 export const program = {
   commands: [runCommand, statusCommand],
   description: createIdentity.desc,

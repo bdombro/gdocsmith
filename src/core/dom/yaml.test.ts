@@ -1,3 +1,5 @@
+/* Tests for exporting and parsing document and tab YAML DOM trees. */
+
 import { describe, expect, test } from "bun:test";
 import type { DocNode } from "./types.ts";
 import { exportDocumentToYaml, exportTabToYaml, parseYamlTree } from "./yaml.ts";

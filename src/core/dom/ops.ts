@@ -1,20 +1,13 @@
-/*
-
-JSON ops for the surgical write API. Agents write this file; CLI applies it.
-
-Each op targets one tape node by snapshot `at`. insertAdjacentElement and
-remove are exclusive. innerText / namedStyleType / bullet may combine with
-style (alignment folds into style). query --selector is read-only.
-
-*/
+/* JSON ops for the surgical write API. Agents write this file; CLI applies it. */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { InlineMarkup, type InlineRunInput } from "../inline.ts";
-import type { GoogleDoc } from "../types.ts";
+import { InlineMarkup, type InlineRunInput } from "~/core/inline.ts";
+import type { GoogleDoc } from "~/core/types.ts";
 import { computeNodeChecksum } from "./checksum.ts";
 import { type CloneNodeRef, resolveIntraDocCloneNode } from "./clone.ts";
 import {
   asBulletPreset,
+  type BulletPreset,
   type BulletProps,
   type CreateParagraphProps,
   createCodeBlock,
@@ -25,7 +18,7 @@ import {
   stripTrailingNewline,
 } from "./element.ts";
 import { CHIP_MUTATE_MSG, EXISTING_NEST_MSG, HEADING_BULLET_MSG, hasChips } from "./guards.ts";
-import { parseFrontmatterStyles, parseMarkdownToElements } from "./markdown-parser.ts";
+import { type MarkdownParseOptions, markdownStylesParse, parseMarkdownToElements } from "./markdownParser.ts";
 import { DocDom, formatMissingScopedTargetMsg, missingNodeIdMsg, neighborhoodFrom } from "./query.ts";
 import { hangingFirstLine, hasIndent, hasStyle, type StylePatch } from "./style.ts";
 import {
@@ -44,8 +37,8 @@ import type { DomWriter } from "./write.ts";
 
 const PREVIEW_LEN = 80;
 
-/** One surgical op. Targets a node by "at", "after", or "before". */
-export type DomOp = {
+/** One surgical tape mutation. Targets a node by "at", "after", or "before". */
+export type TapeMutation = {
   /** Anchor node to insert after (sets position to "afterend"). */
   after?: number | string;
   /** Paragraph or table-cell alignment (START / CENTER / END / JUSTIFIED). */
@@ -67,21 +60,27 @@ export type DomOp = {
   cloneNodes?: Array<number | string | CloneNodeRef>;
   /** Removes the target heading and all following siblings until the next same-or-higher heading. */
   dangerousRemoveSection?: boolean;
-  /** Detached element spec to insert at anchor (e.g. { kind: "paragraph", text: "..." }). */
-  element?: Record<string, unknown>;
   deleteTableColumn?: boolean | { col?: number };
   deleteTableRow?: boolean | { row?: number };
   duplicateTableRow?: boolean | { insertBelow?: boolean; row?: number };
+  /** Detached element spec to insert at anchor (e.g. { kind: "paragraph", text: "..." }). */
+  element?: Record<string, unknown>;
   /** Array of detached element specs to insert sequentially at anchor. */
   elements?: Array<Record<string, unknown>>;
   /** Local file path to read markdown/text from for insertMarkdown, replaceMarkdown, or replaceSection. */
   file?: string;
   /** Force destructive mutation even if targeting a fragile node (chips, equations, TOC). */
   force?: boolean;
-  /** Frontmatter attributes (e.g. { styles: { callout: { color: "#f00" } } }) for markdown parsing. */
-  markdownFrontmatter?: Record<string, unknown>;
-  /** Alias for markdownFrontmatter. */
-  frontmatter?: Record<string, unknown>;
+  /** Treat the first markdown `#` as TITLE when parsing insertMarkdown / replaceMarkdown / replaceSection. */
+  h1IsTitle?: boolean;
+  innerText?: string;
+  insertAdjacentElement?: {
+    cloneNode?: number | string | CloneNodeRef;
+    cloneNodes?: Array<number | string | CloneNodeRef>;
+    element?: Record<string, unknown>;
+    elements?: Array<Record<string, unknown>>;
+    position?: InsertPosition;
+  };
   insertDate?: { dateFormat?: string; displayText?: string; timestamp?: string };
   insertFootnote?: { text?: string };
   insertImage?: { heightPt?: number; uri: string; widthPt?: number };
@@ -92,14 +91,8 @@ export type DomOp = {
   insertSectionBreak?: boolean | { sectionType?: "CONTINUOUS" | "NEXT_PAGE" };
   insertTableColumn?: boolean | { col?: number; insertRight?: boolean };
   insertTableRow?: boolean | { cells?: string[]; insertBelow?: boolean; row?: number };
-  innerText?: string;
-  insertAdjacentElement?: {
-    cloneNode?: number | string | CloneNodeRef;
-    cloneNodes?: Array<number | string | CloneNodeRef>;
-    element?: Record<string, unknown>;
-    elements?: Array<Record<string, unknown>>;
-    position?: InsertPosition;
-  };
+  /** Named `::styleName[]::` directive styles (`{ alert: { color: "#f00" } }`). Distinct from native `style`. */
+  markdownStyles?: Record<string, unknown>;
   /** Change namedStyleType on an existing paragraph (demote leftover H3, etc.). */
   namedStyleType?: NamedStyle;
   /** Sibling insert position: "afterend" (default for after) or "beforebegin" (default for before). */
@@ -119,12 +112,79 @@ export type DomOp = {
   style?: StylePatch;
   /** Table styling (pinnedHeaderRows, preventOverflow, columnWidth, etc.). */
   tableStyle?: StylePatch;
+  /**
+   * Refused at apply time — Docs REST API has no table page alignment.
+   * Use `columnWidth` or `cellTextAlignment` instead.
+   */
+  tableAlignment?: ParagraphAlignment;
 };
 
-/** Tab-level ops for multi-tab apply. */
+/**
+ * Canonical {@link TapeMutation} property names. The run adapter must forward
+ * every key; the type check below fails if the object type and this list drift.
+ */
+export const TAPE_MUTATION_KEYS = [
+  "after",
+  "alignment",
+  "as",
+  "at",
+  "before",
+  "bullet",
+  "cloneNode",
+  "cloneNodes",
+  "dangerousRemoveSection",
+  "deleteTableColumn",
+  "deleteTableRow",
+  "duplicateTableRow",
+  "element",
+  "elements",
+  "file",
+  "force",
+  "h1IsTitle",
+  "innerText",
+  "insertAdjacentElement",
+  "insertDate",
+  "insertFootnote",
+  "insertImage",
+  "insertMarkdown",
+  "insertPerson",
+  "insertRichLink",
+  "insertSectionBreak",
+  "insertTableColumn",
+  "insertTableRow",
+  "markdownStyles",
+  "namedStyleType",
+  "position",
+  "remove",
+  "replace",
+  "replaceMarkdown",
+  "replaceSection",
+  "replaceSectionMarkdown",
+  "runs",
+  "style",
+  "tableAlignment",
+  "tableStyle",
+] as const;
+
+/** Property name of {@link TapeMutation}. */
+export type TapeMutationKey = (typeof TAPE_MUTATION_KEYS)[number];
+
+type TapeMutationKeysComplete =
+  Exclude<keyof TapeMutation, TapeMutationKey> extends never
+    ? Exclude<TapeMutationKey, keyof TapeMutation> extends never
+      ? true
+      : never
+    : never;
+const _tapeMutationKeysComplete: TapeMutationKeysComplete = true;
+void _tapeMutationKeysComplete;
+
+/** @deprecated Use TapeMutation. */
+export type DomOp = TapeMutation;
+
+/** Tab-level mutations for multi-tab apply. */
 export type TabDomOp = {
   dangerousClear?: boolean;
-  ops: DomOp[];
+  ops: TapeMutation[];
   tabId?: string;
   tabTitle?: string;
 };
@@ -138,9 +198,9 @@ export type PageSetup = {
     top?: number;
   };
   orientation?: "LANDSCAPE" | "PORTRAIT";
+  pageHeight?: number;
   pageSize?: "LETTER" | "LEGAL" | "TABLOID" | "A3" | "A4" | "A5" | "CUSTOM";
   pageWidth?: number;
-  pageHeight?: number;
 };
 
 /** File shape: query JSON + `ops`, or multi-tab `tabs`. Header/footer files also stamp `tape` + `segmentId`. */
@@ -211,6 +271,9 @@ export type AppliedOpPlan = {
   warnings?: string[];
 };
 
+/** Subset of {@link AppliedOpPlan} attached to batchUpdate error context. */
+export type AppliedOpPlanPreview = Pick<AppliedOpPlan, "action" | "index" | "target">;
+
 /** Compact cell row for `query --full` (no API indexes). */
 export type CellSummary = {
   alignment?: ParagraphAlignment;
@@ -233,6 +296,7 @@ export type NodeSummary = {
   alignment?: ParagraphAlignment;
   bullet?: {
     nestingLevel: number;
+    preset?: BulletPreset;
     type?: "NUMBERED" | "BULLET" | "CHECKBOX";
   };
   chips?: Array<{ title: string; uri: string }>;
@@ -342,7 +406,7 @@ export function liveDump(opts: {
 }
 
 /** Extracts high-level page geometry and margins from GoogleDoc.documentStyle. */
-export function extractPageSetup(docStyle?: GoogleDoc["documentStyle"]): PageSetup | undefined {
+export function pageSetupExtract(docStyle?: GoogleDoc["documentStyle"]): PageSetup | undefined {
   if (!docStyle) return undefined;
   const top = docStyle.marginTop?.magnitude;
   const bottom = docStyle.marginBottom?.magnitude;
@@ -385,6 +449,9 @@ export function extractPageSetup(docStyle?: GoogleDoc["documentStyle"]): PageSet
   return pageSetup;
 }
 
+/** Extracts high-level page geometry and margins (alias for pageSetupExtract). */
+export const extractPageSetup = pageSetupExtract;
+
 export const TABLE_INSERT_MIX_MSG =
   "Table insert cannot share an apply with remove or edits to other nodes. Insert the table (optional style on that new table), query, then fill or remove.";
 
@@ -402,15 +469,18 @@ export function wrongTabMsg(file: string, live: string): string {
 }
 
 /** Requires documentId in the apply document body. */
-export function assertDomDocument(opts: { documentId?: string }): string {
+export function domDocumentAssert(opts: { documentId?: string }): string {
   if (!opts.documentId) {
     throw new Error("documentId required in the apply document");
   }
   return opts.documentId;
 }
 
+/** Requires documentId in the apply document body (alias for domDocumentAssert). */
+export const assertDomDocument = domDocumentAssert;
+
 /** Normalizes `{ ops }`, `{ tabs }`, or a bare array. */
-export function parseDomOps(raw: unknown): ParsedDomFile {
+export function domOpsParse(raw: unknown): ParsedDomFile {
   if (Array.isArray(raw)) return { ops: raw as DomOp[] };
   if (
     raw &&
@@ -497,15 +567,18 @@ function resolveMarkdownContent(
   return undefined;
 }
 
+/** Normalizes `{ ops }`, `{ tabs }`, or a bare array (alias for domOpsParse). */
+export const parseDomOps = domOpsParse;
+
 /**
  * Applies JSON ops to a writer. Re-queries `writer.nodes` after each op so a
  * later insert can target a node created earlier in the same file.
  * Returns a plan of resolved targets (for dry-run preview). Snapshots are
  * taken before each mutation.
  */
-export function applyOps(
+export function tapeMutationsApply(
   writer: DomWriter,
-  ops: DomOp[],
+  ops: TapeMutation[],
   baseIndex = 0,
   opts: { clearedNodes?: DocNode[]; force?: boolean } = {},
 ): AppliedOpPlan[] {
@@ -569,7 +642,7 @@ export function applyOps(
       op.replaceSection = resolveMarkdownContent(op.replaceSection, op.file, "replaceSection", index);
     }
 
-    const effectiveFrontmatter = op.markdownFrontmatter ?? op.frontmatter;
+    const markdownOpts = markdownParseOptionsFromOp(op);
 
     if (op.insertMarkdown !== undefined) {
       if (typeof op.insertMarkdown !== "string") {
@@ -578,9 +651,7 @@ export function applyOps(
       if (op.insertAdjacentElement != null) {
         throw new Error(`ops[${index}] specify either "insertMarkdown" or "insertAdjacentElement", not both`);
       }
-      const specs = parseMarkdownToElements(op.insertMarkdown, {
-        customStyles: effectiveFrontmatter ? parseFrontmatterStyles(effectiveFrontmatter) : undefined,
-      });
+      const specs = parseMarkdownToElements(op.insertMarkdown, markdownOpts);
       op.insertAdjacentElement = {
         elements: specs as Array<Record<string, unknown>>,
         position: op.position ?? inferredPosition,
@@ -674,8 +745,8 @@ export function applyOps(
       op.style = { ...(op.style ?? {}), ...op.tableStyle };
     }
 
-    const dest = parseWriteAt(op.at, namedAnchors);
-    const target = resolveTarget(live, op, namedAnchors);
+    const dest = writeAtParse(op.at, namedAnchors);
+    const target = targetResolve(live, op, namedAnchors);
     const cell = dest.cell;
     const para = dest.para;
     const patch = styleFromOp(op, index);
@@ -699,7 +770,7 @@ export function applyOps(
         `ops[${index}] table grid ops, replaceSection, replaceMarkdown, insertAdjacentElement, remove, and dangerousRemoveSection cannot combine with other actions`,
       );
     }
-    if ((op as any).tableAlignment !== undefined) {
+    if (op.tableAlignment !== undefined) {
       throw new Error(
         `ops[${index}] tableAlignment is not supported: Google Docs tables default to full page width (left-aligned under the hood). Google Docs REST API has no property or request for table page alignment (center/left/right). Use fixed columnWidth to control column sizes (table remains left-aligned), or cellTextAlignment to align cell text.`,
       );
@@ -956,9 +1027,7 @@ export function applyOps(
         );
       }
       const scopeNodes = neighborhoodFrom(writer.nodes, target.tapeIndex);
-      const incomingSpecs = parseMarkdownToElements(op.replaceSection, {
-        customStyles: effectiveFrontmatter ? parseFrontmatterStyles(effectiveFrontmatter) : undefined,
-      });
+      const incomingSpecs = parseMarkdownToElements(op.replaceSection, markdownOpts);
 
       plan.push(
         withWarnings(
@@ -988,9 +1057,7 @@ export function applyOps(
       assertNotFragile(target, "replace", effectiveForce);
       // Single-node replacement only! Never touches following siblings.
       const scopeNodes = [target];
-      const incomingSpecs = parseMarkdownToElements(op.replaceMarkdown, {
-        customStyles: effectiveFrontmatter ? parseFrontmatterStyles(effectiveFrontmatter) : undefined,
-      });
+      const incomingSpecs = parseMarkdownToElements(op.replaceMarkdown, markdownOpts);
 
       plan.push(
         withWarnings(
@@ -1403,13 +1470,23 @@ function diffAndApplyMarkdown(
       const oldNode = oldSlice[k]!;
       const newSpec = newSlice[k]!;
       assertNotFragile(oldNode, "replace", force);
-      if (oldNode.kind === "paragraph" && newSpec.kind === "paragraph") {
+      const paraSpec = newSpec.kind === "paragraph" ? (newSpec as ParagraphSpec) : undefined;
+      const oldHasBullet = Boolean(oldNode.bullet);
+      const newHasBullet = Boolean(paraSpec?.bullet);
+      const oldNesting = oldNode.bullet?.nestingLevel ?? 0;
+      const newNesting = paraSpec?.bullet?.nestingLevel ?? 0;
+      const oldPreset = oldNode.bullet?.preset;
+      const newPreset = paraSpec?.bullet?.preset;
+      const bulletChanged =
+        oldHasBullet !== newHasBullet ||
+        (oldHasBullet && (oldNesting !== newNesting || (oldPreset && newPreset && oldPreset !== newPreset)));
+
+      if (oldNode.kind === "paragraph" && newSpec.kind === "paragraph" && !bulletChanged) {
         const handle = writer.wrap(oldNode);
-        const paraSpec = newSpec as ParagraphSpec;
-        handle.innerText = paraSpec.text;
-        handle.namedStyleType = paraSpec.namedStyleType;
-        if (paraSpec.alignment) handle.alignment = paraSpec.alignment;
-        if (paraSpec.style) writer.setStyle(oldNode, paraSpec.style);
+        handle.innerText = paraSpec!.text;
+        handle.namedStyleType = paraSpec!.namedStyleType;
+        if (paraSpec!.alignment) handle.alignment = paraSpec!.alignment;
+        if (paraSpec!.style) writer.setStyle(oldNode, paraSpec!.style);
         lastAnchorNode = oldNode;
       } else {
         const insertAnchor = lastAnchorNode ?? anchorTarget;
@@ -1513,11 +1590,17 @@ function indentWarnings(target: DocNode, patch: StylePatch, nodes: DocNode[]): s
   });
 }
 
+/** Applies tape mutations to a writer (alias for tapeMutationsApply). */
+export const applyOps = tapeMutationsApply;
+
+/** @deprecated Use tapeMutationsApply. */
+export const opsApply = tapeMutationsApply;
+
 /**
  * Hard refusal when mutating or removing fragile nodes (equations, chips, TOC).
  * Pass `force: true` to bypass.
  */
-export function assertNotFragile(
+export function notFragileAssert(
   node: DocNode | CellParagraph,
   action: "remove" | "innerText" | "replace" | "replaceMarkdown" | "replaceSection",
   force?: boolean,
@@ -1552,6 +1635,9 @@ export function assertNotFragile(
   }
 }
 
+/** Hard refusal when mutating or removing fragile nodes (alias for notFragileAssert). */
+export const assertNotFragile = notFragileAssert;
+
 /** innerText / remove on a chip, equation, or divider paragraph is allowed with force; plan warns that they will be destroyed. */
 function chipWarnings(target: DocNode, cell?: [number, number], para?: number): string[] {
   const warnings: string[] = [];
@@ -1576,24 +1662,26 @@ function chipWarnings(target: DocNode, cell?: [number, number], para?: number): 
   return warnings;
 }
 
+/** Compares normalized visible plain text between two strings. */
 function samePlainText(a?: string, b?: string): boolean {
   const left = plainVisible(a);
   const right = plainVisible(b);
   return left.length > 0 && left === right;
 }
 
+/** Extracts normalized lower-cased plain text stripped of markup and excess whitespace. */
 function plainVisible(s: string | undefined): string {
   if (!s) return "";
   return InlineMarkup.parse(s).text.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 /** Resolves one op to a tape node. Writes use `at` only (body id, not cell id). */
-export function resolveTarget(
+export function targetResolve(
   dom: DocDom,
   op: Pick<DomOp, "at"> & Record<string, unknown>,
   namedAnchors?: Map<string, DocNode>,
 ): DocNode {
-  const dest = parseWriteAt(op.at, namedAnchors);
+  const dest = writeAtParse(op.at, namedAnchors);
 
   if (namedAnchors && typeof op.at === "string" && namedAnchors.has(op.at.trim())) {
     return namedAnchors.get(op.at.trim())!;
@@ -1645,6 +1733,9 @@ export function resolveTarget(
   throw new Error(formatMissingScopedTargetMsg(dom.nodes, dest.rawAt ?? ""));
 }
 
+/** Resolves one op to a tape node (alias for targetResolve). */
+export const resolveTarget = targetResolve;
+
 /** Body node id, cell id, or heading-scoped id. */
 export type WriteAt = {
   cell?: [number, number];
@@ -1658,7 +1749,7 @@ export type WriteAt = {
 };
 
 /** Parses write `at` from query ids. */
-export function parseWriteAt(at: unknown, namedAnchors?: Map<string, DocNode>): WriteAt {
+export function writeAtParse(at: unknown, namedAnchors?: Map<string, DocNode>): WriteAt {
   if (at == null) throw new Error(WRITE_AT_ONLY_MSG);
   if (typeof at === "number") {
     if (!Number.isInteger(at) || at < 1) throw new Error(WRITE_AT_ONLY_MSG);
@@ -1768,14 +1859,18 @@ export function parseWriteAt(at: unknown, namedAnchors?: Map<string, DocNode>): 
   };
 }
 
+/** Parses write `at` from query ids (alias for writeAtParse). */
+export const parseWriteAt = writeAtParse;
+
 /** `"h.arch.table.0.1.3c8f"` or extra cell paragraphs `"….1"`. */
 export function cellId(tableId: number, row: number, col: number, para = 0): string {
   return para ? `${tableId}.${row}.${col}.${para}` : `${tableId}.${row}.${col}`;
 }
 
+/** Resolves StylePatch from an op, incorporating alignment if present. */
 function styleFromOp(op: DomOp, index: number): StylePatch | undefined {
   const patch: StylePatch = { ...op.style };
-  const rawAlign = op.alignment ?? (op as any).cellTextAlignment;
+  const rawAlign = op.alignment ?? op.style?.cellTextAlignment;
   if (rawAlign !== undefined) {
     const alignment = asAlignment(rawAlign);
     if (!alignment) {
@@ -1790,7 +1885,7 @@ function styleFromOp(op: DomOp, index: number): StylePatch | undefined {
  * Formats a diagnostic warning for a destroyed unrecoverable node.
  * Used for Drive revision recovery paper trail.
  */
-export function formatUnrecoverableWarning(node: DocNode): string | undefined {
+export function unrecoverableWarningFormat(node: DocNode): string | undefined {
   const loc = node.scopedId ? `node ${node.scopedId}` : `node ${node.tapeIndex}`;
   if (node.hasEquation) {
     const snippet = (node.text ?? "").trim() ? ` "${(node.text ?? "").trim().slice(0, 40)}"` : "";
@@ -1820,12 +1915,15 @@ export function formatUnrecoverableWarning(node: DocNode): string | undefined {
   return undefined;
 }
 
+/** Formats a diagnostic warning for a destroyed unrecoverable node (alias for unrecoverableWarningFormat). */
+export const formatUnrecoverableWarning = unrecoverableWarningFormat;
+
 /**
  * Clears an entire tab / tape: removes all nodes except the last paragraph
  * whose text is cleared and named style is reset to NORMAL_TEXT.
  * Returns the list of cleared nodes for anti-demolition tracking.
  */
-export function executeDangerousClear(writer: DomWriter): DocNode[] {
+export function dangerousClearExecute(writer: DomWriter): DocNode[] {
   const nodes = writer.nodes.map((n) => ({ ...n }));
   for (let s = writer.nodes.length - 1; s >= 0; s--) {
     const sNode = writer.nodes[s]!;
@@ -1842,8 +1940,11 @@ export function executeDangerousClear(writer: DomWriter): DocNode[] {
   return nodes;
 }
 
+/** Clears an entire tab / tape (alias for dangerousClearExecute). */
+export const executeDangerousClear = dangerousClearExecute;
+
 /** Compact summary: id first. Never prints API startIndex. */
-export function summarizeNode(node: DocNode, opts: { full?: boolean } = {}): NodeSummary {
+export function nodeSummarize(node: DocNode, opts: { full?: boolean } = {}): NodeSummary {
   const out: NodeSummary = {
     id: node.scopedId ?? node.tapeIndex,
     kind: node.kind,
@@ -1853,6 +1954,7 @@ export function summarizeNode(node: DocNode, opts: { full?: boolean } = {}): Nod
   if (node.bullet) {
     out.bullet = {
       nestingLevel: node.bullet.nestingLevel,
+      ...(node.bullet.preset ? { preset: node.bullet.preset } : {}),
       ...(node.bullet.type ? { type: node.bullet.type } : {}),
     };
   }
@@ -1930,6 +2032,10 @@ export function summarizeNode(node: DocNode, opts: { full?: boolean } = {}): Nod
   return out;
 }
 
+/** Compact summary of node (alias for nodeSummarize). */
+export const summarizeNode = nodeSummarize;
+
+/** Formats a compact summary of a table cell or cell paragraph for diagnostic output. */
 function summarizeCell(cell: TableCell | CellParagraph, id: string): CellSummary {
   const out: CellSummary = { id: cell.scopedId ?? id, text: cell.text };
   if (cell.alignment) out.alignment = cell.alignment;
@@ -2037,11 +2143,13 @@ export function elementFromJson(raw: Record<string, unknown>, force = false): El
   return createElement((kind ?? "paragraph") as "paragraph", props, { force });
 }
 
+/** Checks whether raw object contains nested table rows property. */
 function isNestedTableRows(raw: Record<string, unknown>): boolean {
   const nested = raw.table;
   return nested != null && typeof nested === "object" && Array.isArray((nested as { rows?: unknown }).rows);
 }
 
+/** Generates a plan summary object for an insertAdjacentElement operation. */
 function summarizeInsert(
   position: InsertPosition,
   spec: ElementSpec,
@@ -2058,8 +2166,22 @@ function summarizeInsert(
   return out;
 }
 
+/** Formats a preview of long strings up to PREVIEW_LEN characters. */
 function preview(text: string): string {
   const one = text.split(/\s+/).join(" ").trim();
   if (one.length <= PREVIEW_LEN) return one;
   return `${one.slice(0, PREVIEW_LEN - 1)}…`;
+}
+
+/**
+ * Markdown lexer options from a tape mutation (`markdownStyles` + `h1IsTitle`).
+ */
+function markdownParseOptionsFromOp(
+  /** Mutation carrying optional markdown parse fields. */
+  op: TapeMutation,
+): MarkdownParseOptions {
+  return {
+    customStyles: op.markdownStyles ? markdownStylesParse(op.markdownStyles) : undefined,
+    h1IsTitle: op.h1IsTitle,
+  };
 }

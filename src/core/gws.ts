@@ -1,11 +1,4 @@
-/*
-
-Direct Google Docs and Drive REST API client using gws OAuth tokens.
-
-Provides direct HTTP communication with Docs and Drive v1/v3 APIs, eliminating
-subprocess spawn overhead and providing precise error reporting with zero CLI fallback.
-
-*/
+/* Direct Google Docs and Drive REST API client using gws OAuth tokens. */
 
 import { getValidAccessToken } from "./auth.ts";
 import type { GoogleDoc } from "./types.ts";
@@ -17,7 +10,7 @@ const DRIVE_BASE_URL = "https://www.googleapis.com/drive/v3";
 export type ApiFetcher = (url: string, options?: RequestInit) => Promise<Response>;
 
 /** Parses and formats Google Workspace / HTTP errors into actionable messages. */
-export function formatGwsError(raw: string, targetId?: string): string {
+export function gwsErrorFormat(raw: string, targetId?: string): string {
   if (!raw?.trim()) {
     return targetId ? `GWS operation failed for target ${targetId}` : "GWS operation failed";
   }
@@ -85,8 +78,11 @@ export function formatGwsError(raw: string, targetId?: string): string {
   return apiMessage ? `Google API error (${status ?? "error"}): ${apiMessage}` : trimmed;
 }
 
+/** Parses and formats Google Workspace / HTTP errors (alias for gwsErrorFormat). */
+export const formatGwsError = gwsErrorFormat;
+
 /** Asserts that a Drive file is a Google Doc, unless force is true. */
-export function assertGoogleDocMime(file: { name?: string; mimeType?: string }, force?: boolean): void {
+export function googleDocMimeAssert(file: { name?: string; mimeType?: string }, force?: boolean): void {
   if (force) return;
   if (file.mimeType && file.mimeType !== GOOGLE_DOC_MIMETYPE) {
     throw new Error(
@@ -95,8 +91,11 @@ export function assertGoogleDocMime(file: { name?: string; mimeType?: string }, 
   }
 }
 
+/** Asserts that a Drive file is a Google Doc (alias for googleDocMimeAssert). */
+export const assertGoogleDocMime = googleDocMimeAssert;
+
 /** Low-level authenticated fetch helper with 401 retry. */
-export async function fetchGoogleApi(url: string, options: RequestInit = {}): Promise<Response> {
+export async function googleApiFetch(url: string, options: RequestInit = {}): Promise<Response> {
   let token = await getValidAccessToken();
 
   let res = await fetch(url, {
@@ -122,11 +121,18 @@ export async function fetchGoogleApi(url: string, options: RequestInit = {}): Pr
   return res;
 }
 
+/** Low-level authenticated fetch helper with 401 retry (alias for googleApiFetch). */
+export const fetchGoogleApi = googleApiFetch;
+
 export interface DocsClient {
+  /** Sends batchUpdate requests to the Google Docs API. */
   batchUpdate(documentId: string, requests: object[], opts?: { requiredRevisionId?: string }): Promise<string>;
-  getDocument(documentId: string): Promise<GoogleDoc>;
-  run(args: string[]): Promise<string>;
+  /** Creates a new Google Doc with the specified title. */
   createDocument?(title: string): Promise<{ documentId: string; title: string }>;
+  /** Fetches document data with full tabs content. */
+  getDocument(documentId: string): Promise<GoogleDoc>;
+  /** Executes an arbitrary gws CLI command. */
+  run(args: string[]): Promise<string>;
 }
 
 /** Invokes direct REST API for Google Docs API access (no CLI fallback). */

@@ -1,8 +1,4 @@
-/*
-
-Parses and serializes lightweight inline markup in patch text fields.
-
-*/
+/* Parses and serializes lightweight inline markup in patch text fields. */
 
 import { Marked, type Token } from "marked";
 import { isMonospaceFont } from "./dom/style.ts";
@@ -73,6 +69,7 @@ type ActiveStyle = CustomTextStyle & {
   link?: string;
 };
 
+/** Checks if any active style attributes are enabled. */
 function hasActiveStyle(style: ActiveStyle): boolean {
   return Boolean(
     style.backgroundColor ||
@@ -88,6 +85,7 @@ function hasActiveStyle(style: ActiveStyle): boolean {
   );
 }
 
+/** Creates a Marked parser extension for parsing ::styleName[...]:: custom style directives. */
 function createDirectiveExtension() {
   return {
     name: "directiveStyle",

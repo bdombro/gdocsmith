@@ -37,12 +37,12 @@ After it is granted:
 gws auth login --services drive,docs,sheets,gmail,calendar,presentations,tasks,script < /dev/null
 ```
 
-Then smoke-test blob insert on a throwaway Doc. Config lands at `~/.config/gdocsmith/config.json` (`appsScriptId`). There is no separate `script bootstrap` CLI in gdocsmith yet — bootstrap is `src/core/apps-script-images.ts`.
+Then smoke-test blob insert on a throwaway Doc. Config lands at `~/.config/gdocsmith/config.json` (`appsScriptId`). There is no separate `script bootstrap` CLI in gdocsmith yet — bootstrap is `src/core/appsScriptImages.ts`.
 
 ## Contributor map
 
 | Piece | Where |
 |-------|--------|
 | Apps Script `insertImageFromDrive` | `apps-script/Code.gs` |
-| Bootstrap + `scripts.run` | `src/core/apps-script-images.ts` |
-| Upload routing | `src/core/image-store.ts`, `src/core/images.ts` |
+| Bootstrap + `scripts.run` | `src/core/appsScriptImages.ts` |
+| Upload routing | `src/core/imageStore.ts`, `src/core/images.ts` |

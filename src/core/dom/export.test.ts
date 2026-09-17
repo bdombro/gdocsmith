@@ -1,3 +1,5 @@
+/* Unit tests for document node auditing and markdown export formatting. */
+
 import { describe, expect, test } from "bun:test";
 import { auditDocNodes, type ExportTabInput, exportDocumentToMarkdown, exportTabToMarkdown } from "./export.ts";
 import type { DocNode } from "./types.ts";
@@ -54,21 +56,26 @@ describe("auditDocNodes & exportTabToMarkdown", () => {
     });
   });
 
-  test("exportTabToMarkdown generates frontmatter styles and directive markup", () => {
-    const { audit, markdown } = exportTabToMarkdown(sampleNodes);
+  test("exportTabToMarkdown emits body-only markdown; styles and omissions stay on audit", () => {
+    const { audit, markdown } = exportTabToMarkdown(sampleNodes, { includeStyles: true });
     expect(audit.lossless).toBe(false);
-    expect(markdown).toContain("---");
-    expect(markdown).toContain("styles:");
-    expect(markdown).toContain("fontSize: 10");
-    expect(markdown).toContain('foregroundColor: "#999999"');
-    expect(markdown).toContain("omissions:");
-    expect(markdown).toContain("Node 3: 1 image(s) replaced with [Image] placeholder");
+    expect(audit.issues).toEqual(["Node 3: 1 image(s) replaced with [Image] placeholder"]);
+    expect(audit.styles).toEqual({
+      "2": {
+        fontSize: 10,
+        foregroundColor: "#999999",
+      },
+    });
+    expect(markdown).not.toMatch(/^---/);
+    expect(markdown).not.toContain("styles:");
+    expect(markdown).not.toContain("omissions:");
+    expect(markdown).not.toContain("::style");
     expect(markdown).toContain("# Project Title");
-    expect(markdown).toContain("::style1[Owner: Brian · Spec: Composite]::");
+    expect(markdown).toContain("Owner: Brian · Spec: Composite");
     expect(markdown).toContain("Paragraph with photo [Image]");
   });
 
-  test("exportDocumentToMarkdown exports multiple tabs with unified frontmatter, deduplicated headings, and tab dividers", () => {
+  test("exportDocumentToMarkdown exports multiple tabs with body-only markdown, deduplicated headings, and tab dividers", () => {
     const tabs: ExportTabInput[] = [
       {
         tabId: "t.overview",
@@ -152,10 +159,15 @@ describe("auditDocNodes & exportTabToMarkdown", () => {
     expect(audit.tabs?.[2]?.tabTitle).toBe("Database");
     expect(audit.tabs?.[2]?.nodeCount).toBe(1);
 
-    // Frontmatter check
-    expect(markdown).toMatch(/^---\n/);
-    expect(markdown).toContain('styles:\n  style1:\n    fontSize: 9\n    foregroundColor: "#333333"');
-    expect(markdown).toContain('omissions:\n  - "[Architecture] Node 2: 1 image(s) replaced with [Image] placeholder"');
+    expect(markdown).not.toMatch(/^---\n/);
+    expect(markdown).not.toContain("styles:");
+    expect(markdown).not.toContain("omissions:");
+    expect(audit.styles).toEqual({
+      "1": {
+        fontSize: 9,
+        foregroundColor: "#333333",
+      },
+    });
 
     // Tab 1: "Overview" already had `# Overview`, so it should NOT be duplicated
     expect(markdown).toContain("# Overview\n\nThis is the overview tab.");
@@ -168,29 +180,29 @@ describe("auditDocNodes & exportTabToMarkdown", () => {
     expect(markdown).toContain("# Architecture\n\nMicroservices design.\n\nDiagram below [Image]");
 
     // Tab 3: "Database" did not have `# Database`, so it should be automatically prepended with styled text
-    expect(markdown).toContain("# Database\n\n::style1[PostgreSQL 16]::");
+    expect(markdown).toContain("# Database\n\nPostgreSQL 16");
   });
 
-  test("exportTabToMarkdown groups consecutive code nodes into a single fenced code block without frontmatter style pollution", () => {
+  test("exportTabToMarkdown groups consecutive code nodes into a single fenced code block without style directives", () => {
     const nodes: DocNode[] = [
       {
         end: 20,
-        tapeIndex: 1,
         isCode: true,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 0,
         style: { fontSize: 10 },
+        tapeIndex: 1,
         text: "const a = 1;",
       },
       {
         end: 40,
-        tapeIndex: 2,
         isCode: true,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 20,
         style: { fontSize: 10 },
+        tapeIndex: 2,
         text: "const b = 2;",
       },
     ];
@@ -206,37 +218,37 @@ describe("auditDocNodes & exportTabToMarkdown", () => {
     const nodes: DocNode[] = [
       {
         end: 20,
-        tapeIndex: 1,
         isCode: true,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 0,
+        tapeIndex: 1,
         text: "function test() {",
       },
       {
         end: 21,
-        tapeIndex: 2,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 20,
+        tapeIndex: 2,
         text: "",
       },
       {
         end: 45,
-        tapeIndex: 3,
         isCode: true,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 21,
+        tapeIndex: 3,
         text: "    return true;",
       },
       {
         end: 50,
-        tapeIndex: 4,
         isCode: true,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 45,
+        tapeIndex: 4,
         text: "}",
       },
     ];
@@ -249,27 +261,27 @@ describe("auditDocNodes & exportTabToMarkdown", () => {
     const nodes: DocNode[] = [
       {
         end: 20,
-        tapeIndex: 1,
         isCode: true,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 0,
+        tapeIndex: 1,
         text: "const x = 1;",
       },
       {
         end: 21,
-        tapeIndex: 2,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 20,
+        tapeIndex: 2,
         text: "",
       },
       {
         end: 45,
-        tapeIndex: 3,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 21,
+        tapeIndex: 3,
         text: "Following explanation.",
       },
     ];
@@ -285,29 +297,29 @@ describe("auditDocNodes & exportTabToMarkdown", () => {
     const nodes: DocNode[] = [
       {
         end: 30,
-        tapeIndex: 1,
         isCode: true,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 0,
+        tapeIndex: 1,
         text: "```typescript",
       },
       {
         end: 50,
-        tapeIndex: 2,
         isCode: true,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 30,
+        tapeIndex: 2,
         text: "const a = 1;",
       },
       {
         end: 55,
-        tapeIndex: 3,
         isCode: true,
         kind: "paragraph",
         namedStyleType: "NORMAL_TEXT",
         start: 50,
+        tapeIndex: 3,
         text: "```",
       },
     ];
@@ -332,5 +344,61 @@ describe("auditDocNodes & exportTabToMarkdown", () => {
 
     const { markdown } = exportTabToMarkdown(nodes);
     expect(markdown).toBe("> ```\n> git status\n> ```\n");
+  });
+
+  /** Tests exportTabToMarkdown renders tight lists with proper indentation for nested items. */
+  test("exportTabToMarkdown renders tight lists with proper indentation for nested items", () => {
+    const nodes: DocNode[] = [
+      {
+        bullet: { nestingLevel: 0, type: "BULLET" },
+        end: 15,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 0,
+        tapeIndex: 1,
+        text: "Top bullet",
+      },
+      {
+        bullet: { nestingLevel: 1, type: "BULLET" },
+        end: 32,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 15,
+        tapeIndex: 2,
+        text: "Child bullet",
+      },
+      {
+        bullet: { nestingLevel: 2, type: "BULLET" },
+        end: 50,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 32,
+        tapeIndex: 3,
+        text: "Grandchild bullet",
+      },
+      {
+        bullet: { nestingLevel: 0, type: "CHECKBOX" },
+        end: 65,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 50,
+        tapeIndex: 4,
+        text: "Check item",
+      },
+      {
+        bullet: { nestingLevel: 1, preset: "NUMBERED_DECIMAL_NESTED" },
+        end: 80,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 65,
+        tapeIndex: 5,
+        text: "Numbered child",
+      },
+    ];
+
+    const { markdown } = exportTabToMarkdown(nodes);
+    expect(markdown).toBe(
+      "- Top bullet\n  - Child bullet\n    - Grandchild bullet\n- [ ] Check item\n  1. Numbered child\n",
+    );
   });
 });

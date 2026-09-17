@@ -1,14 +1,10 @@
-/*
+/* Parse Google Docs body.content (and header/footer/footnote segments) into tapes. */
 
-Parse Google Docs body.content (and header/footer/footnote segments) into tapes.
-
-*/
-
-import { Gdoc } from "../gdoc.ts";
-import { InlineMarkup } from "../inline.ts";
-import { Paragraph } from "../paragraph.ts";
-import { flattenTabs, overlayTab } from "../tabs.ts";
-import type { DocElement, GoogleDoc } from "../types.ts";
+import { Gdoc } from "~/core/gdoc.ts";
+import { InlineMarkup } from "~/core/inline.ts";
+import { Paragraph } from "~/core/paragraph.ts";
+import { flattenTabs, overlayTab } from "~/core/tabs.ts";
+import type { DocElement, GoogleDoc } from "~/core/types.ts";
 import { computeCellChecksum, computeNodeChecksum } from "./checksum.ts";
 import { hexColor, isMonospaceFont, uniformQueryTextStyle } from "./style.ts";
 import {
@@ -26,61 +22,37 @@ import {
   type TableCell,
 } from "./types.ts";
 
-/** Result of flattening a documents.get payload into the body tape. */
-export type ParsedTape = {
-  documentId: string;
-  nodes: DocNode[];
-  revisionId?: string;
-  title: string;
-};
-
-/** Body tape plus header / footer / footnote segments. */
+/**
+ * Body tape plus extra segments (headers, footers, footnotes).
+ */
 export type ParsedDocument = ParsedTape & {
+  /** Auxiliary segments like headers, footers, and footnotes. */
   segments: DocSegment[];
 };
 
-/** Builds the sibling tape from a raw payload or loaded Gdoc. */
-export function parseTape(source: GoogleDoc | Gdoc): ParsedTape {
-  const doc = parseDocument(source);
-  return {
-    documentId: doc.documentId,
-    nodes: doc.nodes,
-    revisionId: doc.revisionId,
-    title: doc.title,
-  };
-}
-
-/** Body tape plus extra segments (headers, footers, footnotes). */
-export function parseDocument(source: GoogleDoc | Gdoc): ParsedDocument {
-  const gdoc = source instanceof Gdoc ? source : new Gdoc(source, source.documentId ?? "");
-  const data = tapeData(gdoc);
-  return {
-    documentId: gdoc.id || data.documentId || "",
-    nodes: parseContent(data.body?.content ?? [], data),
-    revisionId: data.revisionId,
-    segments: parseSegments(data),
-    title: data.title ?? "",
-  };
-}
-
-/** Walks a content array; unknown structural kinds are skipped. tapeIndex is 1…n. */
-function parseContent(content: DocElement[], data: GoogleDoc): DocNode[] {
-  const nodes: DocNode[] = [];
-  let id = 1;
-  for (const el of content) {
-    const node = parseElement(el, data);
-    if (node) nodes.push({ ...node, tapeIndex: id++ });
-  }
-  assignScopedIds(nodes);
-  return nodes;
-}
+/**
+ * Result of flattening a documents.get payload into the body tape.
+ */
+export type ParsedTape = {
+  /** Document ID. */
+  documentId: string;
+  /** Ordered nodes in document body tape. */
+  nodes: DocNode[];
+  /** Revision ID if returned by API. */
+  revisionId?: string;
+  /** Document title. */
+  title: string;
+};
 
 /**
  * Assigns heading-scoped IDs ({headingId}.{checksum}) to nodes and table cells.
  * Pre-heading content receives "_preamble.{checksum}".
  * Duplicate checksums under the same heading receive an incremental suffix (.2, .3).
  */
-export function assignScopedIds(nodes: DocNode[]): void {
+export function assignScopedIds(
+  /** Array of parsed document nodes. */
+  nodes: DocNode[],
+): void {
   let currentHeadingId = "_preamble";
   let tableIndexUnderHeading = 0;
   const sectionCounts = new Map<string, number>();
@@ -113,7 +85,6 @@ export function assignScopedIds(nodes: DocNode[]): void {
             if (cell.paragraphs && cell.paragraphs.length > 1) {
               for (let p = 1; p < cell.paragraphs.length; p++) {
                 const para = cell.paragraphs[p]!;
-                const _paraCsum = computeCellChecksum(para);
                 para.scopedId = `${currentHeadingId}.${tableTag}.${r}.${c}.${cellCsum}.${p}`;
               }
             }
@@ -129,6 +100,66 @@ export function assignScopedIds(nodes: DocNode[]): void {
     sectionCounts.set(base, count);
     node.scopedId = count === 1 ? base : `${base}.${count}`;
   }
+}
+
+/**
+ * Alias for assignScopedIds.
+ */
+export const scopedIdsAssign = assignScopedIds;
+
+/**
+ * Body tape plus extra segments (headers, footers, footnotes).
+ */
+export function documentParse(
+  /** Source document snapshot or loaded Gdoc instance. */
+  source: GoogleDoc | Gdoc,
+): ParsedDocument {
+  const gdoc = source instanceof Gdoc ? source : new Gdoc(source, source.documentId ?? "");
+  const data = tapeData(gdoc);
+  return {
+    documentId: gdoc.id || data.documentId || "",
+    nodes: parseContent(data.body?.content ?? [], data),
+    revisionId: data.revisionId,
+    segments: parseSegments(data),
+    title: data.title ?? "",
+  };
+}
+
+/**
+ * Alias for documentParse.
+ */
+export const parseDocument = documentParse;
+
+/**
+ * Builds the sibling tape from a raw payload or loaded Gdoc.
+ */
+export function tapeParse(
+  /** Source document snapshot or loaded Gdoc instance. */
+  source: GoogleDoc | Gdoc,
+): ParsedTape {
+  const doc = documentParse(source);
+  return {
+    documentId: doc.documentId,
+    nodes: doc.nodes,
+    revisionId: doc.revisionId,
+    title: doc.title,
+  };
+}
+
+/**
+ * Alias for tapeParse.
+ */
+export const parseTape = tapeParse;
+
+function parseContent(content: DocElement[], data: GoogleDoc): DocNode[] {
+  const nodes: DocNode[] = [];
+  let id = 1;
+  for (const el of content) {
+    const node = parseElement(el, data);
+    if (node) nodes.push({ ...node, tapeIndex: id++ });
+  }
+  assignScopedIds(nodes);
+  return nodes;
 }
 
 function parseSegments(data: GoogleDoc): DocSegment[] {
@@ -174,17 +205,16 @@ function footerUse(id: string, style: NonNullable<GoogleDoc["documentStyle"]>): 
   return undefined;
 }
 
-/** Maps one StructuralElement onto a DocNode. */
 function parseElement(el: DocElement, data: GoogleDoc): DocNode | null {
   const start = el.startIndex ?? 0;
   const end = el.endIndex;
   if (el.paragraph) return parseParagraph(el, start, end, data);
   if (el.table) return parseTable(el, start, end, data);
   if (el.tableOfContents) {
-    return { end, tapeIndex: 0, kind: "tableOfContents", start };
+    return { end, kind: "tableOfContents", start, tapeIndex: 0 };
   }
   if (el.sectionBreak) {
-    const node: DocNode = { end, tapeIndex: 0, kind: "sectionBreak", start };
+    const node: DocNode = { end, kind: "sectionBreak", start, tapeIndex: 0 };
     const cols = el.sectionBreak.sectionStyle?.columnCount;
     if (typeof cols === "number" && cols > 1) node.columnCount = cols;
     return node;
@@ -192,22 +222,21 @@ function parseElement(el: DocElement, data: GoogleDoc): DocNode | null {
   return null;
 }
 
-/** Paragraph node: namedStyleType wins over bullet (heading+bullet stays heading). */
 function parseParagraph(el: DocElement, start: number, end: number, data: GoogleDoc): DocNode {
   const paragraph = el.paragraph!;
   const hasPageBreak = (paragraph.elements ?? []).some((item) => item.pageBreak);
   const named = asNamedStyle(paragraph.paragraphStyle?.namedStyleType) ?? "NORMAL_TEXT";
   const text = Paragraph.text(paragraph, true);
   if (hasPageBreak && !text.trim()) {
-    return { end, tapeIndex: 0, kind: "pageBreak", start };
+    return { end, kind: "pageBreak", start, tapeIndex: 0 };
   }
   const markup = InlineMarkup.serialize(Paragraph.elements(paragraph)).replace(/\n$/, "");
   const node: DocNode = {
     end,
-    tapeIndex: 0,
     kind: "paragraph",
     namedStyleType: named,
     start,
+    tapeIndex: 0,
     text,
   };
   if (markup && markup !== text) node.markup = markup;
@@ -237,10 +266,6 @@ function parseParagraph(el: DocElement, start: number, end: number, data: Google
   return node;
 }
 
-/**
- * Uniform non-default italic / size / color from visible text runs.
- * Newline-only runs are ignored so a trailing `\n` does not mix the style.
- */
 function queryStyleFromParagraph(
   paragraph: NonNullable<DocElement["paragraph"]>,
 ): ReturnType<typeof uniformQueryTextStyle> {
@@ -256,7 +281,6 @@ function queryStyleFromParagraph(
 function ptMagnitude(dim?: { magnitude?: number; unit?: string }): number | undefined {
   if (!dim) return undefined;
   if (typeof dim.magnitude === "number") return dim.magnitude;
-  // Docs omits magnitude 0 (flush first-line).
   if (dim.unit === "PT") return 0;
   return undefined;
 }
@@ -339,7 +363,6 @@ function parseCellParagraph(paraEl: DocElement | undefined, data: GoogleDoc, row
   return cell;
 }
 
-/** Every paragraph in each cell; first paragraph is flattened onto the cell. */
 function parseTable(el: DocElement, start: number, end: number, data: GoogleDoc): DocNode {
   const cells: TableCell[][] = [];
   const images: InlineImage[] = [];
@@ -367,7 +390,7 @@ function parseTable(el: DocElement, start: number, end: number, data: GoogleDoc)
     }
     cells.push(row);
   }
-  const node: DocNode = { end, tapeIndex: 0, kind: "table", start, table: { cells } };
+  const node: DocNode = { end, kind: "table", start, table: { cells }, tapeIndex: 0 };
   const widths = (el.table?.tableStyle?.tableColumnProperties ?? []).map((p) =>
     p.widthType === "FIXED_WIDTH" && typeof p.width?.magnitude === "number" ? p.width.magnitude : undefined,
   );
@@ -411,12 +434,6 @@ function parseListType(levelProps?: Record<string, unknown>): "NUMBERED" | "BULL
   return undefined;
 }
 
-/**
- * Copies listId from paragraph.bullet; nestingLevel from the bullet or indent
- * fallback. If bullet.listId is missing and document.lists has exactly one
- * entry, that listId is used. Surfaces list type (NUMBERED / BULLET / CHECKBOX)
- * from document.lists.
- */
 function parseBullet(paragraph: NonNullable<DocElement["paragraph"]>, data: GoogleDoc): DocNode["bullet"] | undefined {
   if (!paragraph.bullet) return undefined;
   const lists = data.lists ?? data.tabs?.[0]?.documentTab?.lists ?? {};
@@ -440,7 +457,6 @@ function parseBullet(paragraph: NonNullable<DocElement["paragraph"]>, data: Goog
   return bullet;
 }
 
-/** Docs smart chips (richLink, person, dateElement) in a paragraph. Titles also land in `text`. */
 function parseChips(paragraph: NonNullable<DocElement["paragraph"]>): InlineChip[] {
   const chips: InlineChip[] = [];
   for (const el of paragraph.elements ?? []) {
@@ -483,7 +499,6 @@ function parseChips(paragraph: NonNullable<DocElement["paragraph"]>): InlineChip
   return chips;
 }
 
-/** Inline images from paragraph elements; size from document.inlineObjects. */
 function parseImages(paragraph: NonNullable<DocElement["paragraph"]>, data: GoogleDoc): InlineImage[] {
   const images: InlineImage[] = [];
   for (const el of paragraph.elements ?? []) {
@@ -502,7 +517,6 @@ function parseImages(paragraph: NonNullable<DocElement["paragraph"]>, data: Goog
   return images;
 }
 
-/** Selected tab overlay, or the sole tab when legacy body is empty. */
 function tapeData(gdoc: Gdoc): GoogleDoc {
   const data = gdoc.data;
   if (gdoc.tabId) return overlayTab(data, gdoc.tabId);
@@ -513,7 +527,6 @@ function tapeData(gdoc: Gdoc): GoogleDoc {
   return data;
 }
 
-/** True when paragraph is exclusively non-empty monospace text in NORMAL_TEXT without bullets or chips. */
 function isCodeParagraph(
   paragraph: DocElement["paragraph"],
   namedStyle: NamedStyle,

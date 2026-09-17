@@ -1,8 +1,4 @@
-/*
-
-Unit tests for find-and-replace execution (batch native replace and surgical regex engine).
-
-*/
+/* Unit tests for find-and-replace execution (batch native replace and surgical regex engine). */
 
 import { describe, expect, test } from "bun:test";
 import type { GwsClient } from "./gws.ts";

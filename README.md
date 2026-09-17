@@ -1,4 +1,7 @@
-# gdocsmith
+![Logo](logo.png)
+<!-- https://patorjk.com/software/taag/#p=display&f=Double&t=gdoc+smith&x=none&v=4&h=4&w=80&we=false -->
+
+# gdocsmith - ai plugin
 
 **The missing intelligence layer between AI coding agents and Google Docs.**
 

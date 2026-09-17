@@ -4,16 +4,12 @@
   "commands": [
     {
       "key": "run",
-      "description": "Execute an ordered Google Docs workflow from YAML or JSON (`steps` with `kind`).",
-      "notes": "• Pipe stdin or pass one document (`run < file.yaml`). Knobs live in the document (`dryRun`, `force`, `json`, `quiet`).\n• Each step requires `kind` (e.g. open|close|docCreate|docCopy|query|dump|markdownInsert|replaceSection|…).\n• Raw IDs only: extract between `/document/d/` and `/edit`. Full URLs are rejected.\n• Surgical targeting: copy heading-scoped ids from `kind: query` into `at`, `after`, or `before` (e.g. `h.arch.9a1b`). NEVER compute startIndex/endIndex or write raw batchUpdate scripts.\n• In-place updates: prefer `replaceSection`, `replaceMarkdown`, or `replace` over deleting and re-inserting content (no demolish-and-rebuild).\n• Real headings only (`TITLE`, `HEADING_1`–`HEADING_3`). No bullet glyphs in surgical text; use run-in bold (`**Label**: value`).\n• Bindings: only `open` and `query` set aliases. `query` with `as:` writes `dumped[as]` (use `output: markdown` or `yaml` to serialize a doc/tab/section). `dump` re-emits an alias; dump of an open alias is `{ id, title }` only.\n• Prefer one `run` per phase until step kinds are proven; then batch related steps. Chip/table/clone writes use `kind: surgical`.\n• Dry run: `dryRun: true` returns a unified git diff without writing.",
+      "description": "Execute an ordered Google Docs workflow from JSON (`steps` with `kind`).",
+      "notes": "• Pipe stdin or pass one JSON document. Knobs: `dryRun`, `force`, `quiet` on the document.\n• Each step requires `kind` (e.g. docOpen|docClose|docCreate|docCopy|query|markdownInsert|replaceSection|…).\n• File-touching steps require `doc:` (raw id or open alias). `docCreate` binds `as`; `docCopy` uses `copyFrom`. There is no run-level documentId.\n• Raw IDs only: extract between `/document/d/` and `/edit`. Full URLs are rejected.\n• Surgical targeting: copy heading-scoped ids from `kind: query` into `nodeAt`, `nodeAfter`, or `nodeBefore` (e.g. `h.arch.9a1b`). NEVER compute startIndex/endIndex or write raw batchUpdate scripts.\n• In-place updates: prefer `replaceSection`, `replaceMarkdown`, or `replace` over deleting and re-inserting content (no demolish-and-rebuild). Use `replace` or `replaceMarkdown` for heading titles; `replaceSection` on an H1 replaces all subsections under it.\n• Real headings only (`TITLE`, `HEADING_1`–`HEADING_3`). No bullet glyphs in surgical text; use run-in bold (`**Label**: value`).\n• Bindings: `docOpen` sets document aliases. Every `run` call is stateless; aliases do not persist across multiple `run` invocations. `dump: true` on docOpen/docCreate/docCopy dumps doc/tab metadata into `dumped[as]`. `query` with `as:` writes matches into `dumped[as]` (`output: markdown` or `nodes`). Query aliases cannot be used as mutation anchors.\n• Cross-doc transfers: use `kind: sectionCopy` with `fromDoc:` and `fromSection:` to transfer sections server-side without streaming markdown, or query source with `output: markdown` and write with `replaceSection`. Anchors must always belong to the target `doc:`.\n• Symbolic links: use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown; gdocsmith automatically resolves them to native Docs deep links (`?tab=...#heading=...`).\n• Prefer one `run` per phase until step kinds are proven; then batch related steps. Chip/table writes use `kind: surgical`.\n• Dry run: `dryRun: true` includes a unified git diff in the JSON `diff` field without writing.",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
         "properties": {
-          "documentId": {
-            "type": "string",
-            "description": "Document ID (raw id, not a URL). Auto-opens as alias `main` when set."
-          },
           "dryRun": {
             "type": "boolean",
             "description": "Preview resolved targets without writing."
@@ -21,10 +17,6 @@
           "force": {
             "type": "boolean",
             "description": "Skip guards. Only if the user asked."
-          },
-          "json": {
-            "type": "boolean",
-            "description": "Output JSON instead of YAML."
           },
           "pageSetup": {
             "$ref": "#/definitions/PageSetup",
@@ -97,25 +89,25 @@
           "GdocsmithStepInput": {
             "type": "object",
             "properties": {
-              "after": {
-                "type": "string",
-                "description": "Anchor node to insert after (heading-scoped id from query)."
-              },
               "alignment": {
                 "$ref": "#/definitions/ParagraphAlignment",
                 "description": "Paragraph or table-cell alignment (START / CENTER / END / JUSTIFIED)."
               },
+              "allTabs": {
+                "type": "boolean",
+                "description": "Replace all occurrences across all tabs in textReplace."
+              },
+              "afterTab": {
+                "type": "string",
+                "description": "Insert or move this tab immediately after the specified tab title or ID."
+              },
               "as": {
                 "type": "string",
-                "description": "On open/query: binds a doc or node alias. On dump: existing alias to extract into `dumped`."
+                "description": "On open/query: binds a doc or output alias."
               },
-              "at": {
+              "beforeTab": {
                 "type": "string",
-                "description": "Heading-scoped id from query (e.g. h.arch.9a1b)."
-              },
-              "before": {
-                "type": "string",
-                "description": "Anchor node to insert before (heading-scoped id from query)."
+                "description": "Insert or move this tab immediately before the specified tab title or ID."
               },
               "bullet": {
                 "$ref": "#/definitions/BulletProps",
@@ -146,6 +138,13 @@
                 },
                 "description": "Batch cloning of existing nodes."
               },
+              "cols": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "description": "Scope query to table column indices (0-based)."
+              },
               "contains": {
                 "type": "string",
                 "description": "Text substring filter for query."
@@ -153,6 +152,14 @@
               "copyFrom": {
                 "type": "string",
                 "description": "Source doc ID or alias for docCopy."
+              },
+              "copyFromDoc": {
+                "type": "string",
+                "description": "Source doc ID or alias for tabCopy / tabDuplicate (defaults to doc)."
+              },
+              "copyFromTab": {
+                "type": "string",
+                "description": "Source tab ID or title for tabCopy / tabDuplicate / tabAdd."
               },
               "dangerousClear": {
                 "type": "boolean",
@@ -198,7 +205,15 @@
               },
               "doc": {
                 "type": "string",
-                "description": "Target document ID or alias."
+                "description": "Target document ID or alias. Required on every step that reads or writes a file (`docCreate` binds `as` instead; `docCopy` uses `copyFrom`)."
+              },
+              "domain": {
+                "type": "string",
+                "description": "Domain name for domain-level file permissions (docPermissionAdd)."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
               },
               "duplicateTableRow": {
                 "anyOf": [
@@ -233,6 +248,18 @@
                 },
                 "description": "Detached element specs to insert in order."
               },
+              "email": {
+                "type": "string",
+                "description": "Email address of grantee for docPermissionAdd or docPermissionRemove (alias for emailAddress)."
+              },
+              "emailAddress": {
+                "type": "string",
+                "description": "Email address of grantee for docPermissionAdd or docPermissionRemove."
+              },
+              "emailMessage": {
+                "type": "string",
+                "description": "Notification email message body for docPermissionAdd."
+              },
               "file": {
                 "type": "string",
                 "description": "Local markdown/text path."
@@ -241,9 +268,28 @@
                 "type": "string",
                 "description": "String to find for textReplace."
               },
+              "fontColors": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Scope query to foreground font colors (supports semantic colors like \"red\", hex like \"#ea4335\", and exclusions like \"!#000000\" or \"!default\")."
+              },
               "force": {
                 "type": "boolean",
                 "description": "Force destructive mutation even if targeting a fragile node."
+              },
+              "fromDoc": {
+                "type": "string",
+                "description": "Source document ID or alias for sectionCopy (defaults to doc)."
+              },
+              "fromSection": {
+                "type": "string",
+                "description": "Source heading title, slug, or heading ID to copy from for sectionCopy."
+              },
+              "fromTab": {
+                "type": "string",
+                "description": "Source tab ID or title for sectionCopy (defaults to source doc active tab)."
               },
               "full": {
                 "type": "boolean",
@@ -252,6 +298,17 @@
               "h1IsTitle": {
                 "type": "boolean",
                 "description": "Treat top-level # as Title instead of HEADING_1."
+              },
+              "headingLevels": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "description": "Scope query to outline heading levels (0 = TITLE, 1 = HEADING_1, 2 = HEADING_2, etc.)."
+              },
+              "includeHeading": {
+                "type": "boolean",
+                "description": "Whether to include the source section heading in sectionCopy (default true)."
               },
               "index": {
                 "type": "number",
@@ -482,9 +539,51 @@
                 "additionalProperties": {},
                 "description": "Named `::styleName[]::` directive styles (`{ alert: { color: \"#f00\" } }`). Distinct from native `style`."
               },
+              "matchCase": {
+                "type": "boolean",
+                "description": "Match case in textReplace (default true)."
+              },
+              "moveToNewOwnersRoot": {
+                "type": "boolean",
+                "description": "Whether to move the file to the new owner's root folder when transferring ownership (docPermissionAdd)."
+              },
               "namedStyleType": {
                 "$ref": "#/definitions/NamedStyle",
                 "description": "Change namedStyleType on an existing paragraph."
+              },
+              "nestingLevels": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "description": "Scope query to bullet nesting levels (0 = root bullet, 1 = sub-bullet, etc.)."
+              },
+              "nodeAfter": {
+                "type": "string",
+                "description": "Anchor node to insert after (heading-scoped id from query)."
+              },
+              "nodeAt": {
+                "type": "string",
+                "description": "Heading-scoped id from query (e.g. h.arch.9a1b)."
+              },
+              "nodeBefore": {
+                "type": "string",
+                "description": "Anchor node to insert before (heading-scoped id from query)."
+              },
+              "nodeKinds": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/NodeKind"
+                },
+                "description": "Scope query to structural node kinds (\"paragraph\", \"table\", \"sectionBreak\", etc.)."
+              },
+              "nodeUnder": {
+                "type": "string",
+                "description": "Heading or scope for query/replace."
+              },
+              "noop": {
+                "type": "boolean",
+                "description": "Internal flag indicating step was optimized into another step (e.g. hoisted into creation)."
               },
               "output": {
                 "$ref": "#/definitions/QueryOutputFormat",
@@ -493,6 +592,10 @@
               "permanent": {
                 "type": "boolean",
                 "description": "Permanently delete document (docDelete)."
+              },
+              "permissionId": {
+                "type": "string",
+                "description": "Specific permission ID to revoke in docPermissionRemove."
               },
               "position": {
                 "$ref": "#/definitions/InsertPosition",
@@ -520,12 +623,16 @@
                 ],
                 "description": "Diff-replace a heading section with markdown."
               },
-              "replaceSectionMarkdown": {
-                "type": [
-                  "string",
-                  "boolean"
-                ],
-                "description": "Alias for replaceSection."
+              "role": {
+                "$ref": "#/definitions/DrivePermissionRole",
+                "description": "Access level role for docPermissionAdd (commenter / fileOrganizer / organizer / owner / reader / writer)."
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "description": "Scope query to table row indices (0-based)."
               },
               "runs": {
                 "type": "array",
@@ -533,6 +640,18 @@
                   "$ref": "#/definitions/InlineRunInput"
                 },
                 "description": "Explicit styled text runs for inline formatting."
+              },
+              "sameList": {
+                "type": "boolean",
+                "description": "When targeting a bullet list item with nodeUnder, scopes to contiguous bullet items sharing listId."
+              },
+              "scope": {
+                "$ref": "#/definitions/DrivePermissionScope",
+                "description": "Grantee access scope for docPermissionAdd or docPermissionRemove (anyone / domain / group / internal / user)."
+              },
+              "sendNotificationEmail": {
+                "type": "boolean",
+                "description": "Whether to send an email notification to grantees on docPermissionAdd."
               },
               "style": {
                 "$ref": "#/definitions/StylePatch",
@@ -560,18 +679,18 @@
               },
               "title": {
                 "type": "string",
-                "description": "Title for docCreate / docCopy / tabAdd / docRename / tabRename."
+                "description": "Title for docCreate / docCopy / tabAdd / tabCopy / tabDuplicate / docRename / tabRename."
               },
-              "under": {
-                "type": "string",
-                "description": "Heading or scope for query/replace."
+              "transferOwnership": {
+                "type": "boolean",
+                "description": "Whether to transfer file ownership to the grantee on docPermissionAdd."
               },
               "unsafeOnly": {
                 "type": "boolean",
                 "description": "Scope query to fragile nodes only."
               }
             },
-            "additionalProperties": {},
+            "additionalProperties": false,
             "description": "One workflow step; discriminator is `kind`."
           },
           "ParagraphAlignment": {
@@ -687,25 +806,33 @@
           "WorkflowStepKind": {
             "type": "string",
             "enum": [
-              "close",
+              "dangerousRemoveSection",
+              "docClose",
               "docCopy",
               "docCreate",
               "docDelete",
+              "docOpen",
+              "docPermissionAdd",
+              "docPermissionList",
+              "docPermissionRemove",
               "docRename",
               "docTrash",
-              "dump",
               "innerText",
               "markdownInsert",
-              "open",
               "query",
               "remove",
               "replace",
               "replaceMarkdown",
               "replaceSection",
+              "sectionCopy",
               "surgical",
               "tabAdd",
+              "tabCopy",
               "tabDelete",
+              "tabDuplicate",
+              "tabMove",
               "tabRename",
+              "tabReorder",
               "textReplace"
             ],
             "description": "Canonical workflow step kinds handled by the apply script engine."
@@ -725,14 +852,37 @@
             ],
             "description": "Docs named paragraph styles, including TITLE and SUBTITLE."
           },
+          "NodeKind": {
+            "type": "string",
+            "enum": [
+              "paragraph",
+              "table",
+              "tableOfContents",
+              "sectionBreak",
+              "pageBreak"
+            ],
+            "description": "Structural element kinds on the body tape."
+          },
           "QueryOutputFormat": {
             "type": "string",
             "enum": [
               "markdown",
               "nodes",
-              "yaml"
+              "outline"
             ],
             "description": "Serializer for `kind: query` matches written to `dumped`."
+          },
+          "DrivePermissionRole": {
+            "type": "string",
+            "enum": [
+              "commenter",
+              "fileOrganizer",
+              "organizer",
+              "owner",
+              "reader",
+              "writer"
+            ],
+            "description": "Role assigned to a Drive file permission."
           },
           "InlineRunInput": {
             "type": "object",
@@ -779,6 +929,17 @@
             },
             "additionalProperties": false,
             "description": "Input specification for an inline styled run."
+          },
+          "DrivePermissionScope": {
+            "type": "string",
+            "enum": [
+              "anyone",
+              "domain",
+              "group",
+              "internal",
+              "user"
+            ],
+            "description": "Grantee access scope for a Drive file permission."
           },
           "StylePatch": {
             "type": "object",
@@ -921,7 +1082,7 @@
           "dumped": {
             "type": "object",
             "additionalProperties": {},
-            "description": "Values extracted by `kind: query` (with `as:`) and `kind: dump`."
+            "description": "Values extracted by `kind: query` (with `as:`) and `dump: true`."
           },
           "highlights": {
             "type": "array",

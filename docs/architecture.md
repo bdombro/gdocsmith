@@ -14,7 +14,7 @@ This document describes the internal architecture, data pipeline, and key invari
                            ┌────────────────────────┐
                            │ User / AI Agent (MCP)  │
                            └───────────┬────────────┘
-                                       │ YAML / JSON Workflow
+                                       │ JSON Workflow
                                        ▼
                      ┌───────────────────────────────────┐
                      │    CLI / MCP Layer (argsbarg)     │
@@ -68,8 +68,8 @@ To avoid volatile integer indices, `assignScopedIds` stamps every node on the ta
 Workflows are executed through `applyScriptExecute`, which owns session state and dispatches each step via `stepRun` in `src/core/actions/` (one module per explicit kind; surgical DOM steps fall through to `surgical.ts`).
 
 - **Session Context**: Manages open documents (`openDocs`), tab resolution (`resolveTab`), and alias bindings (`aliasMap`, `dumpStore`).
-- **Alias Propagation**: Nodes targeted with `as: name` allow subsequent steps to reference them directly (e.g. `after: name`, `at: name.0.1`).
-- **Inspection (`kind: query` / `kind: dump`)**: `query` with `as:` binds heading-scoped ids and writes `dumped` (`output: nodes` | `markdown` | `yaml`). `dump` re-emits a prior alias.
+- **Alias Propagation**: Nodes targeted with `as: name` allow subsequent steps to reference them directly (e.g. `nodeAfter: name`, `nodeAt: name.0.1`).
+- **Inspection (`kind: query` / `dump: true`)**: `open` with `dump: true` emits doc/tab metadata; `query` with `as:` writes matches into `dumped` (`output: nodes` | `markdown`).
 - **Step kinds**: Each step sets explicit `kind` (`WorkflowStepKind`); `stepKindRead` trims the discriminator.
 
 ### 2.4 Mutation Planner & DomWriter (`src/core/dom/ops.ts`, `applyCompile.ts`, `write.ts`)
@@ -98,7 +98,7 @@ Agents frequently attempt "demolish-and-rebuild" updates: deleting an entire sec
 - Bypassed only with explicit `force: true`.
 
 ### 3.3 Section-Level Auto-Diffing (`replaceSection`)
-Targeting a heading with `replaceSection` (or `replaceSectionMarkdown`):
+Targeting a heading with `replaceSection`:
 1. Parses incoming markdown into AST elements.
 2. Uses Longest Common Subsequence (LCS) diffing against live section nodes.
 3. Modifies changed nodes in place (`innerText`), inserts genuine additions, and removes deletions.

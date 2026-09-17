@@ -16,19 +16,29 @@ export const docCreateStep: WorkflowStepHandler = async (runtime, stepIndex, ste
     newDocId = res.documentId;
   }
 
+  const initialBody = {
+    content: [
+      { endIndex: 1, sectionBreak: {}, startIndex: 0 },
+      {
+        endIndex: 2,
+        paragraph: { elements: [{ textRun: { content: "\n" } }] },
+        startIndex: 1,
+      },
+    ],
+  };
+
   const gdoc = new Gdoc(
     {
-      body: {
-        content: [
-          { endIndex: 1, sectionBreak: {}, startIndex: 0 },
-          {
-            endIndex: 2,
-            paragraph: { elements: [{ textRun: { content: "\n" } }] },
-            startIndex: 1,
-          },
-        ],
-      },
+      body: initialBody,
       documentId: newDocId,
+      tabs: [
+        {
+          documentTab: {
+            body: initialBody,
+          },
+          tabProperties: { tabId: "t.0", title: "Main" },
+        },
+      ],
       title,
     },
     newDocId,
@@ -42,10 +52,21 @@ export const docCreateStep: WorkflowStepHandler = async (runtime, stepIndex, ste
     title,
   };
 
+  const dumpPayload = {
+    alias: as,
+    id: newDocId,
+    kind: "doc",
+    tabs: [{ id: "t.0", kind: "tab", title: "Main" }],
+    title,
+  };
+
   runtime.openDocs.set(as, openContext);
   runtime.docIdToAlias.set(newDocId, as);
   runtime.aliasMap.set(as, newDocId);
-  runtime.dumpStore.set(as, { id: newDocId, title });
+  runtime.dumpStore.set(as, dumpPayload);
+  if (step.dump) {
+    runtime.dumped[as] = dumpPayload;
+  }
   runtime.activeDocAlias = as;
 
   runtime.initialMarkdownStates.set(`${as}/t.0`, "");

@@ -433,7 +433,62 @@ export function domCompile(
       const node = live.get(op.nodeId);
       if (!node) throw new Error(`remove target ${op.nodeId} is gone`);
       if (isLastLiveNode(live, node)) {
-        throw new Error(LAST_PARAGRAPH_MSG);
+        if (node.start > 1) {
+          const prev = findPrecedingLiveNode(live, node);
+          const len = node.end - node.start;
+          if (prev && prev.kind === "paragraph") {
+            push(
+              [
+                {
+                  deleteContentRange: {
+                    range: atRng(node.start - 1, node.end - 1, seg, tab),
+                  },
+                },
+              ],
+              op.mutationIndexes,
+            );
+            if (node.namedStyleType !== prev.namedStyleType) {
+              push(
+                [RequestBuilder.namedStyle(prev.start, node.start, prev.namedStyleType ?? "NORMAL_TEXT", seg, tab)],
+                op.mutationIndexes,
+              );
+            }
+            if (node.bullet && !prev.bullet) {
+              push([RequestBuilder.deleteParagraphBullets(prev.start, node.start, seg, tab)], op.mutationIndexes);
+            }
+            deleteChars += len;
+            shiftLive(live, node.end, -len, node.tapeIndex);
+            live.delete(op.nodeId);
+            continue;
+          }
+        }
+        // Sole paragraph in doc or preceded by non-paragraph: clear content and reset style
+        const textLen = Math.max(0, node.end - node.start - 1);
+        if (textLen > 0) {
+          push(
+            [
+              {
+                deleteContentRange: {
+                  range: atRng(node.start, node.end - 1, seg, tab),
+                },
+              },
+            ],
+            op.mutationIndexes,
+          );
+          deleteChars += textLen;
+          shiftLive(live, node.end - 1, -textLen, node.tapeIndex);
+          node.end -= textLen;
+        }
+        if (isHeadingStyle(node.namedStyleType)) {
+          push([RequestBuilder.namedStyle(node.start, node.end, "NORMAL_TEXT", seg, tab)], op.mutationIndexes);
+          node.namedStyleType = "NORMAL_TEXT";
+        }
+        if (node.bullet) {
+          push([RequestBuilder.deleteParagraphBullets(node.start, node.end, seg, tab)], op.mutationIndexes);
+          delete node.bullet;
+        }
+        node.text = "";
+        continue;
       }
       const len = node.end - node.start;
       push(
@@ -1278,6 +1333,19 @@ function cellParaRanges(cells: TableCell[][] | undefined): Array<{ end: number; 
     }
   }
   return out;
+}
+
+/** Finds the live node immediately preceding the given node. */
+function findPrecedingLiveNode(live: Map<number, Live>, node: Live): Live | undefined {
+  let prev: Live | undefined;
+  for (const n of live.values()) {
+    if (n.tapeIndex !== node.tapeIndex && n.end <= node.start) {
+      if (!prev || n.end > prev.end) {
+        prev = n;
+      }
+    }
+  }
+  return prev;
 }
 
 /** Checks whether a live node is the last node on the tape. */

@@ -86,8 +86,8 @@ Avoid needless extraction: keep single-use helpers in the calling file by defaul
 
 ## gdocsmith conventions
 
-- Primary surface is `gdocsmith run` (CLI + MCP): YAML/JSON `{ steps: [{ kind }] }`.
-- Domain engine lives in `src/core/`; `kind: dump` extracts aliases into `dumped`.
+- Primary surface is `gdocsmith run` (CLI + MCP): JSON `{ steps: [{ kind }] }`.
+- Domain engine lives in `src/core/`; `dump: true` and `kind: query` extract metadata and matches into `dumped`.
 - Auth is `gws auth export` credentials; do not invent Google OAuth in this app.
 
 ## Code quality
@@ -101,3 +101,6 @@ Avoid needless extraction: keep single-use helpers in the calling file by defaul
 - Avoid needless extraction: keep single-use helpers in the calling file by default. Split only when reused elsewhere, the caller is large or hard to follow, or extraction clarifies a substantial unit. Do not create tiny one-off helpers
   - ❌ `utils/formatX.ts` — 60-line helper used by one command
   - ✅ inline helper in that command file
+- When moving features in/out of import barrels, update importers instead of import+export (re-exporting) from the former barrel
+- This app is not released yet so do not ever add backwards compat when making breaking changes
+

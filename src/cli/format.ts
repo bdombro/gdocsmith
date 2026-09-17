@@ -1,17 +1,6 @@
-/* Shared CLI output formatting and input parsing. */
+/* Shared CLI output formatting and JSON input parsing. */
 
 import type { CliContext } from "argsbarg";
-import YAML from "yaml";
-
-/**
- * Formats data as pretty YAML without artificial line-wrapping.
- */
-export function yamlFormat(data: unknown): string {
-  return YAML.stringify(data, { lineWidth: 0 }).trimEnd();
-}
-
-/** Formats data as pretty YAML without artificial line-wrapping (alias for yamlFormat). */
-export const formatYaml = yamlFormat;
 
 /**
  * Formats data as indented JSON.
@@ -24,34 +13,35 @@ export function jsonFormat(data: unknown): string {
 export const formatJson = jsonFormat;
 
 /**
- * Formats a payload as YAML by default, or JSON if `--json` is set on the context.
+ * Formats a payload as JSON for stdout.
  */
-export function outputFormat(ctx?: Pick<CliContext, "hasFlag">, data?: unknown): string {
-  if (ctx?.hasFlag("json")) {
-    return jsonFormat(data);
-  }
-  return yamlFormat(data);
+export function outputFormat(_ctx?: Pick<CliContext, "hasFlag">, data?: unknown): string {
+  return jsonFormat(data);
 }
 
-/** Formats a payload as YAML by default, or JSON if `--json` is set (alias for outputFormat). */
+/** Formats a payload as JSON (alias for outputFormat). */
 export const formatOutput = outputFormat;
 
 /**
- * Prints a payload to stdout using formatOutput.
+ * Prints a payload to stdout as JSON.
  */
-export function outputPrint(ctx: Pick<CliContext, "hasFlag"> | undefined, data: unknown): void {
-  console.log(outputFormat(ctx, data));
+export function outputPrint(_ctx: Pick<CliContext, "hasFlag"> | undefined, data: unknown): void {
+  console.log(outputFormat(undefined, data));
 }
 
-/** Prints a payload to stdout using formatOutput (alias for outputPrint). */
+/** Prints a payload to stdout (alias for outputPrint). */
 export const printOutput = outputPrint;
 
 /**
- * Parses structured input string (accepts both YAML and JSON).
+ * Parses a JSON document string (run input, surgical ops files).
  */
 export function inputParse(content: string): unknown {
-  return YAML.parse(content);
+  const trimmed = content.trim();
+  if (!trimmed) {
+    throw new SyntaxError("Expected JSON document");
+  }
+  return JSON.parse(trimmed);
 }
 
-/** Parses structured input string (alias for inputParse). */
+/** Parses JSON input (alias for inputParse). */
 export const parseInput = inputParse;

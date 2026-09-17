@@ -178,12 +178,14 @@ export type {
 } from "./query.ts";
 export {
   DocDom,
+  findHeadingByTitleOrSlug,
   findHeadingsByText,
   findNodeAt,
   findNodesByText,
   followingSiblingsFormat,
   formatFollowingSiblings,
   formatMissingScopedTargetMsg,
+  headingByTitleOrSlugFind,
   headingsByTextFind,
   missingNodeIdMsg,
   missingScopedTargetMsgFormat,
@@ -270,24 +272,3 @@ export {
   remove,
   setInnerText,
 } from "./write.ts";
-
-export type {
-  ExportYamlResult,
-  YamlCodeBlockSpec,
-  YamlNodeSpec,
-  YamlPageBreakSpec,
-  YamlParagraphSpec,
-  YamlTableSpec,
-  YamlTabTreePayload,
-  YamlTreePayload,
-} from "./yaml.ts";
-export {
-  documentExportToYaml,
-  exportDocumentToYaml,
-  exportTabToYaml,
-  nodeToYamlSpec,
-  parseYamlTree,
-  tabExportToYaml,
-  yamlSpecFromNode,
-  yamlTreeParse,
-} from "./yaml.ts";

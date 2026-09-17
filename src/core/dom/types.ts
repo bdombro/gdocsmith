@@ -15,8 +15,12 @@ export type CellParagraph = {
   alignment?: ParagraphAlignment;
   /** Smart chips in this cell paragraph. innerText / remove destroy them (apply warns). */
   chips?: InlineChip[];
+  /** Column index inside the parent table. */
+  col?: number;
   /** End UTF-16 character offset in document. */
   end: number;
+  /** Foreground hex colors found across text runs in this cell paragraph. */
+  fontColors?: string[];
   /** True if this cell paragraph contains a math equation. */
   hasEquation?: boolean;
   /** True if this cell paragraph contains a horizontal rule / divider. */
@@ -33,6 +37,8 @@ export type CellParagraph = {
   lineSpacing?: number;
   /** Markup representation if present. */
   markup?: string;
+  /** Row index inside the parent table. */
+  row?: number;
   /** Heading-scoped node ID: "{headingId}.{checksum}" or "{headingId}.table.{r}.{c}.{checksum}". */
   scopedId?: string;
   /** Background shading color string. */
@@ -68,10 +74,14 @@ export type DocNode = {
   };
   /** Smart chips in this paragraph. innerText / remove destroy them (apply warns). */
   chips?: InlineChip[];
+  /** Column index if inside a table. */
+  col?: number;
   /** Format > Columns count, on sectionBreak. */
   columnCount?: number;
   /** End UTF-16 character offset. */
   end: number;
+  /** Foreground hex colors found across text runs in this paragraph. */
+  fontColors?: string[];
   /** Footnote IDs referenced in this paragraph. */
   footnoteIds?: string[];
   /** True if this paragraph contains a math equation. */
@@ -98,6 +108,8 @@ export type DocNode = {
   markup?: string;
   /** Docs named style classification. */
   namedStyleType?: NamedStyle;
+  /** Row index if inside a table. */
+  row?: number;
   /** Heading-scoped node ID: "{headingId}.{checksum}" or "_preamble.{checksum}". */
   scopedId?: string;
   /** Background shading fill color. */

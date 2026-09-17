@@ -29,6 +29,50 @@ describe("InlineMarkup", () => {
     expect(text).toBe("**[details](https://x.test)**");
   });
 
+  test("serialize internal heading and tab links into Google Docs deep link URLs", () => {
+    const headingLinkText = InlineMarkup.serialize([
+      {
+        textRun: {
+          content: "Architecture Section",
+          textStyle: {
+            link: {
+              heading: { id: "h.arch", tabId: "t.123" },
+            },
+          },
+        },
+      },
+    ]);
+    expect(headingLinkText).toBe("[Architecture Section](?tab=t.123#heading=h.arch)");
+
+    const localHeadingLinkText = InlineMarkup.serialize([
+      {
+        textRun: {
+          content: "Local Section",
+          textStyle: {
+            link: {
+              heading: { id: "h.local" },
+            },
+          },
+        },
+      },
+    ]);
+    expect(localHeadingLinkText).toBe("[Local Section](#heading=h.local)");
+
+    const tabLinkText = InlineMarkup.serialize([
+      {
+        textRun: {
+          content: "Appendix Tab",
+          textStyle: {
+            link: {
+              tabId: "t.app",
+            },
+          },
+        },
+      },
+    ]);
+    expect(tabLinkText).toBe("[Appendix Tab](?tab=t.app)");
+  });
+
   test("serialize smart-chip richLink as a markdown link", () => {
     const text = InlineMarkup.serialize([
       { textRun: { content: "From " } },

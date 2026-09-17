@@ -51,11 +51,73 @@ export function nodeIdMissingMsg(id: number | string, tapeLen: number, kind: "no
 /** Error when `at` does not match a heading-scoped id on this tape (alias for nodeIdMissingMsg). */
 export const missingNodeIdMsg = nodeIdMissingMsg;
 
-/** Finds a tape node by heading-scoped id, headingId, or numeric snapshot id. */
-export function nodeAtFind(nodes: DocNode[], at: number | string): DocNode | undefined {
-  return nodes.find(
+/**
+ * Resolves a heading node by case-insensitive text title or slug (e.g. "Motivation", "h.motivation", "technical_approach").
+ */
+export function headingByTitleOrSlugFind(
+  /** Array of parsed document nodes. */
+  nodes: DocNode[],
+  /** Target title string or slug identifier. */
+  needle: string,
+): DocNode | undefined {
+  const headings = nodes.filter((n) => isHeading(n));
+  const trimmed = needle.trim();
+  const lower = trimmed.toLowerCase();
+  const slugTarget = lower.startsWith("h.") ? lower.slice(2) : lower;
+  const targetWords = slugTarget.replace(/[-_]+/g, " ").trim();
+
+  const exactHits = headings.filter((h) => {
+    const text = (h.text ?? "").trim().toLowerCase();
+    return text === lower || text === slugTarget;
+  });
+  if (exactHits.length === 1) return exactHits[0];
+
+  const slugHits = headings.filter((h) => {
+    const headingText = (h.text ?? "").trim().toLowerCase();
+    const headingWords = headingText.replace(/[^a-z0-9]+/g, " ").trim();
+    return headingWords === targetWords;
+  });
+  if (slugHits.length === 1) return slugHits[0];
+
+  return undefined;
+}
+
+/** Resolves a heading node by title or slug (alias for headingByTitleOrSlugFind). */
+export const findHeadingByTitleOrSlug = headingByTitleOrSlugFind;
+
+/** Finds a tape node by heading-scoped id, headingId, numeric snapshot id, or heading title/slug. */
+export function nodeAtFind(
+  /** Array of parsed document nodes. */
+  nodes: DocNode[],
+  /** Target node identifier (scoped id, heading id, numeric id, or heading title/slug). */
+  at: number | string,
+): DocNode | undefined {
+  const direct = nodes.find(
     (n) => n.tapeIndex === at || n.scopedId === at || n.headingId === at || String(n.tapeIndex) === String(at),
   );
+  if (direct) return direct;
+
+  if (typeof at === "string") {
+    const trimmed = at.trim();
+    const heading = headingByTitleOrSlugFind(nodes, trimmed);
+    if (heading) return heading;
+
+    if (trimmed.startsWith("h.") && trimmed.includes(".")) {
+      const parts = trimmed.split(".");
+      if (parts.length === 3) {
+        const slugPart = `h.${parts[1]}`;
+        const checksum = parts[2]!;
+        const parentHeading = headingByTitleOrSlugFind(nodes, slugPart);
+        if (parentHeading) {
+          const section = neighborhoodFrom(nodes, parentHeading.tapeIndex);
+          const hit = section.find((n) => n.scopedId?.endsWith(`.${checksum}`));
+          if (hit) return hit;
+        }
+      }
+    }
+  }
+
+  return undefined;
 }
 
 /** Finds a tape node by heading-scoped id, headingId, or numeric snapshot id (alias for nodeAtFind). */
@@ -102,14 +164,44 @@ export function missingScopedTargetMsgFormat(nodes: DocNode[], rawAt: string | n
 export const formatMissingScopedTargetMsg = missingScopedTargetMsgFormat;
 
 /**
- * Contiguous tape slice from `startId` through following siblings, stopping
- * before the next heading whose outline level is <= the start node's.
- * Includes sectionBreak / table / everything in between — not a filtered selector.
+ * Contiguous tape slice from `startId` through following siblings.
+ * When start is a table: returns its cells as candidate nodes.
+ * When start is a bullet: returns its subtree (or contiguous same-list siblings if sameList is true).
+ * When start is a heading: returns siblings until the next heading of equal or shallower outline level.
  */
-export function neighborhoodFrom(nodes: DocNode[], startId: number | string): DocNode[] {
+export function neighborhoodFrom(
+  /** Tape nodes array. */
+  nodes: DocNode[],
+  /** Heading, bullet, or table identifier to start from. */
+  startId: number | string,
+  /** Options configuring scope traversal. */
+  opts?: { sameList?: boolean },
+): DocNode[] {
   const start = findNodeAt(nodes, startId);
   if (!start) throw new Error(missingNodeIdMsg(startId, nodes.length));
   const i = nodes.indexOf(start);
+
+  if (start.kind === "table") {
+    return tableCellsAsNodes(start);
+  }
+
+  if (start.bullet) {
+    const listId = start.bullet.listId;
+    const startLevel = start.bullet.nestingLevel ?? 0;
+    const out: DocNode[] = [start];
+    for (let j = i + 1; j < nodes.length; j++) {
+      const n = nodes[j]!;
+      if (!n.bullet || (listId && n.bullet.listId !== listId)) break;
+      if (opts?.sameList) {
+        out.push(n);
+      } else {
+        if ((n.bullet.nestingLevel ?? 0) <= startLevel) break;
+        out.push(n);
+      }
+    }
+    return out;
+  }
+
   const startLevel = headingLevel(start);
   const out: DocNode[] = [start];
   for (let j = i + 1; j < nodes.length; j++) {
@@ -270,6 +362,36 @@ export function followingSiblingsFormat(nodes: DocNode[], from: DocNode): string
 
 /** Compact dump of following siblings (alias for followingSiblingsFormat). */
 export const formatFollowingSiblings = followingSiblingsFormat;
+
+/**
+ * Determines whether a document node is a heading paragraph.
+ */
+export function headingIs(
+  /** Document node to test. */
+  node: DocNode,
+): boolean {
+  return node.kind === "paragraph" && isHeadingStyle(node.namedStyleType);
+}
+
+/**
+ * Alias for headingIs.
+ */
+export const isHeading = headingIs;
+
+/**
+ * Returns the numeric outline hierarchy level of a heading node (0 for TITLE, 1 for HEADING_1, etc.).
+ */
+export function headingLevelOf(
+  /** Document node to check. */
+  node: DocNode,
+): number {
+  return STYLE_TO_LEVEL[(node.namedStyleType ?? "NORMAL_TEXT") as NamedStyle] ?? 99;
+}
+
+/**
+ * Alias for headingLevelOf.
+ */
+export const headingLevel = headingLevelOf;
 
 /** Walks candidates across combinator steps (+ or ~) and returns matches. */
 function walkCompounds(nodes: DocNode[], start: DocNode[], rest: SelectorStep[]): DocNode[] {
@@ -442,6 +564,46 @@ export function nodesByTextFind(nodes: DocNode[], needle: string, opts: FindNode
 
 /** Resolves any paragraph by text (alias for nodesByTextFind). */
 export const findNodesByText = nodesByTextFind;
+
+/**
+ * Converts all cells of a table node into DocNode paragraph candidates for querying.
+ */
+export function tableCellsAsNodes(
+  /** Table node whose cells should be converted. */
+  tableNode: DocNode,
+): DocNode[] {
+  if (tableNode.kind !== "table" || !tableNode.table) return [tableNode];
+  const out: DocNode[] = [];
+  for (let r = 0; r < tableNode.table.cells.length; r++) {
+    const row = tableNode.table.cells[r] ?? [];
+    for (let c = 0; c < row.length; c++) {
+      const cell = row[c];
+      if (!cell) continue;
+      const cellNode: DocNode = {
+        alignment: cell.alignment,
+        col: c,
+        end: cell.end,
+        ...(cell.fontColors?.length ? { fontColors: cell.fontColors } : {}),
+        kind: "paragraph",
+        markup: cell.markup,
+        row: r,
+        scopedId: cell.scopedId,
+        shading: cell.shading ?? cell.backgroundColor,
+        start: cell.start,
+        style: cell.style,
+        tapeIndex: tableNode.tapeIndex,
+        text: cell.text,
+      };
+      out.push(cellNode);
+    }
+  }
+  return out;
+}
+
+/**
+ * Alias for tableCellsAsNodes.
+ */
+export const asTableCellsNodes = tableCellsAsNodes;
 
 /** Splits a selector on `+` / `~`; rejects descendant combinators. */
 function parseSelector(input: string): SelectorStep[] {
@@ -702,16 +864,6 @@ function ofTypeIndex(nodes: DocNode[], node: DocNode, type: string | undefined):
     if (cand.tapeIndex === node.tapeIndex) return n;
   }
   return n;
-}
-
-/** Determines whether a node is a document heading. */
-function isHeading(node: DocNode): boolean {
-  return node.kind === "paragraph" && isHeadingStyle(node.namedStyleType);
-}
-
-/** Returns the numeric outline hierarchy level of a heading node. */
-function headingLevel(node: DocNode): number {
-  return STYLE_TO_LEVEL[(node.namedStyleType ?? "NORMAL_TEXT") as NamedStyle] ?? 99;
 }
 
 /** Finds index of a node in the tape node array by tapeIndex. */

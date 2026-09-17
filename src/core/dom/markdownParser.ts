@@ -10,6 +10,7 @@ import {
   type ElementSpec,
   type TableSpec,
 } from "./element.ts";
+import { markdownSymbolicLinksResolve } from "./linkResolver.ts";
 import type { NamedStyle } from "./types.ts";
 
 /**
@@ -25,6 +26,8 @@ export type MarkdownParseOptions = {
   customStyles?: Record<string, CustomTextStyle>;
   /** If true, the first level-1 heading (# Title) is mapped to TITLE instead of HEADING_1. */
   h1IsTitle?: boolean;
+  /** Resolver function to transform symbolic links (e.g. tab:Tab#Heading) into Docs URLs. */
+  linkResolver?: (href: string) => string;
 };
 
 /**
@@ -229,8 +232,11 @@ export function markdownToElementsParse(
   /** Parser configuration options. */
   options: MarkdownParseOptions = {},
 ): ElementSpec[] {
+  const resolvedMarkdown = options.linkResolver
+    ? markdownSymbolicLinksResolve(markdown, options.linkResolver)
+    : markdown;
   const effectiveStyles = options.customStyles ?? {};
-  const normalizedContent = listIndentationNormalize(markdown);
+  const normalizedContent = listIndentationNormalize(resolvedMarkdown);
   const tokens = marked.lexer(normalizedContent);
   const elements: ElementSpec[] = [];
   let seenFirstH1 = false;
@@ -404,7 +410,9 @@ export function markdownToElementsParse(
   }
 
   InlineMarkup.withStyles(effectiveStyles, () => {
-    walkTokens(tokens);
+    InlineMarkup.withLinkResolver(options.linkResolver, () => {
+      walkTokens(tokens);
+    });
   });
 
   return elements;

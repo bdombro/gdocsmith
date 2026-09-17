@@ -31,6 +31,7 @@ export type TabOutline = {
   title: string;
 };
 
+/** URL error message when full URL is passed instead of document ID. */
 export const URL_NOT_ACCEPTED_MSG = `Pass the document ID, not the full URL.
 
 Google Docs URL structure:
@@ -41,8 +42,10 @@ Google Docs URL structure:
 Example:
   doc query 1aMO6FtA-XVE6QtDEDGYgbd4NAg1mAT0LJKsjQvazouE --tab t.5up1ytauvsxg`;
 
+/** Message shown when a multi-tab document operation requires an explicit tab target. */
 export const TAB_REQUIRED_MSG = "This Doc has multiple tabs. Specify --tab <id|title>.";
 
+/** Message shown when apply targeting requires an explicit tabId in multi-tab documents. */
 export const APPLY_TAB_REQUIRED_MSG =
   "This Doc has multiple tabs. Each tabs[] entry must include tabId from query or tab list.";
 
@@ -54,6 +57,45 @@ export function tabInDocFind(data: GoogleDoc, hint: string): { tabId: string; ti
 
 /** Finds a tab in a DocTab tree by ID or unique title (alias for tabInDocFind). */
 export const findTabInDoc = tabInDocFind;
+
+/** Resolves a target tab index relative to an existing tab using afterTab or beforeTab. */
+export function relativeTabIndexResolve(
+  /** Google Doc data containing existing tabs. */
+  data: GoogleDoc,
+  /** Relative positioning options (afterTab, beforeTab, or direct index). */
+  opts: {
+    /** Tab title or ID to insert/move after. */
+    afterTab?: string;
+    /** Tab title or ID to insert/move before. */
+    beforeTab?: string;
+    /** Direct index fallback. */
+    index?: number;
+    /** Tab ID of the tab being moved (excluded from candidate index calculations). */
+    movingTabId?: string;
+  },
+): number | undefined {
+  if (opts.afterTab && opts.beforeTab) {
+    throw new Error('Cannot specify both "afterTab" and "beforeTab"');
+  }
+  if ((opts.afterTab || opts.beforeTab) && opts.index != null) {
+    throw new Error('Cannot specify both "index" and "afterTab"/"beforeTab"');
+  }
+  if (!opts.afterTab && !opts.beforeTab) {
+    return opts.index;
+  }
+  const hint = opts.afterTab ?? opts.beforeTab!;
+  const resolved = tabResolve(data, hint);
+  const flat = data.tabs?.length ? tabsFlatten(data.tabs) : [{ tabId: "t.0", title: "Main" }];
+  const candidateTabs = opts.movingTabId ? flat.filter((t) => t.tabId !== opts.movingTabId) : flat;
+  const targetIndex = candidateTabs.findIndex((t) => t.tabId === resolved.tabId);
+  if (targetIndex < 0) {
+    throw new Error(`Tab "${hint}" not found in document`);
+  }
+  return opts.afterTab ? targetIndex + 1 : targetIndex;
+}
+
+/** Resolves a target tab index relative to an existing tab (alias for relativeTabIndexResolve). */
+export const resolveRelativeTabIndex = relativeTabIndexResolve;
 
 /** Extracts and validates document ID from input, rejecting full URLs. */
 export function refParse(input: string): DocRef {
@@ -99,21 +141,32 @@ export function tabsListed(tabs: DocTab[] | undefined): ListedTab[] {
 /** Flattened tabs with zero-based index in UI order (alias for tabsListed). */
 export const listedTabs = tabsListed;
 
+/** Recursively traverses all tabs and child tabs in depth-first order. */
+export function tabsWalk(tabs: DocTab[] | undefined, visit: (tab: DocTab) => void): void {
+  for (const tab of tabs ?? []) {
+    visit(tab);
+    tabsWalk(tab.childTabs, visit);
+  }
+}
+
+/** Recursively traverses all tabs and child tabs in depth-first order (alias for tabsWalk). */
+export const walkTabs = tabsWalk;
+
 /** Nested tab tree for tab hierarchy. */
 export function tabTree(tabs: DocTab[] | undefined, _documentId?: string): TabOutline[] {
   return (tabs ?? []).map((tab) => tabToOutline(tab)).filter((t): t is TabOutline => t != null);
 }
 
 /**
- * Picks a tab. Sole tab is implicit. Several tabs need a hint (id or unique title).
+ * Picks a tab. Sole tab is implicit. Several tabs need a tab ID or unique title hint.
  */
 export function tabResolve(data: GoogleDoc, hint?: string): { tabId?: string; title?: string } {
   const flat = flattenTabs(data.tabs);
   if (!flat.length) {
-    if (hint) {
+    if (hint && hint !== "t.0" && hint.toLowerCase() !== "main" && hint.toLowerCase() !== "document") {
       throw new Error(`This Doc has no tabs; cannot use tab ${hint}.`);
     }
-    return {};
+    return { tabId: "t.0", title: data.title || "Main" };
   }
   if (hint) return pickTab(flat, hint);
   if (flat.length === 1) {
@@ -184,12 +237,8 @@ export function tabContent(data: GoogleDoc, tabId: string): NonNullable<DocTab["
   return tab.documentTab ?? {};
 }
 
-export function tabRequiredError(tabs: TabOutline[]): Error {
-  return new Error(`${TAB_REQUIRED_MSG}\n${JSON.stringify({ tabs }, null, 2)}`);
-}
-
 /** Finds a tab in a tree by tabId. */
-function findTab(tabs: DocTab[] | undefined, tabId: string): DocTab | undefined {
+export function tabFind(tabs: DocTab[] | undefined, tabId: string): DocTab | undefined {
   let hit: DocTab | undefined;
   walkTabs(tabs, (tab) => {
     if (tab.tabProperties?.tabId === tabId) hit = tab;
@@ -197,8 +246,21 @@ function findTab(tabs: DocTab[] | undefined, tabId: string): DocTab | undefined 
   return hit;
 }
 
-/** Selects a single tab from a flattened list using tabId or unique title hint. */
-function pickTab(flat: FlatTab[], hint: string): { tabId: string; title: string } {
+/** Finds a tab in a tree by tabId (alias for tabFind). */
+export const findTab = tabFind;
+
+/** Builds an error detailing known tabs when multiple tabs exist without targeting. */
+export function tabRequiredError(tabs: TabOutline[]): Error {
+  return new Error(`${TAB_REQUIRED_MSG}\n${JSON.stringify({ tabs }, null, 2)}`);
+}
+
+/** Selects a single tab from a flattened list using tabId, unique title, or root fallback. */
+function pickTab(
+  /** Flattened list of document tabs. */
+  flat: FlatTab[],
+  /** Target tab identifier (tabId, title, or root alias like "t.0"). */
+  hint: string,
+): { tabId: string; title: string } {
   const byId = flat.find((t) => t.tabId === hint);
   if (byId) return byId;
   const needle = hint.trim().toLowerCase();
@@ -206,6 +268,9 @@ function pickTab(flat: FlatTab[], hint: string): { tabId: string; title: string 
   if (byTitle.length === 1) return byTitle[0]!;
   if (byTitle.length > 1) {
     throw new Error(`Ambiguous tab title "${hint}". Use the tab id from tab list.`);
+  }
+  if ((needle === "t.0" || needle === "0" || needle === "root") && flat.length > 0) {
+    return flat[0]!;
   }
   const known = flat.map((t) => `${t.tabId} (${t.title || "untitled"})`).join(", ");
   throw new Error(`Unknown tab ${hint}.${known ? ` Known: ${known}` : ""}`);
@@ -222,12 +287,4 @@ function tabToOutline(tab: DocTab): TabOutline | undefined {
   const children = (tab.childTabs ?? []).map((c) => tabToOutline(c)).filter((t): t is TabOutline => t != null);
   if (children.length) row.children = children;
   return row;
-}
-
-/** Recursively traverses all tabs and child tabs in depth-first order. */
-function walkTabs(tabs: DocTab[] | undefined, visit: (tab: DocTab) => void): void {
-  for (const tab of tabs ?? []) {
-    visit(tab);
-    walkTabs(tab.childTabs, visit);
-  }
 }

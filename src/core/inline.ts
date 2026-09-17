@@ -138,7 +138,27 @@ markedInstance.use({ extensions: [createDirectiveExtension()] });
 
 /** Converts between patch markup strings and Docs API text runs. */
 export class InlineMarkup {
+  static #scopedLinkResolver: ((href: string) => string) | undefined;
   static #scopedStyles: Record<string, CustomTextStyle> | undefined;
+
+  /** Runs an action with an active link resolver scoped (supports both sync and async callbacks). */
+  static withLinkResolver<T>(linkResolver: ((href: string) => string) | undefined, fn: () => T): T {
+    const prev = InlineMarkup.#scopedLinkResolver;
+    InlineMarkup.#scopedLinkResolver = linkResolver;
+    try {
+      const res = fn();
+      if (res && typeof (res as Record<string, unknown>).then === "function") {
+        return (res as unknown as Promise<unknown>).finally(() => {
+          InlineMarkup.#scopedLinkResolver = prev;
+        }) as T;
+      }
+      InlineMarkup.#scopedLinkResolver = prev;
+      return res;
+    } catch (err) {
+      InlineMarkup.#scopedLinkResolver = prev;
+      throw err;
+    }
+  }
 
   /** Runs an action with active custom style definitions scoped (supports both sync and async callbacks). */
   static withStyles<T>(styles: Record<string, CustomTextStyle> | undefined, fn: () => T): T {
@@ -299,10 +319,13 @@ export class InlineMarkup {
             break;
           }
           case "link": {
+            const rawHref = token.href;
+            const resolver = InlineMarkup.#scopedLinkResolver;
+            const href = resolver ? resolver(rawHref) : rawHref;
             if (token.tokens && token.tokens.length > 0) {
-              walk(token.tokens, { ...currentStyle, link: token.href });
+              walk(token.tokens, { ...currentStyle, link: href });
             } else {
-              emit(token.text, { ...currentStyle, link: token.href });
+              emit(token.text, { ...currentStyle, link: href });
             }
             break;
           }
@@ -371,7 +394,26 @@ export class InlineMarkup {
       const font = (style.weightedFontFamily as { fontFamily?: string } | undefined)?.fontFamily;
       const italic = style.italic === true;
       const strikethrough = style.strikethrough === true;
-      const link = (style.link as { url?: string } | undefined)?.url;
+      const linkObj = style.link as
+        | {
+            bookmark?: { id?: string; tabId?: string };
+            heading?: { id?: string; tabId?: string };
+            tabId?: string;
+            url?: string;
+          }
+        | undefined;
+      let link = linkObj?.url;
+      if (!link && linkObj?.heading?.id) {
+        link = linkObj.heading.tabId
+          ? `?tab=${linkObj.heading.tabId}#heading=${linkObj.heading.id}`
+          : `#heading=${linkObj.heading.id}`;
+      } else if (!link && linkObj?.tabId) {
+        link = `?tab=${linkObj.tabId}`;
+      } else if (!link && linkObj?.bookmark?.id) {
+        link = linkObj.bookmark.tabId
+          ? `?tab=${linkObj.bookmark.tabId}#bookmark=${linkObj.bookmark.id}`
+          : `#bookmark=${linkObj.bookmark.id}`;
+      }
       const code = isMonospaceFont(font);
 
       let text = content;

@@ -6,7 +6,6 @@ import {
   buildChunkOps,
   chunkMarkdownElements,
   executeMarkdownInsert,
-  executeYamlInsert,
   markdownStylesParse,
   normalizeCustomStyle,
   parseMarkdownToElements,
@@ -584,60 +583,6 @@ Here is a ::greyNote[subtle grey footnote]::.
       );
     });
     expect(styleReq).toBeDefined();
-  });
-
-  test("executeYamlInsert executes insertion from YAML DOM tree", async () => {
-    const batchRequests: object[][] = [];
-    const docWithEmptyBody = {
-      documentId: "doc-yaml-insert",
-      revisionId: "rev-yaml-1",
-      body: {
-        content: [
-          {
-            endIndex: 1,
-            sectionBreak: {},
-            startIndex: 0,
-          },
-          {
-            endIndex: 2,
-            paragraph: {
-              elements: [{ textRun: { content: "\n" } }],
-            },
-            startIndex: 1,
-          },
-        ],
-      },
-    };
-
-    const mockClient = {
-      run: async () => JSON.stringify(docWithEmptyBody),
-      getDocument: async () => docWithEmptyBody,
-      batchUpdate: async (_id: string, reqs: object[]) => {
-        batchRequests.push(reqs);
-        return JSON.stringify({ replies: [] });
-      },
-    };
-
-    const yamlContent = `
-nodes:
-  - heading: 1
-    text: "Architecture Title"
-  - paragraph: "Body paragraph with **bold**."
-  - bullet: "First bullet item"
-    nestingLevel: 0
-  - table:
-      - ["Col 1", "Col 2"]
-      - ["Val 1", "Val 2"]
-`;
-
-    const result = await executeYamlInsert({
-      client: mockClient as any,
-      documentId: "doc-yaml-insert",
-      yaml: yamlContent,
-    });
-
-    expect(result.elementsInserted).toBe(4);
-    expect(batchRequests.length).toBeGreaterThan(0);
   });
 
   test("executeMarkdownInsert throws actionable missingNodeIdMsg when anchorId looks like a raw character offset", async () => {

@@ -3,11 +3,11 @@
 import { exportDocumentToMarkdown } from "~/core/dom/export.ts";
 import { liveDump, nodeSummarize, pageSetupExtract, TAPE_ECHO_CAP } from "~/core/dom/ops.ts";
 import { parseDocument } from "~/core/dom/parse.ts";
-import { neighborhoodFrom } from "~/core/dom/query.ts";
-import type { DocNode } from "~/core/dom/types.ts";
-import { exportDocumentToYaml } from "~/core/dom/yaml.ts";
+import { headingLevel, isHeading, neighborhoodFrom, tableCellsAsNodes } from "~/core/dom/query.ts";
+import { fontColorsMatch } from "~/core/dom/style.ts";
+import type { DocNode, NodeKind } from "~/core/dom/types.ts";
 import type { Gdoc } from "~/core/gdoc.ts";
-import { flattenTabs } from "~/core/tabs.ts";
+import { flattenTabs, resolveTab } from "~/core/tabs.ts";
 import type { QueryOutputFormat } from "~/core/workflowTypes.ts";
 import { simulatedNodesOf } from "./simulated.ts";
 import type { WorkflowStepHandler } from "./types.ts";
@@ -15,13 +15,20 @@ import type { WorkflowStepHandler } from "./types.ts";
 /** Query-only fields on a run step that {@link queryStep} must honor. */
 export const QUERY_STEP_FIELDS = [
   "as",
+  "cols",
   "contains",
   "doc",
+  "fontColors",
   "full",
+  "headingLevels",
+  "nestingLevels",
+  "nodeKinds",
+  "nodeUnder",
   "output",
+  "rows",
+  "sameList",
   "stylesOnly",
   "tab",
-  "under",
   "unsafeOnly",
 ] as const;
 
@@ -34,10 +41,32 @@ export const queryStep: WorkflowStepHandler = async (runtime, stepIndex, step) =
   const full = Boolean(step.full);
   const targetDoc = runtime.openDocResolve(step.doc);
   const tabHint = runtime.aliasResolve(step.tab);
-  const simulated = simulatedNodesOf(targetDoc.gdoc);
+  const hasTabs = Boolean(targetDoc.gdoc.data.tabs?.length);
+  const isMultiTab = (targetDoc.gdoc.data.tabs?.length ?? 0) > 1;
+
+  let liveTab: { tabId?: string; title?: string } = { tabId: undefined, title: targetDoc.title };
+  if (tabHint && hasTabs) {
+    liveTab = resolveTab(targetDoc.gdoc.data, tabHint);
+  } else if (!tabHint && targetDoc.gdoc.data.tabs?.length === 1) {
+    liveTab = resolveTab(targetDoc.gdoc.data);
+  }
+
+  const targetTabId = hasTabs ? (liveTab.tabId ?? tabHint) : undefined;
+  const simulated = isMultiTab && !targetTabId ? undefined : simulatedNodesOf(targetDoc.gdoc, targetTabId);
+  const underTarget = step.nodeUnder;
   const filtered =
-    Boolean(step.under) || Boolean(step.contains) || Boolean(step.stylesOnly) || Boolean(step.unsafeOnly);
-  const wholeDocument = !tabHint && !filtered && (output === "markdown" || output === "yaml") && !simulated;
+    Boolean(underTarget) ||
+    Boolean(step.contains) ||
+    Boolean(step.stylesOnly) ||
+    Boolean(step.unsafeOnly) ||
+    Boolean(step.cols?.length) ||
+    Boolean(step.fontColors?.length) ||
+    Boolean(step.headingLevels?.length) ||
+    Boolean(step.nestingLevels?.length) ||
+    Boolean(step.nodeKinds?.length) ||
+    Boolean(step.rows?.length) ||
+    Boolean(step.sameList);
+  const wholeDocument = !tabHint && !filtered && (output === "markdown" || output === "outline");
 
   const tabInputs = wholeDocument
     ? documentTabsParse(targetDoc.gdoc, targetDoc.title)
@@ -52,11 +81,10 @@ export const queryStep: WorkflowStepHandler = async (runtime, stepIndex, step) =
     throw new Error(`steps[${stepIndex}] query: no nodes matched`);
   }
 
-  if (nodes.length > 0) {
-    runtime.aliasMap.set(as, String(nodes[0]?.scopedId ?? nodes[0]?.tapeIndex));
-  }
+  runtime.queryAliases.add(as);
 
   const payload = queryPayloadBuild({
+    alias: as,
     documentId: targetDoc.docId,
     full,
     nodes,
@@ -71,7 +99,7 @@ export const queryStep: WorkflowStepHandler = async (runtime, stepIndex, step) =
 };
 
 /** Allowed `output:` values for `kind: query`. */
-const QUERY_OUTPUTS = new Set<QueryOutputFormat>(["markdown", "nodes", "yaml"]);
+const QUERY_OUTPUTS = new Set<QueryOutputFormat>(["markdown", "nodes", "outline"]);
 
 /** Parses a single open document tab (or simulated tape) into export input. */
 function singleTabParse(
@@ -80,19 +108,27 @@ function singleTabParse(
   simulated: DocNode[] | undefined,
   title: string,
 ): { nodes: DocNode[]; tabId?: string; tabTitle?: string } {
-  const gdoc = tabHint ? targetDoc.gdoc.withTab(tabHint) : targetDoc.gdoc;
+  const liveTab = targetDoc.gdoc.data.tabs?.length
+    ? resolveTab(targetDoc.gdoc.data, tabHint)
+    : { tabId: undefined, title: targetDoc.title };
+  const targetTabId = targetDoc.gdoc.data.tabs?.length ? (liveTab.tabId ?? tabHint) : undefined;
+  const gdoc = targetTabId ? targetDoc.gdoc.withTab(targetTabId) : targetDoc.gdoc;
   if (simulated) {
-    return { nodes: simulated, tabId: tabHint ?? "t.0", tabTitle: title };
+    return { nodes: simulated, tabId: targetTabId ?? "t.0", tabTitle: liveTab.title || title };
   }
   const parsed = parseDocument(gdoc);
-  return { nodes: parsed.nodes, tabId: tabHint, tabTitle: parsed.title || title };
+  return { nodes: parsed.nodes, tabId: targetTabId, tabTitle: liveTab.title || parsed.title || title };
 }
 
-/** Parses every tab on a live document for whole-doc markdown/yaml export. */
+/** Parses every tab on a live document for whole-doc markdown export. */
 function documentTabsParse(gdoc: Gdoc, title: string): Array<{ nodes: DocNode[]; tabId?: string; tabTitle?: string }> {
   const tabs = flattenTabs(gdoc.data.tabs);
   const roster = tabs.length > 0 ? tabs : [{ tabId: "t.0", title }];
   return roster.map((t) => {
+    const sim = simulatedNodesOf(gdoc, t.tabId);
+    if (sim) {
+      return { nodes: sim, tabId: t.tabId, tabTitle: t.title || title };
+    }
     const parsed = parseDocument(t.tabId ? gdoc.withTab(t.tabId) : gdoc);
     return { nodes: parsed.nodes, tabId: t.tabId, tabTitle: t.title || parsed.title };
   });
@@ -110,6 +146,7 @@ function nodeIsUnsafe(node: DocNode): boolean {
 
 /** Serializes matched nodes for `dumped`. */
 function queryPayloadBuild(opts: {
+  alias: string;
   documentId: string;
   full: boolean;
   nodes: DocNode[];
@@ -119,12 +156,52 @@ function queryPayloadBuild(opts: {
   unfiltered: boolean;
 }): unknown {
   if (opts.output === "markdown") {
-    const exp = exportDocumentToMarkdown(opts.tabInputs, { documentId: opts.documentId, includeStyles: true });
-    return { audit: exp.audit, markdown: exp.markdown };
+    const exp = exportDocumentToMarkdown(opts.tabInputs, { documentId: opts.documentId, includeStyles: false });
+    return {
+      alias: opts.alias,
+      id: opts.documentId,
+      kind: "markdown",
+      markdown: exp.markdown,
+    };
   }
-  if (opts.output === "yaml") {
-    const exp = exportDocumentToYaml(opts.tabInputs, { documentId: opts.documentId, includeStyles: true });
-    return { audit: exp.audit, yaml: exp.yaml };
+  if (opts.output === "outline") {
+    const tabsOutline = opts.tabInputs.map((tab) => {
+      const headings = tab.nodes
+        .filter((n) => isHeading(n))
+        .map((h) => ({
+          headingId: h.headingId,
+          id: h.scopedId ?? h.tapeIndex,
+          level: headingLevel(h),
+          link: h.headingId
+            ? tab.tabId
+              ? `?tab=${tab.tabId}#heading=${h.headingId}`
+              : `#heading=${h.headingId}`
+            : undefined,
+          namedStyleType: h.namedStyleType,
+          text: (h.text ?? "").trim(),
+        }));
+      return {
+        headings,
+        tabId: tab.tabId,
+        tabTitle: tab.tabTitle,
+      };
+    });
+
+    const allHeadings = tabsOutline.flatMap((t) =>
+      t.headings.map((h) => ({
+        ...h,
+        tabId: t.tabId,
+        tabTitle: t.tabTitle,
+      })),
+    );
+
+    return {
+      alias: opts.alias,
+      headings: allHeadings,
+      id: opts.documentId,
+      kind: "outline",
+      tabs: tabsOutline,
+    };
   }
   if (opts.unfiltered && opts.nodes.length > TAPE_ECHO_CAP && !opts.full) {
     const first = opts.tabInputs[0];
@@ -146,30 +223,67 @@ function queryOutputRead(raw: unknown, stepIndex: number): QueryOutputFormat {
   if (typeof raw === "string" && QUERY_OUTPUTS.has(raw as QueryOutputFormat)) {
     return raw as QueryOutputFormat;
   }
-  throw new Error(`steps[${stepIndex}] query output must be nodes, markdown, or yaml`);
+  throw new Error(`steps[${stepIndex}] query output must be nodes, markdown, or outline`);
 }
 
-/** Applies `under`, `contains`, `stylesOnly`, and `unsafeOnly` to a tab tape. */
+/** Applies query filters to a tab tape. */
 function queryNodesFilter(
+  /** Array of document nodes on the tape. */
   nodes: DocNode[],
+  /** Filter criteria specified in the workflow step. */
   step: {
+    cols?: number[];
     contains?: string;
+    fontColors?: string[];
+    headingLevels?: number[];
+    nestingLevels?: number[];
+    nodeKinds?: NodeKind[];
+    nodeUnder?: string;
+    rows?: number[];
+    sameList?: boolean;
     stylesOnly?: boolean;
-    under?: string;
     unsafeOnly?: boolean;
   },
+  /** Resolver mapping alias handles to document ids or headings. */
   aliasResolve: (val?: string) => string | undefined,
 ): DocNode[] {
   let out = nodes;
-  if (step.under) {
-    out = neighborhoodFrom(out, aliasResolve(step.under) ?? step.under);
+  const underTarget = step.nodeUnder;
+  if (underTarget) {
+    out = neighborhoodFrom(out, aliasResolve(underTarget) ?? underTarget, { sameList: step.sameList });
+  }
+
+  if (step.rows?.length || step.cols?.length) {
+    out = out.flatMap((n) => (n.kind === "table" ? tableCellsAsNodes(n) : [n]));
+  }
+
+  if (step.nodeKinds?.length) {
+    out = out.filter((n) => step.nodeKinds!.includes(n.kind));
+  }
+  if (step.headingLevels?.length) {
+    out = out.filter((n) => isHeading(n) && step.headingLevels!.includes(headingLevel(n)));
+  }
+  if (step.nestingLevels?.length) {
+    out = out.filter((n) => n.bullet != null && step.nestingLevels!.includes(n.bullet.nestingLevel ?? 0));
+  }
+  if (step.rows?.length) {
+    out = out.filter((n) => n.row != null && step.rows!.includes(n.row));
+  }
+  if (step.cols?.length) {
+    out = out.filter((n) => n.col != null && step.cols!.includes(n.col));
+  }
+  if (step.fontColors?.length) {
+    out = out.filter((n) => {
+      const colors = n.fontColors ?? (n.style?.foregroundColor ? [n.style.foregroundColor] : []);
+      return fontColorsMatch(colors, step.fontColors!);
+    });
   }
   if (step.contains) {
     const lower = step.contains.toLowerCase();
     out = out.filter((n) => (n.text ?? "").toLowerCase().includes(lower));
   }
   if (step.stylesOnly) {
-    out = out.filter((n) => n.style != null);
+    out = out.filter((n) => n.style != null || (n.fontColors?.length ?? 0) > 0);
   }
   if (step.unsafeOnly) {
     out = out.filter((n) => nodeIsUnsafe(n));

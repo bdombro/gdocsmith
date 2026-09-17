@@ -10,6 +10,7 @@ import {
   overlayTab,
   parseRef,
   resolveApplyTab,
+  resolveRelativeTabIndex,
   resolveTab,
   TAB_REQUIRED_MSG,
   tabContent,
@@ -104,8 +105,13 @@ describe("flattenTabs", () => {
 });
 
 describe("resolveTab", () => {
+  test("resolves an exact tabId", () => {
+    expect(resolveTab(nested, "t.1")).toEqual({ tabId: "t.1", title: "Notes" });
+  });
+
   test("resolves a unique title", () => {
     expect(resolveTab(nested, "Notes")).toEqual({ tabId: "t.1", title: "Notes" });
+    expect(resolveTab(nested, "notes")).toEqual({ tabId: "t.1", title: "Notes" });
   });
 
   test("refuses an ambiguous title", () => {
@@ -115,11 +121,24 @@ describe("resolveTab", () => {
     expect(() => resolveTab(data, "Dup")).toThrow(/Ambiguous tab title/);
   });
 
+  test("rejects unknown tab with known list", () => {
+    expect(() => resolveTab(nested, "Missing")).toThrow(/Unknown tab Missing.*Known: t.0/);
+  });
+
   test("sole tab is implicit", () => {
     expect(resolveTab({ tabs: [docTab("t.0", "Only", "x")] })).toEqual({
       tabId: "t.0",
       title: "Only",
     });
+  });
+
+  test("auto-resolves t.0, 0, or root to topmost tab when literal t.0 is missing", () => {
+    const dataWithoutT0: GoogleDoc = {
+      tabs: [docTab("t.abc", "Overview", "intro"), docTab("t.xyz", "Details", "body")],
+    };
+    expect(resolveTab(dataWithoutT0, "t.0")).toEqual({ tabId: "t.abc", title: "Overview" });
+    expect(resolveTab(dataWithoutT0, "0")).toEqual({ tabId: "t.abc", title: "Overview" });
+    expect(resolveTab(dataWithoutT0, "root")).toEqual({ tabId: "t.abc", title: "Overview" });
   });
 
   test("several tabs without a hint fail closed with tabs in the error", () => {
@@ -199,5 +218,55 @@ describe("parseDocument from tabs", () => {
         nodes: [expect.objectContaining({ text: "CONFIDENTIAL" })],
       }),
     ]);
+  });
+});
+
+describe("resolveRelativeTabIndex", () => {
+  const tabsDoc: GoogleDoc = {
+    tabs: [
+      docTab("t.0", "Intro", "content"),
+      docTab("t.1", "Decisions", "content"),
+      docTab("t.2", "Appendix", "content"),
+    ],
+  };
+
+  test("calculates afterTab correctly", () => {
+    expect(resolveRelativeTabIndex(tabsDoc, { afterTab: "Intro" })).toBe(1);
+    expect(resolveRelativeTabIndex(tabsDoc, { afterTab: "Decisions" })).toBe(2);
+    expect(resolveRelativeTabIndex(tabsDoc, { afterTab: "Appendix" })).toBe(3);
+  });
+
+  test("calculates beforeTab correctly", () => {
+    expect(resolveRelativeTabIndex(tabsDoc, { beforeTab: "Intro" })).toBe(0);
+    expect(resolveRelativeTabIndex(tabsDoc, { beforeTab: "Decisions" })).toBe(1);
+    expect(resolveRelativeTabIndex(tabsDoc, { beforeTab: "Appendix" })).toBe(2);
+  });
+
+  test("resolves movingTabId properly", () => {
+    expect(resolveRelativeTabIndex(tabsDoc, { afterTab: "Intro", movingTabId: "t.2" })).toBe(1);
+    expect(resolveRelativeTabIndex(tabsDoc, { afterTab: "Decisions", movingTabId: "t.0" })).toBe(1);
+  });
+
+  test("throws if both afterTab and beforeTab are passed", () => {
+    expect(() => resolveRelativeTabIndex(tabsDoc, { afterTab: "Intro", beforeTab: "Appendix" })).toThrow(
+      /Cannot specify both "afterTab" and "beforeTab"/,
+    );
+  });
+
+  test("throws if index and afterTab are passed", () => {
+    expect(() => resolveRelativeTabIndex(tabsDoc, { afterTab: "Intro", index: 2 })).toThrow(
+      /Cannot specify both "index" and "afterTab"/,
+    );
+  });
+
+  test("throws if tab is unknown", () => {
+    expect(() => resolveRelativeTabIndex(tabsDoc, { afterTab: "Unknown" })).toThrow(/Unknown tab Unknown/);
+  });
+
+  test("throws if tab title is ambiguous", () => {
+    const ambiguousDoc: GoogleDoc = {
+      tabs: [docTab("t.0", "Notes", "a"), docTab("t.1", "Notes", "b")],
+    };
+    expect(() => resolveRelativeTabIndex(ambiguousDoc, { afterTab: "Notes" })).toThrow(/Ambiguous tab title "Notes"/);
   });
 });

@@ -2,53 +2,80 @@
 id: gdocsmith
 name: gdocsmith
 description: >-
-  Surgical Google Docs authoring via a single run workflow (create, copy, query, dump, insert markdown, replace).
-  Use when the user wants to create, edit, query, or template a Google Doc. Prefer the gdocsmith MCP tool `run`.
-  NEVER calculate character offsets or write raw documents.batchUpdate scripts.
+  Surgical Google Docs authoring via declarative workflow steps (docCreate, docOpen, query, markdownInsert, replace, docPermissionAdd).
+  Always use the gdocsmith MCP tool `run`. NEVER calculate character offsets or write raw documents.batchUpdate scripts.
 enabled: true
 ---
 
 # gdocsmith
 
-Surgical Google Docs authoring via sequential declarative steps. Prefer the MCP tool `run` (or CLI `gdocsmith run`). No bash heredocs or raw `documents.batchUpdate` scripts.
+Declarative Google Docs authoring via the `run` MCP tool. No raw batchUpdate scripts, no character offsets.
 
-> **Auth:** `gws auth export` credentials. If missing, use the shared Google Workspace skill or `gws`.
+> **Auth:** `gws auth export` credentials.
+> **Rule:** Every workflow step must have `kind: <WorkflowStepKind>`. Always check the `run` tool's `inputSchema` for complete parameter definitions.
 
-> CLI: Do use the CLI directly
+## Core Rules
 
-## Agent protocol
+1. **Explicit document opening & statelessness:** `docOpen` with `doc: <rawId>` and `as: <alias>`. Document aliases exist only within that single `run` call. Every step touching a doc must specify `doc: <alias>` (`docCreate` binds `as`, `docCopy` uses `copyFrom`).
+2. **Anchor scoping:** `nodeAt`, `nodeAfter`, `nodeBefore`, and `nodeUnder` ALWAYS reference headings or node IDs in the **target document** (`doc:`), never IDs from a source document.
+3. **Headings vs. sections:** Use `replace` (or `replaceMarkdown`) to rename a heading in place. NEVER use `replaceSection` on an H1 or Title—`replaceSection` replaces the *entire* outline tree under that heading! Use `replaceSection` on leaf/subsection headings (e.g. `Motivation`, `Decisions`) to diff and update section body.
+4. **Creation-time tab positioning:** Always specify tab `title` and position (`afterTab: <title|id>` or `beforeTab: <title|id>`) at creation time in `tabAdd` or `tabDuplicate`. Tab titles must be unique. Avoid post-hoc `tabMove` on cloned template docs due to Google Docs API 500 bugs.
+5. **Symbolic links:** Use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown. gdocsmith automatically compiles them to native Google Docs deep links.
 
-1. **Probe first:** one doc, `open` then `query` with `as:` (query writes `dumped`). Succeed once before batching unfamiliar `kind`s.
-2. **Bindings:** only `open` and `query` create aliases. `query` with `as:` also writes `dumped[as]`. `dump` re-emits an existing alias; dump of an open alias is `{ id, title }` only.
-3. **Unfamiliar steps:** read MCP `run` schema or `gdocsmith run --help` for that `kind` before use. This file is not the full step reference.
-4. **Errors:** stop and report. No CLI fallback unless the user allows it. MCP tool rejection on write is a blocker — ask the user to approve or unblock.
+## Canonical Recipes
 
-## Execution model
-
-Prefer one `run` per phase (read → copy → edit). Batch steps only after each `kind` in the batch has worked in this session.
-
-Step schemas: `gdocsmith run --help` or MCP tool description.
-
-### Canonical workflow
-
-```yaml
-dryRun: false
-steps:
-  - kind: open
-    doc: <documentId>
-    as: spec
-  - kind: query
-    doc: spec
-    contains: "Status"
-    as: statusNode
-  - kind: replace
-    at: statusNode
-    replace: "Status: APPROVED"
+### 1. Dump Document as Markdown
+```json
+{
+  "steps": [
+    { "kind": "docOpen", "doc": "<documentId>", "as": "myDoc" },
+    { "kind": "query", "doc": "myDoc", "as": "docMd", "output": "markdown" }
+  ]
+}
 ```
 
-Full-doc markdown: `kind: query` + `output: markdown` + `as:` (add `tab:` for one tab, `under:` for a section). Dump of the open alias is metadata only.
+### 2. Create Multi-Tab Doc & Insert Markdown (Single Pass)
+```json
+{
+  "steps": [
+    { "kind": "docCreate", "title": "Project Plan", "as": "plan" },
+    { "kind": "markdownInsert", "doc": "plan", "markdown": "# Overview\n\nIntro copy..." },
+    { "kind": "tabAdd", "doc": "plan", "title": "Execution", "afterTab": "Main" },
+    { "kind": "markdownInsert", "doc": "plan", "tab": "Execution", "markdown": "# Execution\n\nSee [Overview](tab:Main#Overview)." }
+  ]
+}
+```
 
-1. **`open`** — bind document handle to `as`.
-2. **`query`** — locate nodes; bind matches to `as` (heading-scoped ids like `h.arch.9a1b`); writes `dumped`. Use `output: markdown` or `yaml` to serialize.
-3. **Edits** (`replace`, `replaceMarkdown`, `replaceSection`, `markdownInsert`, `kind: surgical` for chips/tables/clones) — anchor with `at`, `after`, or `before`.
-4. **`dump`** — optional re-emit of a bound alias into `dumped`.
+### 3. Server-Side Section Transfer Across Documents
+```json
+{
+  "steps": [
+    { "kind": "docOpen", "doc": "<sourceDocId>", "as": "source" },
+    { "kind": "docOpen", "doc": "<targetDocId>", "as": "target" },
+    { "kind": "sectionCopy", "fromDoc": "source", "fromSection": "Decisions", "doc": "target", "nodeAt": "Decisions" }
+  ]
+}
+```
+
+### 4. Query Outline & Replace Leaf Section
+```json
+{
+  "steps": [
+    { "kind": "docOpen", "doc": "<documentId>", "as": "myDoc" },
+    { "kind": "query", "doc": "myDoc", "as": "outline", "output": "outline" },
+    { "kind": "replaceSection", "doc": "myDoc", "nodeAt": "Decisions", "markdown": "## Decisions\n\n- D1: New choice" }
+  ]
+}
+```
+
+### 5. Manage Document Permissions
+```json
+{
+  "steps": [
+    { "kind": "docOpen", "doc": "<documentId>", "as": "myDoc" },
+    { "kind": "docPermissionAdd", "doc": "myDoc", "scope": "internal", "role": "commenter" },
+    { "kind": "docPermissionAdd", "doc": "myDoc", "email": "teammate@example.com", "role": "writer" },
+    { "kind": "docPermissionList", "doc": "myDoc", "as": "perms" }
+  ]
+}
+```

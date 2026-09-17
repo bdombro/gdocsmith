@@ -1,4 +1,4 @@
-/* High-level markdown and YAML DOM insertion workflows. */
+/* High-level markdown DOM insertion workflows. */
 
 import {
   applyDom,
@@ -24,12 +24,12 @@ import {
   normalizeListIndentation,
   parseMarkdownToElements,
 } from "./dom/markdownParser.ts";
-import { parseYamlTree } from "./dom/yaml.ts";
 import { Gdoc } from "./gdoc.ts";
 import { type GwsClient, gws } from "./gws.ts";
 import { type CustomTextStyle, InlineMarkup } from "./inline.ts";
 import { DriveRevisions } from "./revisions.ts";
 import { resolveTab } from "./tabs.ts";
+import type { GoogleDoc } from "./types.ts";
 
 export {
   chunkMarkdownElements,
@@ -62,23 +62,14 @@ export type ExecuteMarkdownInsertParams = {
   anchorId?: number | string;
   client?: GwsClient;
   customStyles?: Record<string, CustomTextStyle>;
+  doc?: GoogleDoc;
   documentId: string;
   force?: boolean;
   h1IsTitle?: boolean;
+  linkResolver?: (href: string) => string;
   markdown: string;
   position?: InsertPosition;
   tabHint?: string;
-};
-
-/** Parameters for executing a YAML DOM tree insertion. */
-export type ExecuteYamlInsertParams = {
-  anchorId?: number | string;
-  client?: GwsClient;
-  documentId: string;
-  force?: boolean;
-  position?: InsertPosition;
-  tabHint?: string;
-  yaml: string | Record<string, unknown>;
 };
 
 /** Result of executing a markdown insertion. */
@@ -111,7 +102,7 @@ export async function elementsInsertExecute(params: ExecuteElementsInsertParams)
   const chunks = chunkMarkdownElements(elements);
 
   let freshDoc = await Gdoc.load(params.documentId, client);
-  const tabResolution = resolveTab(freshDoc.data, params.tabHint);
+  const tabResolution = freshDoc.data.tabs?.length ? resolveTab(freshDoc.data, params.tabHint) : {};
   const tabId = tabResolution.tabId;
   let gdoc = tabId ? freshDoc.withTab(tabId) : freshDoc;
   let parsedDoc = parseDocument(gdoc);
@@ -226,6 +217,7 @@ export async function markdownInsertExecute(params: ExecuteMarkdownInsertParams)
   const elements = parseMarkdownToElements(params.markdown, {
     customStyles: params.customStyles,
     h1IsTitle: params.h1IsTitle,
+    linkResolver: params.linkResolver,
   });
 
   return executeElementsInsert({
@@ -242,23 +234,6 @@ export async function markdownInsertExecute(params: ExecuteMarkdownInsertParams)
 
 /** Executes markdown insertion across one or more chunks (alias for markdownInsertExecute). */
 export const executeMarkdownInsert = markdownInsertExecute;
-
-/** Executes insertion of a YAML DOM tree into a tab or document. */
-export async function yamlInsertExecute(params: ExecuteYamlInsertParams): Promise<MarkdownInsertResult> {
-  const { elements, meta } = parseYamlTree(params.yaml);
-  return executeElementsInsert({
-    anchorId: params.anchorId,
-    client: params.client,
-    documentId: params.documentId,
-    elements,
-    force: params.force,
-    position: params.position,
-    tabHint: params.tabHint ?? (typeof meta.tabId === "string" ? meta.tabId : undefined),
-  });
-}
-
-/** Executes insertion of a YAML DOM tree (alias for yamlInsertExecute). */
-export const executeYamlInsert = yamlInsertExecute;
 
 /** Builds DomOp array for a single markdown chunk. */
 export function chunkOpsBuild(

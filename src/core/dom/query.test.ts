@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { Gdoc } from "../gdoc.ts";
 import { PARAGRAPH_STYLES } from "../styles.ts";
 import { mockDoc } from "../testFixtures.ts";
-import { DocDom, followingSiblingsFormat, neighborhoodFrom } from "./query.ts";
+import { DocDom, followingSiblingsFormat, neighborhoodFrom, nodeAtFind } from "./query.ts";
 import type { DocNode } from "./types.ts";
 
 function sampleDom() {
@@ -538,5 +538,129 @@ describe("neighborhoodFrom", () => {
         n.kind === "tableOfContents",
     );
     expect(unsafeNodes.map((n) => n.tapeIndex)).toEqual([3, 4]);
+  });
+
+  test("scopes to bullet subtree by default and contiguous list when sameList is true", () => {
+    const nodes: DocNode[] = [
+      {
+        bullet: { listId: "kix.list1", nestingLevel: 0 },
+        end: 10,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 1,
+        tapeIndex: 1,
+        text: "Parent Item 1",
+      },
+      {
+        bullet: { listId: "kix.list1", nestingLevel: 1 },
+        end: 20,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 10,
+        tapeIndex: 2,
+        text: "Sub-item 1.1",
+      },
+      {
+        bullet: { listId: "kix.list1", nestingLevel: 2 },
+        end: 30,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 20,
+        tapeIndex: 3,
+        text: "Sub-sub-item 1.1.1",
+      },
+      {
+        bullet: { listId: "kix.list1", nestingLevel: 0 },
+        end: 40,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 30,
+        tapeIndex: 4,
+        text: "Parent Item 2",
+      },
+      {
+        end: 50,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 40,
+        tapeIndex: 5,
+        text: "Paragraph after list",
+      },
+    ];
+
+    // Default subtree: includes sub-items 1.1 and 1.1.1, stops before Parent Item 2
+    const subtree = neighborhoodFrom(nodes, 1);
+    expect(subtree.map((n) => n.tapeIndex)).toEqual([1, 2, 3]);
+
+    // sameList: true includes all contiguous list items sharing kix.list1
+    const entireList = neighborhoodFrom(nodes, 1, { sameList: true });
+    expect(entireList.map((n) => n.tapeIndex)).toEqual([1, 2, 3, 4]);
+  });
+
+  test("scopes to table cells when startId is a table node", () => {
+    const tableNode: DocNode = {
+      end: 50,
+      kind: "table",
+      scopedId: "h.arch.table.1a2b",
+      start: 1,
+      table: {
+        cells: [
+          [
+            { end: 10, row: 0, col: 0, scopedId: "h.arch.table.0.0.1a2b", start: 1, text: "Header Col 1" },
+            { end: 20, row: 0, col: 1, scopedId: "h.arch.table.0.1.1a2b", start: 10, text: "Header Col 2" },
+          ],
+          [
+            { end: 30, row: 1, col: 0, scopedId: "h.arch.table.1.0.1a2b", start: 20, text: "Data Row 1 Col 1" },
+            { end: 40, row: 1, col: 1, scopedId: "h.arch.table.1.1.1a2b", start: 30, text: "Data Row 1 Col 2" },
+          ],
+        ],
+      },
+      tapeIndex: 1,
+    };
+
+    const cells = neighborhoodFrom([tableNode], 1);
+    expect(cells).toHaveLength(4);
+    expect(cells[0]?.text).toBe("Header Col 1");
+    expect(cells[0]?.row).toBe(0);
+    expect(cells[0]?.col).toBe(0);
+    expect(cells[0]?.scopedId).toBe("h.arch.table.0.0.1a2b");
+
+    expect(cells[3]?.text).toBe("Data Row 1 Col 2");
+    expect(cells[3]?.row).toBe(1);
+    expect(cells[3]?.col).toBe(1);
+    expect(cells[3]?.scopedId).toBe("h.arch.table.1.1.1a2b");
+  });
+
+  test("resolves headings by text title or slug", () => {
+    const nodes: DocNode[] = [
+      {
+        end: 15,
+        headingId: "h.eqr198rcdi7e",
+        kind: "paragraph",
+        namedStyleType: "HEADING_2",
+        scopedId: "h.eqr198rcdi7e.9d21",
+        start: 1,
+        tapeIndex: 1,
+        text: "Motivation\n",
+      },
+      {
+        end: 35,
+        headingId: "h.oese7p5mlxtu",
+        kind: "paragraph",
+        namedStyleType: "HEADING_2",
+        scopedId: "h.oese7p5mlxtu.0696",
+        start: 16,
+        tapeIndex: 2,
+        text: "Technical Approach\n",
+      },
+    ];
+
+    expect(nodeAtFind(nodes, "Motivation")?.tapeIndex).toBe(1);
+    expect(nodeAtFind(nodes, "motivation")?.tapeIndex).toBe(1);
+    expect(nodeAtFind(nodes, "h.motivation")?.tapeIndex).toBe(1);
+    expect(nodeAtFind(nodes, "Technical Approach")?.tapeIndex).toBe(2);
+    expect(nodeAtFind(nodes, "h.technical_approach")?.tapeIndex).toBe(2);
+    expect(nodeAtFind(nodes, "h.technical-approach")?.tapeIndex).toBe(2);
+    expect(nodeAtFind(nodes, "h.motivation.9d21")?.tapeIndex).toBe(1);
   });
 });

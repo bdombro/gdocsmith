@@ -9,6 +9,52 @@ const DRIVE_BASE_URL = "https://www.googleapis.com/drive/v3";
 
 export type ApiFetcher = (url: string, options?: RequestInit) => Promise<Response>;
 
+/** Drive file permission returned by the Drive v3 API. */
+export type DrivePermission = {
+  /** Display name of the grantee. */
+  displayName?: string;
+  /** Domain name when grantee is a domain. */
+  domain?: string;
+  /** Email address of user or group grantee. */
+  emailAddress?: string;
+  /** Unique ID of the permission. */
+  id: string;
+  /** Role granted to the grantee. */
+  role: DrivePermissionRole;
+  /** Grantee category or scope. */
+  type: DrivePermissionScope;
+};
+
+/** Optional query parameters for Drive permission creation. */
+export type DrivePermissionCreateOptions = {
+  /** Plain text message included in notification emails. */
+  emailMessage?: string;
+  /** Whether to move the file to the new owner's My Drive root when transferring ownership. */
+  moveToNewOwnersRoot?: boolean;
+  /** Whether to send notification email to grantees. */
+  sendNotificationEmail?: boolean;
+  /** Whether to transfer file ownership to grantee (role must be 'owner'). */
+  transferOwnership?: boolean;
+};
+
+/** Body payload for creating a Drive file permission. */
+export type DrivePermissionInput = {
+  /** Domain name when type is 'domain'. */
+  domain?: string;
+  /** Email address for user or group grantee. */
+  emailAddress?: string;
+  /** Access role granted by the permission. */
+  role: DrivePermissionRole;
+  /** Grantee access scope. */
+  type: DrivePermissionScope;
+};
+
+/** Role assigned to a Drive file permission. */
+export type DrivePermissionRole = "commenter" | "fileOrganizer" | "organizer" | "owner" | "reader" | "writer";
+
+/** Grantee access scope for a Drive file permission. */
+export type DrivePermissionScope = "anyone" | "domain" | "group" | "internal" | "user";
+
 /** Parses and formats Google Workspace / HTTP errors into actionable messages. */
 export function gwsErrorFormat(raw: string, targetId?: string): string {
   if (!raw?.trim()) {
@@ -240,9 +286,121 @@ export type GwsClient = DocsClient;
 export class DriveClient {
   constructor(private fetcher: ApiFetcher = fetchGoogleApi) {}
 
+  /** Copies a Drive file (supports all drives). */
+  async copyFile(
+    /** ID of the Drive file to copy. */
+    fileId: string,
+    /** Title for the newly copied file. */
+    name: string,
+  ): Promise<{ id: string; name: string }> {
+    try {
+      const url = `${DRIVE_BASE_URL}/files/${encodeURIComponent(fileId)}/copy?supportsAllDrives=true`;
+      const res = await this.fetcher(url, {
+        body: JSON.stringify({ name }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        throw new Error(formatGwsError(text, fileId));
+      }
+      return JSON.parse(text);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(formatGwsError(msg, fileId));
+    }
+  }
+
+  /** Creates a permission on a Drive file (supports all drives). */
+  async createPermission(
+    /** Target Drive file ID. */
+    fileId: string,
+    /** Body payload describing the grantee role and type. */
+    permission: DrivePermissionInput,
+    /** Optional sharing settings such as email notification or transfer. */
+    options?: DrivePermissionCreateOptions,
+  ): Promise<DrivePermission> {
+    try {
+      const q = new URLSearchParams({
+        fields: "id,displayName,emailAddress,domain,role,type",
+        supportsAllDrives: "true",
+      });
+      if (options?.emailMessage) q.set("emailMessage", options.emailMessage);
+      if (options?.moveToNewOwnersRoot != null) q.set("moveToNewOwnersRoot", String(options.moveToNewOwnersRoot));
+      if (options?.sendNotificationEmail != null) q.set("sendNotificationEmail", String(options.sendNotificationEmail));
+      if (options?.transferOwnership != null) q.set("transferOwnership", String(options.transferOwnership));
+
+      const url = `${DRIVE_BASE_URL}/files/${encodeURIComponent(fileId)}/permissions?${q.toString()}`;
+      const body: Record<string, unknown> = {
+        role: permission.role,
+        type: permission.type === "internal" ? "domain" : permission.type,
+      };
+      if (permission.emailAddress) body.emailAddress = permission.emailAddress;
+      if (permission.domain) body.domain = permission.domain;
+
+      const res = await this.fetcher(url, {
+        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        throw new Error(formatGwsError(text, fileId));
+      }
+      return JSON.parse(text);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(formatGwsError(msg, fileId));
+    }
+  }
+
+  /** Permanently deletes a file from Drive. */
+  async deleteFile(
+    /** Target Drive file ID to permanently delete. */
+    fileId: string,
+  ): Promise<void> {
+    try {
+      const url = `${DRIVE_BASE_URL}/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`;
+      const res = await this.fetcher(url, {
+        method: "DELETE",
+      });
+      if (!res.ok && res.status !== 204) {
+        const text = await res.text();
+        throw new Error(formatGwsError(text, fileId));
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(formatGwsError(msg, fileId));
+    }
+  }
+
+  /** Deletes an existing permission from a Drive file (supports all drives). */
+  async deletePermission(
+    /** Target Drive file ID. */
+    fileId: string,
+    /** Permission ID to revoke. */
+    permissionId: string,
+  ): Promise<void> {
+    try {
+      const url = `${DRIVE_BASE_URL}/files/${encodeURIComponent(fileId)}/permissions/${encodeURIComponent(permissionId)}?supportsAllDrives=true`;
+      const res = await this.fetcher(url, {
+        method: "DELETE",
+      });
+      if (!res.ok && res.status !== 204) {
+        const text = await res.text();
+        throw new Error(formatGwsError(text, fileId));
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(formatGwsError(msg, fileId));
+    }
+  }
+
   /** Fetches Drive file metadata (supports all drives). */
   async getFile(
+    /** Target Drive file ID. */
     fileId: string,
+    /** Drive API field projection string. */
     fields = "id,name,mimeType,trashed",
   ): Promise<{ id: string; name: string; mimeType: string; trashed?: boolean }> {
     try {
@@ -263,20 +421,27 @@ export class DriveClient {
     }
   }
 
-  /** Copies a Drive file (supports all drives). */
-  async copyFile(fileId: string, name: string): Promise<{ id: string; name: string }> {
+  /** Lists permissions on a Drive file (supports all drives). */
+  async listPermissions(
+    /** Target Drive file ID. */
+    fileId: string,
+    /** Drive API field projection string. */
+    fields = "permissions(id,displayName,emailAddress,domain,role,type)",
+  ): Promise<DrivePermission[]> {
     try {
-      const url = `${DRIVE_BASE_URL}/files/${encodeURIComponent(fileId)}/copy?supportsAllDrives=true`;
-      const res = await this.fetcher(url, {
-        body: JSON.stringify({ name }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
+      const q = new URLSearchParams({
+        fields,
+        pageSize: "100",
+        supportsAllDrives: "true",
       });
+      const url = `${DRIVE_BASE_URL}/files/${encodeURIComponent(fileId)}/permissions?${q.toString()}`;
+      const res = await this.fetcher(url);
       const text = await res.text();
       if (!res.ok) {
         throw new Error(formatGwsError(text, fileId));
       }
-      return JSON.parse(text);
+      const data = JSON.parse(text) as { permissions?: DrivePermission[] };
+      return data.permissions ?? [];
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(formatGwsError(msg, fileId));
@@ -285,7 +450,9 @@ export class DriveClient {
 
   /** Updates Drive file metadata (name, trashed, etc.) */
   async updateFile(
+    /** Target Drive file ID. */
     fileId: string,
+    /** Metadata patch payload. */
     body: Record<string, unknown>,
   ): Promise<{ id: string; name: string; trashed?: boolean }> {
     try {
@@ -306,20 +473,27 @@ export class DriveClient {
     }
   }
 
-  /** Permanently deletes a file from Drive. */
-  async deleteFile(fileId: string): Promise<void> {
+  /** Fetches the authenticated user's Google Workspace domain from Drive metadata. */
+  async userDomainGet(): Promise<string> {
     try {
-      const url = `${DRIVE_BASE_URL}/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`;
-      const res = await this.fetcher(url, {
-        method: "DELETE",
-      });
-      if (!res.ok && res.status !== 204) {
-        const text = await res.text();
-        throw new Error(formatGwsError(text, fileId));
+      const url = `${DRIVE_BASE_URL}/about?fields=user`;
+      const res = await this.fetcher(url);
+      const text = await res.text();
+      if (!res.ok) {
+        throw new Error(formatGwsError(text));
       }
+      const data = JSON.parse(text) as { user?: { emailAddress?: string } };
+      const email = data.user?.emailAddress;
+      const domain = email?.split("@")[1];
+      if (!domain || domain.toLowerCase() === "gmail.com" || domain.toLowerCase() === "googlemail.com") {
+        throw new Error(
+          `Cannot auto-detect workspace domain from personal account "${email ?? "unknown"}". Specify domain: "<domain>".`,
+        );
+      }
+      return domain;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(formatGwsError(msg, fileId));
+      throw new Error(formatGwsError(msg));
     }
   }
 }

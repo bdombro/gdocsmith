@@ -4,7 +4,7 @@ import { cloneNodeOpsResolve } from "~/core/dom/clone.ts";
 import { applyDom, DomWriter, dangerousClearExecute, type TapeMutation, tapeMutationsApply } from "~/core/dom/index.ts";
 import { assignScopedIds, parseDocument } from "~/core/dom/parse.ts";
 import { Gdoc } from "~/core/gdoc.ts";
-import { resolveTab } from "~/core/tabs.ts";
+import { findTab, resolveTab } from "~/core/tabs.ts";
 import type { GdocsmithStepInput } from "~/core/workflowTypes.ts";
 import { simulatedNodesOf, simulatedNodesSet } from "./simulated.ts";
 import type { ApplyScriptRuntime } from "./types.ts";
@@ -21,10 +21,17 @@ export async function surgicalMutationExecute(
     ? resolveTab(targetDoc.gdoc.data, tabHint)
     : { tabId: undefined, title: targetDoc.title };
   const gdoc = liveTab.tabId ? targetDoc.gdoc.withTab(liveTab.tabId) : targetDoc.gdoc;
-  const simulated = simulatedNodesOf(targetDoc.gdoc);
+  const simulated = simulatedNodesOf(targetDoc.gdoc, liveTab.tabId);
   const parsed = simulated ? { nodes: simulated, segments: [], title: targetDoc.title } : parseDocument(gdoc);
 
-  const writer = new DomWriter(parsed.nodes, { force: runtime.force, lists: gdoc.data.lists, tabId: liveTab.tabId });
+  const simTabs = (targetDoc.gdoc as import("./types.ts").SimulatedGdoc).simulatedTabs;
+  const writer = new DomWriter(parsed.nodes, {
+    doc: targetDoc.gdoc.data,
+    force: runtime.force,
+    lists: gdoc.data.lists,
+    simulatedTabs: simTabs,
+    tabId: liveTab.tabId,
+  });
 
   if (step.dangerousClear) {
     dangerousClearExecute(writer);
@@ -53,7 +60,24 @@ export async function surgicalMutationExecute(
     targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
   } else {
     assignScopedIds(writer.nodes);
-    simulatedNodesSet(targetDoc.gdoc, writer.nodes);
+    simulatedNodesSet(targetDoc.gdoc, writer.nodes, liveTab.tabId);
+
+    // Sync simulated nodes back into targetDoc.gdoc.data tab/body so parseDocument sees them
+    if (liveTab.tabId && targetDoc.gdoc.data.tabs?.length) {
+      const tab = findTab(targetDoc.gdoc.data.tabs, liveTab.tabId);
+      if (tab) {
+        if (!tab.documentTab) tab.documentTab = {};
+        const elements = writer.nodes.map((n, i) => ({
+          endIndex: (i + 1) * 2,
+          paragraph: {
+            elements: [{ textRun: { content: `${n.text ?? ""}\n` } }],
+            paragraphStyle: { namedStyleType: n.namedStyleType ?? "NORMAL_TEXT" },
+          },
+          startIndex: i * 2,
+        }));
+        tab.documentTab.body = { content: elements };
+      }
+    }
   }
 
   runtime.stepsExecuted++;

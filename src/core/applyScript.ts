@@ -1,7 +1,7 @@
 /* Run workflow script steps with alias bindings, dry-run diffs, and surgical DOM apply. */
 
 import type { GdocsmithDocument } from "~/commands/run/types.ts";
-import type { ApplyHighlightDocJson } from "~/core/workflowTypes.ts";
+import type { ApplyHighlightDocJson, GdocsmithStepInput } from "~/core/workflowTypes.ts";
 import { type ApplyScriptRuntime, type OpenDocContext, stepRun } from "./actions/index.ts";
 import { simulatedNodesOf } from "./actions/simulated.ts";
 import { exportDocumentToMarkdown } from "./dom/export.ts";
@@ -9,7 +9,7 @@ import { applyDom, DomWriter, formatUnifiedDiff } from "./dom/index.ts";
 import { parseDocument } from "./dom/parse.ts";
 import { Gdoc } from "./gdoc.ts";
 import { type GwsClient, gws } from "./gws.ts";
-import { DriveRevisions } from "./revisions.ts";
+import { flattenTabs } from "./tabs.ts";
 
 /** Result of executing a multi-step apply script. */
 export type ScriptExecutionResult = {
@@ -29,7 +29,7 @@ export async function applyScriptExecute(
   const force = Boolean(doc.force || opts.force);
   const client = opts.client ?? gws;
 
-  const steps = doc.steps ?? [];
+  const steps = workflowStepsOptimize(doc.steps ?? []);
   const openDocs = new Map<string, OpenDocContext>();
   const docIdToAlias = new Map<string, string>();
   const aliasMap = new Map<string, string>();
@@ -37,34 +37,75 @@ export async function applyScriptExecute(
   const dumped: Record<string, unknown> = {};
   const initialMarkdownStates = new Map<string, string>();
   const createdHighlights = new Map<string, ApplyHighlightDocJson>();
+  const queryAliases = new Set<string>();
 
   function aliasResolve(val?: string): string | undefined {
     if (val == null) return undefined;
     const str = String(val);
+    if (queryAliases.has(str)) {
+      throw new Error(
+        `Alias "${str}" is a query result. Mutations must target an explicit scopedId from the query output.`,
+      );
+    }
     if (aliasMap.has(str)) return aliasMap.get(str)!;
-    return str.replace(/\$\{([^}]+)\}/g, (_, key) => aliasMap.get(key) ?? key);
+    return str.replace(/\$\{([^}]+)\}/g, (_, key) => {
+      if (queryAliases.has(key)) {
+        throw new Error(
+          `Alias "${key}" is a query result. Mutations must target an explicit scopedId from the query output.`,
+        );
+      }
+      return aliasMap.get(key) ?? key;
+    });
   }
 
   function openDocResolve(rawDocRef?: string): OpenDocContext {
-    const resolved = aliasResolve(rawDocRef) ?? rawDocRef ?? runtime.activeDocAlias;
-    if (!resolved) {
-      if (openDocs.size === 1) {
-        return openDocs.values().next().value!;
-      }
-      throw new Error("No active document. Use kind: open or specify doc: <alias>");
+    if (rawDocRef == null || String(rawDocRef).trim() === "") {
+      throw new Error("Specify doc: <alias> (open it first with kind: docOpen, docCreate, or docCopy)");
     }
-    const openDoc = openDocs.get(resolved) ?? Array.from(openDocs.values()).find((d) => d.docId === resolved);
-    if (!openDoc) {
-      throw new Error(`Document "${resolved}" is not open or was closed`);
+    const str = String(rawDocRef).trim();
+    const openDoc = openDocs.get(str);
+    if (openDoc) return openDoc;
+
+    const boundAlias = docIdToAlias.get(str) ?? Array.from(openDocs.values()).find((d) => d.docId === str)?.alias;
+    if (boundAlias && openDocs.has(boundAlias)) {
+      return openDocs.get(boundAlias)!;
     }
-    return openDoc;
+    if (/^[a-zA-Z0-9_-]{20,}$/.test(str)) {
+      throw new Error(
+        `Document ID "${str}" cannot be used directly in doc: on action steps. Open it first with { kind: "docOpen", doc: "${str}", as: "<alias>" }, then pass doc: "<alias>".`,
+      );
+    }
+    throw new Error(`Document "${str}" is not open or was closed`);
   }
 
   async function tabMarkdownCapture(ctx: OpenDocContext, tabId: string): Promise<string> {
-    const currentGdoc = tabId ? ctx.gdoc.withTab(tabId) : ctx.gdoc;
+    const currentGdoc = tabId && ctx.gdoc.data.tabs?.length ? ctx.gdoc.withTab(tabId) : ctx.gdoc;
     const parsed = parseDocument(currentGdoc);
     const exp = exportDocumentToMarkdown([{ nodes: parsed.nodes, tabId, tabTitle: parsed.title }]);
     return exp.markdown;
+  }
+
+  const preloadedDocs = new Map<string, Gdoc>();
+
+  if (!dryRun) {
+    const rawIdsToLoad = new Set<string>();
+    for (const step of steps) {
+      if (step.kind === "docOpen" && step.doc) {
+        const id = Gdoc.idParse(step.doc.trim());
+        if (!id.startsWith("virtual:")) rawIdsToLoad.add(id);
+      } else if (step.kind === "docCopy" && step.copyFrom) {
+        const id = Gdoc.idParse(step.copyFrom.trim());
+        if (!id.startsWith("virtual:")) rawIdsToLoad.add(id);
+      }
+    }
+    if (rawIdsToLoad.size > 0) {
+      await Promise.all(
+        Array.from(rawIdsToLoad).map(async (docId) => {
+          const loaded = await Gdoc.load(docId, client);
+          preloadedDocs.set(docId, loaded);
+        }),
+      );
+    }
   }
 
   const runtime: ApplyScriptRuntime = {
@@ -82,40 +123,11 @@ export async function applyScriptExecute(
     openDocResolve,
     openDocs,
     pageSetup: doc.pageSetup,
+    preloadedDocs,
+    queryAliases,
     stepsExecuted: 0,
     tabMarkdownCapture,
   };
-
-  if (doc.documentId) {
-    const docId = Gdoc.parseId(doc.documentId);
-    let title = "Document";
-    let gdoc: Gdoc;
-    if (dryRun) {
-      gdoc = new Gdoc({ documentId: docId, revisionId: "dry-run", title }, docId);
-    } else {
-      gdoc = await Gdoc.load(docId, client);
-      title = gdoc.data.title || title;
-      const pin = await DriveRevisions.pinHead(docId, client);
-      openDocs.set("main", {
-        alias: "main",
-        docId,
-        gdoc,
-        pinnedRevisionId: pin?.id,
-        title,
-      });
-    }
-    if (!openDocs.has("main")) {
-      openDocs.set("main", {
-        alias: "main",
-        docId,
-        gdoc,
-        title,
-      });
-    }
-    docIdToAlias.set(docId, "main");
-    aliasMap.set("main", docId);
-    runtime.activeDocAlias = "main";
-  }
 
   for (let i = 0; i < steps.length; i++) {
     await stepRun(runtime, i, steps[i]!);
@@ -145,7 +157,7 @@ export async function applyScriptExecute(
       if (!docCtx) continue;
 
       let currentMd = "";
-      const simulated = simulatedNodesOf(docCtx.gdoc);
+      const simulated = simulatedNodesOf(docCtx.gdoc, tabId!);
       if (simulated) {
         const exp = exportDocumentToMarkdown([{ nodes: simulated, tabId, tabTitle: docCtx.title }]);
         currentMd = exp.markdown;
@@ -165,6 +177,21 @@ export async function applyScriptExecute(
     fullDiff = diffHunks.join("\n\n");
   }
 
+  for (const [alias, ctx] of openDocs.entries()) {
+    const dumpedDoc = dumped[alias] as
+      | { kind?: string; tabs?: Array<{ id?: string; kind: string; title?: string }> }
+      | undefined;
+    if (dumpedDoc && dumpedDoc.kind === "doc") {
+      const tabs = flattenTabs(ctx.gdoc.data.tabs);
+      const tabsToCheck = tabs.length > 0 ? tabs : [{ tabId: "t.0", title: ctx.title }];
+      dumpedDoc.tabs = tabsToCheck.map((t) => ({
+        id: t.tabId,
+        kind: "tab",
+        title: t.title,
+      }));
+    }
+  }
+
   const highlights = Array.from(createdHighlights.values());
 
   return {
@@ -174,4 +201,73 @@ export async function applyScriptExecute(
     ok: true,
     stepsCount: runtime.stepsExecuted,
   };
+}
+
+/**
+ * Optimizes workflow script steps before execution.
+ *
+ * Case A optimization:
+ * When an agent performs a multi-step tab creation sequence (e.g. `tabAdd` / `tabDuplicate` followed
+ * by `tabMove` or `tabRename` on the newly created tab), this hoists the relative/absolute position
+ * and final title directly into the tab creation step. This avoids subsequent calls to
+ * `updateDocumentTabProperties`, which triggers an unhandled upstream Google Docs API HTTP 500 error
+ * when documents lack a root "t.0" tab (common in documents copied from multi-tab Drive templates).
+ */
+function workflowStepsOptimize(
+  /** Workflow script steps to optimize. */
+  steps: GdocsmithStepInput[],
+): GdocsmithStepInput[] {
+  const createdTabs = new Map<string, GdocsmithStepInput>();
+
+  for (const step of steps) {
+    const isTabCreate = step.kind === "tabAdd" || step.kind === "tabCopy" || step.kind === "tabDuplicate";
+
+    if (isTabCreate && step.title) {
+      const docKey = step.doc?.trim() ?? "";
+      createdTabs.set(`${docKey}:${step.title.trim().toLowerCase()}`, step);
+      if (step.as) {
+        createdTabs.set(`${docKey}:${step.as.trim().toLowerCase()}`, step);
+      }
+      continue;
+    }
+
+    const isTabMove = step.kind === "tabMove" || step.kind === "tabReorder";
+    if (isTabMove && step.tab) {
+      const docKey = step.doc?.trim() ?? "";
+      const creator = createdTabs.get(`${docKey}:${step.tab.trim().toLowerCase()}`);
+      if (creator && creator.afterTab == null && creator.beforeTab == null && creator.index == null) {
+        creator.afterTab = step.afterTab;
+        creator.beforeTab = step.beforeTab;
+        creator.index = step.index;
+        step.noop = true;
+      }
+      continue;
+    }
+
+    const isTabRename = step.kind === "tabRename";
+    if (isTabRename && step.tab && step.title) {
+      const docKey = step.doc?.trim() ?? "";
+      const creator = createdTabs.get(`${docKey}:${step.tab.trim().toLowerCase()}`);
+      if (creator) {
+        const oldTitle = creator.title?.trim();
+        const oldTitleLower = oldTitle?.toLowerCase();
+        const newTitle = step.title;
+        creator.title = newTitle;
+        step.noop = true;
+
+        if (oldTitle && oldTitleLower) {
+          createdTabs.delete(`${docKey}:${oldTitleLower}`);
+          createdTabs.set(`${docKey}:${newTitle.trim().toLowerCase()}`, creator);
+          for (const s of steps) {
+            if (s === step) break;
+            if ((s.doc?.trim() ?? "") === docKey && s.tab?.trim().toLowerCase() === oldTitleLower) {
+              s.tab = newTitle;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return steps;
 }

@@ -39,9 +39,9 @@ export const IMAGE_STORE_OPTION = {
   name: "image-store",
 } satisfies CliOption;
 
-/** Flag to output raw JSON instead of YAML. */
+/** Flag to print structured JSON on stdout. */
 export const JSON_OPTION = {
-  description: "Output JSON instead of YAML.",
+  description: "Print structured JSON on stdout.",
   kind: CliOptionKind.Presence,
   name: "json",
 } satisfies CliOption;
@@ -61,4 +61,4 @@ export const TAB_OPTION = {
 } satisfies CliOption;
 
 /** Standard set of flags for mutation commands. */
-export const APPLY_FLAGS = [DRY_RUN_OPTION, QUIET_OPTION, FORCE_OPTION, JSON_OPTION];
+export const APPLY_FLAGS = [DRY_RUN_OPTION, QUIET_OPTION, FORCE_OPTION];

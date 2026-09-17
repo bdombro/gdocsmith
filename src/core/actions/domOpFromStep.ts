@@ -16,13 +16,9 @@ export function domOpFromStep(
   const mutation: TapeMutation = {};
 
   for (const key of TAPE_MUTATION_KEYS) {
-    const raw = step[key];
+    if (ANCHOR_KEYS.has(key)) continue;
+    const raw = step[key as keyof GdocsmithStepInput];
     if (raw === undefined) continue;
-    if (ANCHOR_KEYS.has(key) && typeof raw === "string") {
-      const resolved = aliasResolve(raw);
-      if (resolved !== undefined) mutation[key] = resolved as never;
-      continue;
-    }
     if (key === "cloneNode") {
       mutation.cloneNode = cloneRefResolve(raw, aliasResolve);
       continue;
@@ -42,18 +38,42 @@ export function domOpFromStep(
   }
 
   if (mutation.at === undefined) {
-    const under = aliasResolve(step.under);
-    if (under !== undefined) mutation.at = under;
+    const rawAt = step.nodeAt;
+    if (rawAt !== undefined) {
+      const resolved = typeof rawAt === "string" ? aliasResolve(rawAt) : rawAt;
+      if (resolved !== undefined) mutation.at = resolved as never;
+    }
   }
-  if (step.markdown !== undefined && mutation.insertMarkdown === undefined) {
-    mutation.insertMarkdown = step.markdown;
+  if (mutation.after === undefined && step.nodeAfter !== undefined) {
+    const resolved = typeof step.nodeAfter === "string" ? aliasResolve(step.nodeAfter) : step.nodeAfter;
+    if (resolved !== undefined) mutation.after = resolved as never;
+  }
+  if (mutation.before === undefined && step.nodeBefore !== undefined) {
+    const resolved = typeof step.nodeBefore === "string" ? aliasResolve(step.nodeBefore) : step.nodeBefore;
+    if (resolved !== undefined) mutation.before = resolved as never;
+  }
+
+  if (mutation.at === undefined) {
+    const under = aliasResolve(step.nodeUnder);
+    if (under !== undefined) mutation.at = under;
   }
 
   const kind = stepKindRead(step);
-  if (kind === "replace" || step.find != null) {
-    mutation.replace = step.replace ?? step.text;
+  if (kind === "replaceMarkdown" || (step.replaceMarkdown && typeof step.replaceMarkdown !== "string")) {
+    mutation.replaceMarkdown =
+      typeof step.replaceMarkdown === "string" ? step.replaceMarkdown : (step.markdown ?? step.text);
+  } else if (kind === "replaceSection" || (step.replaceSection && typeof step.replaceSection !== "string")) {
+    mutation.replaceSection =
+      typeof step.replaceSection === "string" ? step.replaceSection : (step.markdown ?? step.text);
+  } else if (kind === "markdownInsert") {
+    mutation.insertMarkdown =
+      typeof step.insertMarkdown === "string" ? step.insertMarkdown : (step.markdown ?? step.text);
+  } else if (kind === "replace" || step.find != null) {
+    mutation.replace = step.replace ?? step.text ?? step.innerText;
   } else if (step.replace !== undefined && mutation.replace === undefined) {
     mutation.replace = step.replace;
+  } else if (step.markdown !== undefined && mutation.insertMarkdown === undefined) {
+    mutation.insertMarkdown = step.markdown;
   }
 
   return mutation;

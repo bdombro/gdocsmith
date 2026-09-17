@@ -6,7 +6,7 @@ import { Paragraph } from "~/core/paragraph.ts";
 import { flattenTabs, overlayTab } from "~/core/tabs.ts";
 import type { DocElement, GoogleDoc } from "~/core/types.ts";
 import { computeCellChecksum, computeNodeChecksum } from "./checksum.ts";
-import { hexColor, isMonospaceFont, uniformQueryTextStyle } from "./style.ts";
+import { hexColor, isMonospaceFont, runChromeRead, uniformQueryTextStyle } from "./style.ts";
 import {
   asAlignment,
   asContentAlignment,
@@ -252,6 +252,8 @@ function parseParagraph(el: DocElement, start: number, end: number, data: Google
   applyParagraphStyle(node, paragraph.paragraphStyle);
   const style = queryStyleFromParagraph(paragraph);
   if (style) node.style = style;
+  const colors = paragraphFontColorsExtract(paragraph);
+  if (colors.length > 0) node.fontColors = colors;
   const footnotes = footnoteIds(paragraph);
   if (footnotes.length) node.footnoteIds = footnotes;
   if ((paragraph.elements ?? []).some((item) => item.equation)) {
@@ -264,6 +266,25 @@ function parseParagraph(el: DocElement, start: number, end: number, data: Google
     node.isCode = true;
   }
   return node;
+}
+
+/**
+ * Extracts distinct foreground hex colors found across text runs in a paragraph.
+ */
+function paragraphFontColorsExtract(
+  /** Paragraph element from Google Docs API. */
+  paragraph: NonNullable<DocElement["paragraph"]>,
+): string[] {
+  const colors = new Set<string>();
+  for (const el of paragraph.elements ?? []) {
+    const content = el.textRun?.content ?? "";
+    if (!content.replace(/\n/g, "")) continue;
+    const chrome = runChromeRead(el.textRun?.textStyle);
+    if (chrome.foregroundColor) {
+      colors.add(chrome.foregroundColor.toUpperCase());
+    }
+  }
+  return Array.from(colors);
 }
 
 function queryStyleFromParagraph(
@@ -339,7 +360,15 @@ function parseCellParagraph(paraEl: DocElement | undefined, data: GoogleDoc, row
   const end = paraEl?.endIndex ?? start;
   const text = para ? Paragraph.text(para, true) : "";
   const markup = para ? InlineMarkup.serialize(Paragraph.elements(para)).replace(/\n$/, "") : "";
-  const cell: CellParagraph = { end, start, text };
+  const colors = para ? paragraphFontColorsExtract(para) : [];
+  const cell: CellParagraph = {
+    col,
+    end,
+    ...(colors.length > 0 ? { fontColors: colors } : {}),
+    row,
+    start,
+    text,
+  };
   if (markup && markup !== text) cell.markup = markup;
   if (para) applyParagraphStyle(cell, para.paragraphStyle);
   if (para) {
@@ -375,11 +404,13 @@ function parseTable(el: DocElement, start: number, end: number, data: GoogleDoc)
       const paras = (tableCell?.content ?? [])
         .filter((item) => item.paragraph)
         .map((item) => parseCellParagraph(item, data, r, c));
-      const first = paras[0] ?? { end: start, start, text: "" };
+      const first = paras[0] ?? { col: c, end: start, row: r, start, text: "" };
       const paragraphs = paras.length ? paras : [first];
       const cell: TableCell = {
         ...first,
+        col: c,
         paragraphs,
+        row: r,
       };
       const bg = hexColor(tableCell?.tableCellStyle?.backgroundColor?.color?.rgbColor);
       if (bg) cell.backgroundColor = bg;

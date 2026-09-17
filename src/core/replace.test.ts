@@ -223,7 +223,7 @@ describe("executeBatchReplace", () => {
         { find: "{{AUTHOR}}", replace: "Jane Doe" },
         { find: "{{NON_EXISTENT}}", replace: "N/A" },
       ],
-      tabHint: "Main Tab",
+      tabHint: "t.1",
     });
 
     expect(batchUpdateCalled).toBe(false);

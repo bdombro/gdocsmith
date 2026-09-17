@@ -13,7 +13,7 @@
     "dumped": {
       "type": "object",
       "additionalProperties": {},
-      "description": "Values extracted by `kind: query` (with `as:`) and `kind: dump`."
+      "description": "Values extracted by `kind: query` (with `as:`) and `dump: true`."
     },
     "highlights": {
       "type": "array",

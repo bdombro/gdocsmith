@@ -1,7 +1,6 @@
 /* Workflow step: tabDelete — remove a document tab. */
 
 import { Gdoc } from "~/core/gdoc.ts";
-import { gws } from "~/core/gws.ts";
 import { RequestBuilder } from "~/core/requests.ts";
 import { resolveTab } from "~/core/tabs.ts";
 import type { WorkflowStepHandler } from "./types.ts";
@@ -18,7 +17,7 @@ export const tabDeleteStep: WorkflowStepHandler = async (runtime, stepIndex, ste
       throw new Error(`Cannot delete tab "${tabHint}": resolved tab has no tabId`);
     }
     const req = RequestBuilder.deleteTab(resolved.tabId);
-    await gws.batchUpdate(targetDoc.docId, [req]);
+    await runtime.client.batchUpdate(targetDoc.docId, [req]);
     targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
   }
   runtime.stepsExecuted++;

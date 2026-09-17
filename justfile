@@ -1,36 +1,44 @@
+# bash (not sh); -e bail on errors, -u error on unset vars, pipefail halts on errors
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
-export PATH := justfile_directory() + "/node_modules/.bin:" + env_var("PATH")
+export PATH := "./node_modules/.bin:" + env_var("PATH")
 
-cli_key := `bun scripts/printIdentity.ts key`
-tap_org := `bun scripts/printIdentity.ts tapOrg`
-tap_repo := `bun scripts/printIdentity.ts tapRepo`
-tap := `bun scripts/printIdentity.ts tap`
-release_repo := `bun scripts/printIdentity.ts releaseRepo`
-tap_git_url := "git@github.com:" + release_repo + ".git"
 brew_prefix := `brew --prefix`
-tap_parent := brew_prefix + "/Library/Taps/" + tap_org
-tap_path := tap_parent + "/homebrew-" + tap_repo
+tap_parent := brew_prefix + "/Library/Taps/bdombro"
+tap_path := tap_parent + "/homebrew-gdocsmith"
 
 # List available recipes (default)
 _:
     @just --list
 
+agent_e2e_prompt_default := '''Google doc 1QuCvvolxaAVZ6DroVAxAoO7ClZFiPUOp7453MN7l-Yc is an engineering planning workflow and spec template for the Intergalactic Pigeon Post project.
+
+Task: Follow the instructions in the "Workflow Manual" tab of that document to author a new planning doc titled "[TEST] Intergalactic Pigeon Post". Document tab titles must be unique across the document—name the epic child tab "Quantum Breadcrumb Telemetry" rather than reusing the parent project title. It is okay (and preferred) to copy/preserve text exactly if they match the destination. Use /gdocsmith.
+
+Rules:
+- The goal is to surface issues with the gdocsmith MCP and stop immediately, not to force completion.
+- If you have ANY concerns, issues, unexpected errors, or bugs with gdocsmith, halt immediately without attempting workarounds. Report what failed and why.'''
+
+# Run headless Cursor agent E2E test with dev MCP server in isolated workspace
+agent-e2e +PROMPT=agent_e2e_prompt_default: install-mcp-dev
+    rm -rf "/tmp/agentE2e" && mkdir -p "/tmp/agentE2e"
+    agent -p --trust --approve-mcps --force --model "${MODEL:-composer-2.5}" --workspace "/tmp/agentE2e" {{quote(PROMPT)}}
+
 # Compile the CLI binary to dist/gdocsmith
 build:
-    bun build ./src/index.ts --compile --outfile=dist/{{cli_key}}
+    bun build ./src/index.ts --compile --outfile=dist/gdocsmith
     @rm -f .*.bun-build
 
-# Run schemagen, typecheck, and format
-check: schemagen format typecheck
+# Schemagen, format, lint, typecheck, and unit tests
+check: schemagen format lint typecheck test
 
 # demo a CLI command
 demo-cli:
-    @just run status
+    @bun ./src/index.ts status
 
 # demo a CLI command
 demo-help:
-    @just run {{cli_key}} --help
+    @bun ./src/index.ts --help
 
 # Run the CLI from source with optional args; restarts on file changes
 dev *ARGS:
@@ -48,38 +56,75 @@ alias fmt := format
 format:
     bun run biome check ./src ./scripts --write --unsafe
 
-# Alias for backward compatibility
-install: install-local
+# Default Homebrew dev install
+install: install-brew-local
 
-# Dev install: build, stage dev formula, brew install, refresh agent artifacts
-install-local: uninstall build
+# Dev ~/.agents MCP (bun + src) and skill symlink
+install-agents-dev: install-mcp-dev install-skill-dev
+
+# Dev install: build, stage dev formula, brew install, dev agent artifacts
+install-brew-local: install-brew-uninstall build
     mkdir -p {{tap_parent}}
-    ln -sfn '{{justfile_directory()}}' {{tap_path}}
+    ln -sfn "$(pwd)" {{tap_path}}
     bun scripts/devFormula.ts install
-    HOMEBREW_NO_ASK=1 brew reinstall --formula {{tap}}/{{cli_key}} || HOMEBREW_NO_ASK=1 brew install --force --formula {{tap}}/{{cli_key}}
+    HOMEBREW_NO_ASK=1 brew reinstall --formula bdombro/gdocsmith/gdocsmith || HOMEBREW_NO_ASK=1 brew install --force --formula bdombro/gdocsmith/gdocsmith
     bun scripts/devFormula.ts reset
-    {{cli_key}} configure install
+    just install-agents-dev
 
 # Remove local dev install, then install from GitHub tap (requires gh auth login)
-install-production: uninstall
-    brew tap {{release_repo}} {{tap_git_url}}
-    brew install --formula {{release_repo}}/{{cli_key}}
-    {{cli_key}} configure install
+install-brew-production: install-brew-uninstall
+    brew tap bdombro/gdocsmith git@github.com:bdombro/gdocsmith.git
+    brew install --formula bdombro/gdocsmith/gdocsmith
+    gdocsmith configure install
 
-# Alias for backward compatibility
-reinstall: reinstall-local
+# Rebuild binary and swap into Cellar (run install-brew-local first; `just install-agents-dev` for MCP/skill only)
+install-brew-reinstall: build
+    install -m 755 dist/gdocsmith "$(brew --prefix gdocsmith)/bin/gdocsmith"
 
-# Rebuild binary and swap into Cellar (run install-local first; run `just refresh` for skills/MCP)
-reinstall-local: build
-    install -m 755 dist/{{cli_key}} "$(brew --prefix {{cli_key}})/bin/{{cli_key}}"
+# Undo dev/Homebrew install (remove agent artifacts, then keg + untap)
+install-brew-uninstall:
+    @gdocsmith configure uninstall --yes 2>/dev/null || just run configure uninstall --yes
+    @HOMEBREW_NO_ASK=1 brew uninstall --formula bdombro/gdocsmith/gdocsmith 2>/dev/null || true
+    @HOMEBREW_NO_ASK=1 brew uninstall --formula bdombro/gdocsmith/gdocsmith-local 2>/dev/null || true
+    @HOMEBREW_NO_ASK=1 brew untap bdombro/gdocsmith 2>/dev/null || true
 
-# Refresh agent skills/MCP without reinstalling the binary
-refresh:
-    {{cli_key}} configure install
+# Run gdocsmith configure install (prod MCP entry; Homebrew binary on PATH)
+install-configure:
+    gdocsmith configure install
+
+# Upsert gdocsmith in ~/.agents/mcp.json (prod)
+install-mcp:
+    @echo Installing MCP production...
+    @test -f ~/.agents/mcp.json || echo '{}' > ~/.agents/mcp.json
+    @jq --argjson e '{"command":"gdocsmith","args":["mcp"]}' '.mcpServers = ({gdocsmith: $e} + ((.mcpServers // {}) | del(.gdocsmith)))' ~/.agents/mcp.json > ~/.agents/mcp.json.tmp && mv ~/.agents/mcp.json.tmp ~/.agents/mcp.json
+
+# Upsert gdocsmith in ~/.agents/mcp.json (bun + repo src)
+install-mcp-dev:
+    @echo Installing MCP dev...
+    @test -f ~/.agents/mcp.json || echo '{}' > ~/.agents/mcp.json
+    @jq --arg src "$(pwd)/src/index.ts" '.mcpServers = ({gdocsmith: {command:"bun",args:[$src,"mcp"]}} + ((.mcpServers // {}) | del(.gdocsmith)))' ~/.agents/mcp.json > ~/.agents/mcp.json.tmp && mv ~/.agents/mcp.json.tmp ~/.agents/mcp.json
+
+# Alias for install-brew-reinstall
+install-reinstall: install-brew-reinstall
+
+# Copy skills/gdocsmith into ~/.agents/skills (prod)
+install-skill:
+    @echo Installing skill via copy.../skills
+    @rm -rf ~/.agents/skills/gdocsmith
+    @cp -R skills/gdocsmith ~/.agents/skills/
+
+# Symlink repo skills/gdocsmith into ~/.agents/skills (dev)
+install-skill-dev:
+    @echo Installing skill via symlink.../skills
+    @ln -sfn "$(pwd)/skills/gdocsmith" ~/.agents/skills/
 
 # Lint sources without writing
 lint:
     bun run biome check ./src ./scripts
+
+# Bump version, build, publish; or pass --purge to delete stale GitHub releases
+release *ARGS:
+    bun scripts/release.ts {{ARGS}}
 
 # Run the CLI from source once
 run *ARGS:
@@ -99,26 +144,15 @@ setup:
 test:
     bun test src
 
-# Bump version, build, publish; or pass --purge to delete stale GitHub releases
-release *ARGS:
-    bun scripts/release.ts {{ARGS}}
-
 # Install release formula from tap and run formula test
 test-release:
-    HOMEBREW_NO_ASK=1 brew untap {{tap}} 2>/dev/null || true
+    HOMEBREW_NO_ASK=1 brew untap bdombro/gdocsmith 2>/dev/null || true
     mkdir -p {{tap_parent}}
-    ln -sfn '{{justfile_directory()}}' {{tap_path}}
-    HOMEBREW_NO_ASK=1 brew uninstall --formula {{tap}}/{{cli_key}} 2>/dev/null || true
-    brew install --formula {{tap}}/{{cli_key}}
-    brew test {{cli_key}}
+    ln -sfn "$(pwd)" {{tap_path}}
+    HOMEBREW_NO_ASK=1 brew uninstall --formula bdombro/gdocsmith/gdocsmith 2>/dev/null || true
+    brew install --formula bdombro/gdocsmith/gdocsmith
+    brew test gdocsmith
 
 # Typecheck without emitting build artifacts
 typecheck:
     bun run tsc --noEmit
-
-# Undo dev/Homebrew install (remove agent artifacts, then keg + untap)
-uninstall:
-    @{{cli_key}} configure uninstall --yes 2>/dev/null || just run configure uninstall --yes
-    @HOMEBREW_NO_ASK=1 brew uninstall --formula {{tap}}/{{cli_key}} 2>/dev/null || true
-    @HOMEBREW_NO_ASK=1 brew uninstall --formula {{tap}}/{{cli_key}}-local 2>/dev/null || true
-    @HOMEBREW_NO_ASK=1 brew untap {{tap}} 2>/dev/null || true

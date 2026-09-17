@@ -9,23 +9,29 @@ import { QUERY_STEP_FIELDS } from "./query.ts";
 describe("domOpFromStep", () => {
   test("forwards every TapeMutation key present on the step", () => {
     const identity = (val?: string) => val;
+    const workflowAnchor: Partial<Record<TapeMutationKey, keyof GdocsmithStepInput>> = {
+      after: "nodeAfter",
+      at: "nodeAt",
+      before: "nodeBefore",
+    };
     for (const key of TAPE_MUTATION_KEYS) {
+      const stepKey = workflowAnchor[key] ?? key;
       const step: GdocsmithStepInput = {
         kind: "surgical",
-        [key]: sampleMutationValue(key),
+        [stepKey]: sampleMutationValue(key),
       };
       const mutation = domOpFromStep(step, identity);
       expect(mutation[key], `missing TapeMutation key ${key}`).toBeDefined();
     }
   });
 
-  test("resolves alias strings on at/after/before and cloneNode", () => {
+  test("resolves alias strings on nodeAfter and cloneNode", () => {
     const aliases = (val?: string) => (val === "heading" ? "h.arch.9a1b" : val);
     const mutation = domOpFromStep(
       {
-        after: "heading",
         cloneNode: "heading",
         kind: "surgical",
+        nodeAfter: "heading",
       },
       aliases,
     );
@@ -37,6 +43,46 @@ describe("domOpFromStep", () => {
     const mutation = domOpFromStep({ kind: "surgical", markdown: "# Hi" }, (v) => v);
     expect(mutation.insertMarkdown).toBe("# Hi");
   });
+
+  test("maps markdown: onto replaceMarkdown when kind is replaceMarkdown", () => {
+    const mutation = domOpFromStep({ kind: "replaceMarkdown", markdown: "# New Title", nodeAt: "h.title" }, (v) => v);
+    expect(mutation.replaceMarkdown).toBe("# New Title");
+    expect(mutation.insertMarkdown).toBeUndefined();
+  });
+
+  test("maps markdown: onto replaceSection when kind is replaceSection", () => {
+    const mutation = domOpFromStep(
+      { kind: "replaceSection", markdown: "## Motivation\n\nContent", nodeAt: "h.sec" },
+      (v) => v,
+    );
+    expect(mutation.replaceSection).toBe("## Motivation\n\nContent");
+    expect(mutation.insertMarkdown).toBeUndefined();
+  });
+
+  test("resolves nodeAt, nodeAfter, nodeBefore, and nodeUnder aliases", () => {
+    const aliases = (val?: string) => (val === "heading" ? "h.arch.9a1b" : val);
+    const mutation = domOpFromStep(
+      {
+        kind: "surgical",
+        nodeAfter: "heading",
+        nodeAt: "heading",
+        nodeBefore: "heading",
+      },
+      aliases,
+    );
+    expect(mutation.at).toBe("h.arch.9a1b");
+    expect(mutation.after).toBe("h.arch.9a1b");
+    expect(mutation.before).toBe("h.arch.9a1b");
+
+    const underMutation = domOpFromStep(
+      {
+        kind: "surgical",
+        nodeUnder: "heading",
+      },
+      aliases,
+    );
+    expect(underMutation.at).toBe("h.arch.9a1b");
+  });
 });
 
 describe("query adapter completeness", () => {
@@ -46,7 +92,7 @@ describe("query adapter completeness", () => {
       expect(src.includes(`step.${field}`) || src.includes(`step[`), `query.ts must read step.${field}`).toBe(true);
       expect(src).toContain(`"${field}"`);
     }
-    for (const field of ["contains", "stylesOnly", "under", "unsafeOnly", "output", "full", "tab", "as", "doc"]) {
+    for (const field of ["contains", "stylesOnly", "nodeUnder", "unsafeOnly", "output", "full", "tab", "as", "doc"]) {
       expect(src).toContain(`step.${field}`);
     }
   });
@@ -98,7 +144,6 @@ function sampleMutationValue(key: TapeMutationKey): unknown {
     case "insertMarkdown":
     case "replaceMarkdown":
     case "replaceSection":
-    case "replaceSectionMarkdown":
       return "# x";
     case "insertPerson":
       return { email: "alice@example.com" };

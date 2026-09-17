@@ -1,6 +1,6 @@
 # Mechanics
 
-Selectors, steps, and YAML/JSON shape for `gdocsmith run`. Loop: [runbook-diagram.md](runbook-diagram.md). Taste: [style.md](style.md).
+Selectors, steps, and JSON shape for `gdocsmith run`. Loop: [runbook-diagram.md](runbook-diagram.md). Taste: [style.md](style.md).
 
 Each item in `steps` requires `kind`. Load this when a selector or op is unclear. Don’t start here.
 
@@ -18,23 +18,23 @@ HEADING_2          ← "Approach"
 NORMAL_TEXT
 ```
 
-Don’t replace a whole section as a range. Walk `nodes` in query YAML/JSON — the next item is the next sibling.
+Don’t replace a whole section as a range. Walk `nodes` in query JSON — the next item is the next sibling.
 
 ## Targeting
 
-1. `kind: query` — map of the tape. Multi-tab: set `tab:` (`id` or unique title). Bind with `as:` (also writes `dumped`). `output: markdown` / `yaml` for a serialized dump.
-2. Scope with `under:` (heading) and `contains:` (substring). That node and following siblings until the next same-or-higher heading, including `sectionBreak` / tables.
-3. Copy `at` from dumped ids (heading-scoped `"h.arch.9a1b"`) or table cells (`"h.arch.table.0.1.3c8f"`).
+1. `kind: query` — map of the tape. Multi-tab: set `tab:` (`id` or unique title). Bind with `as:` (also writes `dumped`). `output: markdown` or `nodes` for a serialized dump. Set `doc:` to the open alias.
+2. Scope with `nodeUnder:` (heading) and `contains:` (substring). That node and following siblings until the next same-or-higher heading, including `sectionBreak` / tables.
+3. Copy `nodeAt` from dumped ids (heading-scoped `"h.arch.9a1b"`) or table cells (`"h.arch.table.0.1.3c8f"`).
 
-Do not guess heading structures or character offsets. Query using `under:` (heading) and `contains:` (substring), dump the matched nodes, and target them using heading-scoped IDs (`at: "h.arch.9a1b"`).
+Do not guess heading structures or character offsets. Query using `nodeUnder:` (heading) and `contains:` (substring), dump the matched nodes, and target them using heading-scoped IDs (`nodeAt: "h.arch.9a1b"`).
 
-**Writes use `at` / `after` / `before`.** Extra keys ignored, except `cell` / `para` / `segmentId` / `tabId` on a step — those are refused (copy the id instead; use `tab:` on the step). Header/footer chrome is not a `run` kind yet.
+**Writes use `nodeAt` / `nodeAfter` / `nodeBefore`.** Extra keys ignored, except `cell` / `para` / `segmentId` / `tabId` on a step — those are refused (copy the id instead; use `tab:` on the step). Header/footer chrome is not a `run` kind yet.
 
 | Field | Finds | When |
 | ----- | ----- | ---- |
-| `at` | Heading-scoped id (`"h.arch.9a1b"`), heading id (`"h.arch"`), or cell id (`"h.arch.table.0.1.3c8f"`) | Required on every write step. Heading-scoped IDs are resilient across edits in other sections. |
+| `nodeAt` | Heading-scoped id (`"h.arch.9a1b"`), heading id (`"h.arch"`), or cell id (`"h.arch.table.0.1.3c8f"`) | Required on every write step. Heading-scoped IDs are resilient across edits in other sections. |
 
-Same-run inserts: use `as: "<name>"` then `after: "name"` / `at: "name.0.1"`. Another pass = new query.
+Same-run inserts: use `as: "<name>"` then `nodeAfter: "name"` / `nodeAt: "name.0.1"`. Another pass = new query.
 Heading-scoped IDs (`{headingId}.{checksum}`) compute a hash over text and all metadata. They provide high confidence that the targeted node matches the agent's expectation and auto-rebase cleanly across revisions.
 
 ## Scoping and Filtering
@@ -43,35 +43,35 @@ Targeting nodes in `gdocsmith run` uses `kind: query`. The workflow engine filte
 
 | Query Parameter | Description |
 |---|---|
-| `doc:` | Optional target document alias or ID (defaults to active doc). |
+| `doc:` | Target document alias or ID (required; open it first with `docOpen` / `docCreate` / `docCopy`). |
 | `tab:` | Target tab ID or unique title. |
-| `under:` | Scopes query to the neighborhood under a heading (matching the heading and following siblings until the next same-or-higher heading). |
+| `nodeUnder:` | Scopes query to the neighborhood under a heading (matching the heading and following siblings until the next same-or-higher heading). |
 | `contains:` | Substring filter (case-insensitive) on paragraph or heading text. |
 | `stylesOnly:` | Boolean filter to find only custom-styled nodes. |
 | `unsafeOnly:` | Boolean filter to surface fragile nodes (e.g. math equations, chips, horizontal rules). |
 | `as:` | Binds the matched node(s) to a local alias for subsequent steps in the same workflow. Writes `dumped[as]` immediately. |
-| `output:` | Serializer: `nodes` (default, `NodeSummary` rows), `markdown`, or `yaml`. Markdown/yaml skip the 80-node heading echo. |
+| `output:` | Serializer: `nodes` (default, `NodeSummary` rows) or `markdown`. Markdown skips the 80-node heading echo. |
 | `full:` | Keep every node (no heading-only truncation) and include table cells in `nodes` dumps. |
 
-**Markdown / YAML dump**
+**Markdown dump**
 
-- Whole document: `kind: query` + `output: markdown` (no `tab`, no `under`). Multi-tab docs join tabs with `---` (tab divider, not YAML). Styles and omissions are on `audit`.
-- One tab: add `tab: <id or unique title>`.
-- One section: add `under: <heading id or alias>`.
-- `kind: dump` is optional for these because query already fills `dumped`. Dump of an **open** alias is still `{ id, title }` only.
+- Whole document: `kind: query` + `output: markdown` (no `tab`, no `nodeUnder`). Multi-tab docs join tabs with `---` (tab divider, not YAML). Styles and omissions are on `audit`.
+- One tab: add `tab: <tabId>`.
+- One section: add `nodeUnder: <heading-scoped id>`.
+- `dump: true` on `docOpen`/`docCreate`/`docCopy` emits doc and tab metadata into `dumped[as]`.
 
-Do not attempt to pass raw character indices to write steps. Writes use heading-scoped IDs (`at: "h.arch.9a1b"`), cell IDs (`at: "h.arch.table.0.1.3c8f"`), or bound aliases (`at: "statusNode"`).
+Do not attempt to pass raw character indices to write steps. Writes use heading-scoped IDs (`nodeAt: "h.arch.9a1b"`) or cell IDs (`nodeAt: "h.arch.table.0.1.3c8f"`). Mutations must target explicit scoped IDs, not query aliases.
 
 ## Writes
 
 | Op | Does |
 | -- | ---- |
 | `replace` | Alias for `innerText`. Replaces **text** of the target node in place. Named style unchanged. Inline markdown is parsed to styled runs. Combinable with `style`. |
-| `replaceSection` | Section-level auto-diffing replacement (alias: `replaceSectionMarkdown`). Target MUST be a heading node. Parses markdown, hashes nodes via checksum, matches live nodes with incoming elements, updates modified paragraphs in place, preserves unchanged nodes (zero lost comments or suggestions!), and only adds/removes actual deltas. Accepts inline markdown, file path string, or `replaceSection: true, file: "path.md"`. Exclusive. |
+| `replaceSection` | Section-level auto-diffing replacement. Target MUST be a heading node. Parses markdown, hashes nodes via checksum, matches live nodes with incoming elements, updates modified paragraphs in place, preserves unchanged nodes (zero lost comments or suggestions!), and only adds/removes actual deltas. Accepts inline markdown, file path string, or `replaceSection: true, file: "path.md"`. Exclusive. |
 | `replaceMarkdown` | Single-node markdown replacement. Replaces ONLY the target node (even when targeting a heading), never touching children or following siblings. Expands multi-element markdown directly after the node. Accepts inline markdown, file path string, or `file: "path.md"`. Exclusive. |
-| `markdownInsert` | Workflow `kind` that inserts rendered markdown at an anchor (`after` / `before` / `at`). Use `markdown:` or `text:` (or `file:`). Supports sibling `markdownStyles: { alert: { color: "#f00" } }`. Exclusive. |
+| `markdownInsert` | Workflow `kind` that inserts rendered markdown at an anchor (`nodeAfter` / `nodeBefore` / `nodeAt`). Use `markdown:` or `text:` (or `file:`). Supports sibling `markdownStyles: { alert: { color: "#f00" } }`. Exclusive. |
 | `markdownStyles` | Sibling attribute on `markdownInsert`, `replaceMarkdown`, or `replaceSection` providing named `::styleName[]::` directive styles (e.g. `markdownStyles: { alert: { color: "#f00" } }`). Distinct from native `style`. |
-| `after` / `before` | Anchor properties set directly on the op: `after: <id>` inserts `afterend`; `before: <id>` inserts `beforebegin`. Replaces boilerplate nested `insertAdjacentElement.position`. |
+| `nodeAfter` / `nodeBefore` | Anchor properties set directly on the step: `nodeAfter: <id>` inserts `afterend`; `nodeBefore: <id>` inserts `beforebegin`. Replaces boilerplate nested `insertAdjacentElement.position`. |
 | `element` / `elements` | Detached element spec(s) to insert at anchor (paired with `after: <id>` or `before: <id>`). No `insertAdjacentElement` wrapper needed. |
 | `as` | Assigns a local name/alias to an inserted node or section (e.g. `as: "my-table"`). Subsequent ops in the same session can reference it directly via `after: "my-table"`, `at: "my-table.0.1"`, etc. without guessing runtime synthetic IDs. |
 | `innerText` | Replace **text**. Named style unchanged. Inline images in that paragraph (or cell) are kept (caption is written before them). Inline markdown (`code`, `**bold**`, `*italic*`, `~~strike~~`, `[links](url)`) → plain + styles. Optional explicit `runs: [{ text, code, fontSize, ... }]` for custom word formatting without offset math. Combinable with `style`. |
@@ -109,7 +109,7 @@ Do not attempt to pass raw character indices to write steps. Writes use heading-
 
 **Clone nodes with 100% fidelity:** Pass `cloneNode: { fromDoc?, fromTab?, nodeId, innerText? }` (or intra-doc shorthand `cloneNode: h.arch.9a1b`) with `after: <id>` or `before: <id>` to copy any node from the current tab, another tab, or another doc while preserving all styles, bullets, margins, and alignments. `innerText` replaces text while retaining the source node's styling. Use `cloneNodes: [...]` for batch cloning. `nodeId` is the heading-scoped id from query.
 
-**Replace a whole section:** Use `replaceSection: "..."` (or `replaceSectionMarkdown: "..."`) targeting the section heading (`at: "h.arch"`). It automatically diffs incoming elements against live nodes via checksum, preserves unchanged nodes (zero comment threads or suggestions lost), updates modified nodes in-place, and applies genuine additions/removals. Accepts inline markdown, file path string, or `file: "path.md"`. Never manually delete-then-insert.
+**Replace a whole section:** Use `replaceSection: "..."` targeting the section heading (`nodeAt: "h.arch"`). It automatically diffs incoming elements against live nodes via checksum, preserves unchanged nodes (zero comment threads or suggestions lost), updates modified nodes in-place, and applies genuine additions/removals. Accepts inline markdown, file path string, or `file: "path.md"`. Never manually delete-then-insert.
 
 **Replace a single node:** Use `replaceMarkdown: "..."` targeting any node (paragraph, heading, cell). It updates the node in place without touching children or following siblings.
 
@@ -156,29 +156,19 @@ Do not treat an image paragraph as `:empty`. An image paragraph contains inline 
 - `nestingLevel` change on an existing paragraph
 - `remove` on the last tape paragraph
 
-## Mutation YAML
+## Mutation JSON (surgical tape)
 
 Pipe to `gdocsmith run`. `insertAdjacentElement` and `remove` are exclusive on the same step; a table insert cannot share a run with `remove` or edits to other nodes. `innerText` / `namedStyleType` / `bullet` may combine with `style`.
 
-```yaml
-documentId: <ID>
-steps:
-  - kind: replace
-    at: h.status.9a1b
-    innerText: In progress
-  - kind: replace
-    at: h.status.9a1b
-    style: { alignment: CENTER, spaceAbove: 12 }
-  - kind: replace
-    at: h.data.table.0.0.3c8f
-    innerText: Name
-  - kind: surgical
-    after: h.status.9a1b
-    element:
-      kind: paragraph
-      namedStyleType: NORMAL_TEXT
-      text: Next step
-      bullet: { preset: BULLET_DISC_CIRCLE_SQUARE, nestingLevel: 0 }
+```json
+{
+  "steps": [
+    { "kind": "docOpen", "doc": "<ID>", "as": "spec" },
+    { "kind": "replace", "doc": "spec", "nodeAt": "h.status.9a1b", "innerText": "In progress" },
+    { "kind": "replace", "doc": "spec", "nodeAt": "h.status.9a1b", "style": { "alignment": "CENTER", "spaceAbove": 12 } },
+    { "kind": "surgical", "doc": "spec", "nodeAfter": "h.status.9a1b", "element": { "kind": "paragraph", "namedStyleType": "NORMAL_TEXT", "text": "Next step" } }
+  ]
+}
 ```
 
 Table insert with styling. Use `as: "<name>"` to label the new table so subsequent steps can style it or target cells without guessing runtime numeric IDs:
@@ -324,3 +314,62 @@ This app is edit-in-place. Copy/share is `gws drive` / `kind: docCopy`.
 2. `remove` empty leftover H2/H3 (not the last node) or demote with `namedStyleType`
 3. Fill with `at` from this query. Don’t replace the whole body
 4. Fill placeholders only. `innerText` on a chip paragraph destroys chips (plan warns)
+
+## Symbolic links
+
+Markdown links can target tabs and headings using symbolic references instead of manually looking up tab IDs and heading IDs:
+
+| Syntax | Resolves to | Example |
+| --- | --- | --- |
+| `[Label](tab:<Title\|ID>)` | `?tab=<tabId>` | `[Sub-Project](tab:Legacy execution record migration)` |
+| `[Label](tab:<Title\|ID>#<Heading>)` | `?tab=<tabId>#heading=<headingId>` | `[Appendix A](tab:Appendices#Appendix A)` |
+| `[Label](#<Heading>)` | `?tab=<tabId>#heading=<headingId>` (or `#heading=<headingId>`) | `[Motivation](#Motivation)` |
+
+Standard external URLs (`https://...`, `mailto:...`) and explicit Docs deep links (`?tab=...#heading=...`) are passed through unchanged.
+
+## Section copy (`kind: sectionCopy`)
+
+Transfers an entire heading section between documents or tabs server-side without streaming markdown through LLM context:
+
+```yaml
+- kind: sectionCopy
+  fromDoc: epicDoc           # Source doc alias/ID (defaults to doc)
+  fromTab: "t.0"             # Source tab ID or title (defaults to active tab)
+  fromSection: Decisions     # Heading title, slug, or heading ID in source
+  doc: subprojectDoc         # Target doc alias/ID
+  tab: "Execution Plan"      # Target tab ID or title
+  nodeAt: Decisions          # Replaces section at target (defaults to fromSection)
+  includeHeading: true       # Optional: false copies section body only
+```
+
+If `nodeAfter` or `nodeBefore` is specified instead of `nodeAt`, the section is inserted adjacent to the anchor rather than diff-replacing it.
+
+## Tab operations and API quirks
+
+### Google Docs API 500 on template-copied docs
+Documents created via Drive template copy (`docCopy` from an existing multi-tab document) often lack a root `t.0` tab. In these documents, calling `updateDocumentTabProperties` (which powers `tabRename` and `tabMove`) can fail with an upstream Google Docs API `HTTP 500 Internal error`.
+
+**Rule**: Specify the final `title` and relative position (`index`, `afterTab`, or `beforeTab`) directly at tab creation time:
+```yaml
+# Recommended: title and positioning during creation
+- kind: tabDuplicate
+  doc: myDoc
+  copyFromTab: "Template Tab"
+  title: "New Feature Spec"
+  afterTab: "Overview"
+```
+
+### Unique tab titles
+Google Docs requires tab titles to be unique across a document. `gdocsmith` validates title uniqueness upfront before submitting batch updates to prevent 400 Bad Request errors.
+
+### Relative tab positioning
+Tabs can be positioned relative to existing tabs using `afterTab:` or `beforeTab:` in `tabAdd`, `tabCopy`, `tabDuplicate`, and `tabMove`:
+- `afterTab: "Overview"` — inserts or moves the tab immediately after the specified tab.
+- `beforeTab: "Appendices"` — inserts or moves the tab immediately before the specified tab.
+
+## `textReplace` limitations
+
+Google Docs REST API `replaceAllText` operates strictly on visible paragraph text runs (`textRun.content`), not hyperlink targets (`link.url`). Calling `textReplace` on a URL string will only modify the visible link text, not the underlying destination URL.
+
+To update links or passages containing hyperlinks, use `replaceSection`, `replaceMarkdown`, or `markdownInsert` with symbolic links.
+

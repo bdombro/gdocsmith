@@ -177,7 +177,7 @@ export async function batchReplaceExecute(
 
   if (allTabs) {
     tabId = undefined;
-  } else if (options.tabHint) {
+  } else if (options.tabHint && freshDoc.data.tabs?.length) {
     const resolved = resolveTab(freshDoc.data, options.tabHint);
     tabId = resolved.tabId;
     tabTitle = resolved.title;

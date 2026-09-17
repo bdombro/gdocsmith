@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 /* CLI identity configuration used across scripts and program metadata. */
 
 /**

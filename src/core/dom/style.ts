@@ -114,6 +114,107 @@ export function colorHex(
 export const hexColor = colorHex;
 
 /**
+ * Converts a hex color string into HSL values (h: 0-360, s: 0-1, l: 0-1).
+ */
+export function colorHsl(
+  /** Hex color string (#RRGGBB, #RGB, or RRGGBB). */
+  hex: string,
+): { h: number; l: number; s: number } {
+  let clean = hex.trim().replace(/^#/, "");
+  if (clean.length === 3) {
+    clean = clean
+      .split("")
+      .map((c) => c + c)
+      .join("");
+  }
+  if (!/^[0-9a-fA-F]{6}$/.test(clean)) {
+    return { h: 0, l: 0, s: 0 };
+  }
+  const r = parseInt(clean.slice(0, 2), 16) / 255;
+  const g = parseInt(clean.slice(2, 4), 16) / 255;
+  const b = parseInt(clean.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  const l = (max + min) / 2;
+  if (delta === 0) {
+    return { h: 0, l, s: 0 };
+  }
+  const s = l > 0.5 ? delta / (2 - max - min) : delta / (max + min);
+  let h = 0;
+  if (max === r) {
+    h = ((g - b) / delta + (g < b ? 6 : 0)) * 60;
+  } else if (max === g) {
+    h = ((b - r) / delta + 2) * 60;
+  } else {
+    h = ((r - g) / delta + 4) * 60;
+  }
+  return { h, l, s };
+}
+
+/**
+ * Alias for colorHsl.
+ */
+export const hslColor = colorHsl;
+
+/**
+ * Tests whether a hex color matches a pattern (semantic name, hex code, or "default").
+ */
+export function colorMatchesPattern(
+  /** Hex color string to test. */
+  hex: string,
+  /** Color pattern to match (e.g. "red", "#ea4335", "default"). */
+  pattern: string,
+): boolean {
+  const normPat = pattern.trim().toLowerCase();
+  const normHex = hex.trim().toLowerCase().replace(/^#/, "");
+  const formattedHex = `#${normHex}`;
+
+  if (normPat === "default" || normPat === "#000000" || normPat === "000000") {
+    return normHex === "000000" || normHex === "";
+  }
+
+  const patClean = normPat.replace(/^#/, "");
+  if (/^[0-9a-f]{3,6}$/.test(patClean) && (patClean.length === 3 || patClean.length === 6)) {
+    const fullPat =
+      patClean.length === 3
+        ? patClean
+            .split("")
+            .map((c) => c + c)
+            .join("")
+        : patClean;
+    return normHex === fullPat;
+  }
+
+  const { h, l, s } = colorHsl(formattedHex);
+
+  switch (normPat) {
+    case "red":
+      return (h >= 345 || h <= 15) && s >= 0.25 && l >= 0.15 && l <= 0.85;
+    case "orange":
+      return h > 15 && h < 40 && s >= 0.25 && l >= 0.15 && l <= 0.85;
+    case "yellow":
+      return h >= 40 && h <= 70 && s >= 0.25 && l >= 0.2 && l <= 0.85;
+    case "green":
+      return h > 70 && h <= 165 && s >= 0.2 && l >= 0.15 && l <= 0.85;
+    case "blue":
+      return h >= 180 && h <= 260 && s >= 0.2 && l >= 0.15 && l <= 0.85;
+    case "purple":
+      return h > 260 && h < 345 && s >= 0.2 && l >= 0.15 && l <= 0.85;
+    case "gray":
+    case "grey":
+      return s < 0.18 && l >= 0.15 && l <= 0.85;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Alias for colorMatchesPattern.
+ */
+export const matchesColorPattern = colorMatchesPattern;
+
+/**
  * Wraps hex color in OptionalColor object for Docs API.
  */
 export function colorOptional(
@@ -165,6 +266,48 @@ export function firstLineHanging(
  * Alias for firstLineHanging.
  */
 export const hangingFirstLine = firstLineHanging;
+
+/**
+ * Evaluates a list of foreground colors against positive and negative patterns.
+ */
+export function fontColorsMatch(
+  /** Array of hex color strings present on the node or cell. */
+  colors: string[],
+  /** Array of patterns to match (e.g. ["red"], ["!#000000"], ["!default"]). */
+  patterns: string[],
+): boolean {
+  if (!patterns.length) return true;
+  const positive = patterns.filter((p) => !p.startsWith("!"));
+  const negative = patterns.filter((p) => p.startsWith("!")).map((p) => p.slice(1).trim());
+
+  const defaultExclusions = negative.filter((n) => n.toLowerCase() === "default" || n === "#000000" || n === "000000");
+  const specificExclusions = negative.filter((n) => n.toLowerCase() !== "default" && n !== "#000000" && n !== "000000");
+
+  if (specificExclusions.length > 0) {
+    if (colors.some((c) => specificExclusions.some((pat) => colorMatchesPattern(c, pat)))) {
+      return false;
+    }
+  }
+
+  if (defaultExclusions.length > 0) {
+    const hasNonDefault = colors.some((c) => !colorMatchesPattern(c, "default"));
+    if (!hasNonDefault) return false;
+  }
+
+  if (positive.length > 0) {
+    const effectiveColors = colors.length > 0 ? colors : ["#000000"];
+    if (!effectiveColors.some((c) => positive.some((pat) => colorMatchesPattern(c, pat)))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Alias for fontColorsMatch.
+ */
+export const matchFontColors = fontColorsMatch;
 
 /**
  * True when the patch specifies indentation fields.
@@ -264,6 +407,46 @@ export function queryTextStyleUniform(
 export const uniformQueryTextStyle = queryTextStyleUniform;
 
 /**
+ * Extracts non-default run styling (fontSize, foregroundColor, italic) from a Docs textStyle object.
+ */
+export function runChromeRead(
+  /** Raw textStyle dictionary from a Docs textRun. */
+  style: Record<string, unknown> | undefined,
+): {
+  fontSize?: number;
+  foregroundColor?: string;
+  italic: boolean;
+} {
+  const s = style ?? {};
+  const font = s.fontSize;
+  let fontSize: number | undefined;
+  if (font && typeof font === "object" && font !== null && "magnitude" in font) {
+    const mag = (font as { magnitude?: unknown }).magnitude;
+    if (typeof mag === "number") fontSize = mag;
+  }
+  const fg = s.foregroundColor;
+  let foregroundColor: string | undefined;
+  if (fg && typeof fg === "object" && fg !== null) {
+    const rgb = (
+      fg as {
+        color?: { rgbColor?: { blue?: number; green?: number; red?: number } };
+      }
+    ).color?.rgbColor;
+    foregroundColor = colorHex(rgb);
+  }
+  return {
+    italic: s.italic === true,
+    ...(fontSize != null ? { fontSize } : {}),
+    ...(foregroundColor ? { foregroundColor } : {}),
+  };
+}
+
+/**
+ * Alias for runChromeRead.
+ */
+export const readRunChrome = runChromeRead;
+
+/**
  * True when the object has at least one style field defined.
  */
 export function styleHas(
@@ -341,32 +524,3 @@ const STYLE_KEYS: readonly (keyof StylePatch)[] = [
   "strikethrough",
   "underline",
 ];
-
-function readRunChrome(style: Record<string, unknown> | undefined): {
-  fontSize?: number;
-  foregroundColor?: string;
-  italic: boolean;
-} {
-  const s = style ?? {};
-  const font = s.fontSize;
-  let fontSize: number | undefined;
-  if (font && typeof font === "object" && font !== null && "magnitude" in font) {
-    const mag = (font as { magnitude?: unknown }).magnitude;
-    if (typeof mag === "number") fontSize = mag;
-  }
-  const fg = s.foregroundColor;
-  let foregroundColor: string | undefined;
-  if (fg && typeof fg === "object" && fg !== null) {
-    const rgb = (
-      fg as {
-        color?: { rgbColor?: { blue?: number; green?: number; red?: number } };
-      }
-    ).color?.rgbColor;
-    foregroundColor = colorHex(rgb);
-  }
-  return {
-    italic: s.italic === true,
-    ...(fontSize != null ? { fontSize } : {}),
-    ...(foregroundColor ? { foregroundColor } : {}),
-  };
-}

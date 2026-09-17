@@ -285,6 +285,8 @@ export type DocTab = {
   documentTab?: DocumentTab;
   /** Identifying properties of the tab. */
   tabProperties?: {
+    /** Zero-based index within parent or document. */
+    index?: number;
     /** Unique tab identifier. */
     tabId?: string;
     /** Human-readable tab title. */

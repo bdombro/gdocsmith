@@ -1,7 +1,7 @@
 /* Unit tests for DOM mutation JSON → DomWriter. */
 
 import { describe, expect, test } from "bun:test";
-import { formatYaml, parseInput } from "../../cli/format.ts";
+import { formatOutput, parseInput } from "../../cli/format.ts";
 import { compileDom } from "./apply.ts";
 import type { ParagraphSpec } from "./element.ts";
 import { CHIP_MUTATE_MSG, EXISTING_NEST_MSG } from "./guards.ts";
@@ -94,47 +94,22 @@ describe("parseDomOps", () => {
     });
   });
 
-  test("accepts YAML and JSON strings via parseInput", () => {
-    const yamlString = `
-documentId: doc-xyz
-tabId: t.1
-ops:
-  - at: 14
-    innerText: |-
-      Multiline paragraph text
-      Second line with "quotes"
-`;
-    const fromYaml = parseDomOps(parseInput(yamlString));
-    expect(fromYaml).toEqual({
-      documentId: "doc-xyz",
-      ops: [
-        {
-          at: 14,
-          innerText: 'Multiline paragraph text\nSecond line with "quotes"',
-        },
-      ],
-      tabId: "t.1",
-    });
-
+  test("accepts JSON strings via parseInput", () => {
     const jsonString = JSON.stringify({
       documentId: "doc-xyz",
       ops: [{ at: 14, innerText: "Hello JSON" }],
+      tabId: "t.1",
     });
-    const fromJson = parseDomOps(parseInput(jsonString));
-    expect(fromJson).toEqual({
+    expect(parseDomOps(parseInput(jsonString))).toEqual({
       documentId: "doc-xyz",
       ops: [{ at: 14, innerText: "Hello JSON" }],
+      tabId: "t.1",
     });
 
-    const yamlTabs = `
-tabs:
-  - tabId: t.1
-    ops:
-      - at: 14
-        innerText: Hello tabs
-`;
-    const parsedTabs = parseDomOps(parseInput(yamlTabs));
-    expect(parsedTabs.tabs).toEqual([
+    const jsonTabs = JSON.stringify({
+      tabs: [{ tabId: "t.1", ops: [{ at: 14, innerText: "Hello tabs" }] }],
+    });
+    expect(parseDomOps(parseInput(jsonTabs)).tabs).toEqual([
       { dangerousClear: false, ops: [{ at: 14, innerText: "Hello tabs" }], tabId: "t.1" },
     ]);
   });
@@ -256,6 +231,7 @@ describe("summarizeNode", () => {
     expect(dump).not.toHaveProperty("revision");
     expect(dump).not.toHaveProperty("revisionId");
     expect(dump).not.toHaveProperty("nodes");
+    expect(dump.ops).toEqual([]);
     expect(dump.tabs[0]?.ops).toEqual([]);
     expect(dump.tabs[0]?.nodes[0]).toEqual({
       id: 1,
@@ -265,9 +241,10 @@ describe("summarizeNode", () => {
     });
     expect(dump.tabs[0]?.nodes[0]).not.toHaveProperty("start");
 
-    const yaml = formatYaml(dump);
-    expect(yaml).not.toContain("revision");
-    expect(yaml).toContain("ops: []");
+    const json = formatOutput(undefined, dump);
+    expect(json).not.toContain("revision");
+    expect(JSON.parse(json).ops).toEqual([]);
+    expect(JSON.parse(json).tabs[0]?.ops).toEqual([]);
   });
 
   test("compact liveDump over cap echoes headings only", () => {
@@ -1562,6 +1539,115 @@ Conclusion paragraph
     expect(writer.nodes[5]?.text).toBe("Next Section");
   });
 
+  test("replaceSection without leading heading preserves the anchor heading and replaces section body", () => {
+    const nodes: DocNode[] = [
+      {
+        end: 10,
+        headingId: "h.mot",
+        tapeIndex: 1,
+        kind: "paragraph",
+        namedStyleType: "HEADING_2",
+        start: 0,
+        text: "Motivation",
+      },
+      {
+        end: 20,
+        tapeIndex: 2,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 10,
+        text: "Old placeholder text",
+      },
+      {
+        end: 30,
+        headingId: "h.obj",
+        tapeIndex: 3,
+        kind: "paragraph",
+        namedStyleType: "HEADING_2",
+        start: 20,
+        text: "Objective",
+      },
+    ];
+    const writer = new DomWriter(nodes);
+
+    const plan = applyOps(writer, [{ at: "h.mot", replaceSection: "New motivation body line 1\n\n- Bullet A" }]);
+
+    expect(plan[0]?.action).toBe("replaceSection");
+    // Anchor heading preserved as HEADING_2
+    expect(writer.nodes[0]?.headingId).toBe("h.mot");
+    expect(writer.nodes[0]?.namedStyleType).toBe("HEADING_2");
+    expect(writer.nodes[0]?.text).toBe("Motivation");
+
+    // Placeholder replaced by new body
+    expect(writer.nodes[1]?.text).toBe("New motivation body line 1");
+    expect(writer.nodes[1]?.namedStyleType).toBe("NORMAL_TEXT");
+    expect(writer.nodes[2]?.text).toBe("Bullet A");
+    expect(writer.nodes[2]?.bullet).toBeDefined();
+
+    // Following section untouched
+    expect(writer.nodes[3]?.headingId).toBe("h.obj");
+    expect(writer.nodes[3]?.text).toBe("Objective");
+  });
+
+  test("replaceSection with subheadings preserves anchor heading and diffs section body", () => {
+    const nodes: DocNode[] = [
+      {
+        end: 10,
+        headingId: "h.dec",
+        tapeIndex: 1,
+        kind: "paragraph",
+        namedStyleType: "HEADING_2",
+        start: 0,
+        text: "Decisions",
+      },
+      {
+        end: 20,
+        tapeIndex: 2,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 10,
+        text: "Old placeholder description",
+      },
+      {
+        end: 30,
+        headingId: "h.d1old",
+        tapeIndex: 3,
+        kind: "paragraph",
+        namedStyleType: "HEADING_3",
+        start: 20,
+        text: "D1: Old Decision",
+      },
+      {
+        end: 40,
+        tapeIndex: 4,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 30,
+        text: "Old decision context",
+      },
+    ];
+    const writer = new DomWriter(nodes);
+
+    const md = "### D1: New Decision 1\n\nContext for D1\n\n### D2: New Decision 2\n\nContext for D2";
+    const plan = applyOps(writer, [{ at: "h.dec", replaceSection: md }]);
+
+    expect(plan[0]?.action).toBe("replaceSection");
+    // Anchor heading Decisions preserved as HEADING_2
+    expect(writer.nodes[0]?.headingId).toBe("h.dec");
+    expect(writer.nodes[0]?.namedStyleType).toBe("HEADING_2");
+    expect(writer.nodes[0]?.text).toBe("Decisions");
+
+    // Body replaced with D1 and D2 subsections
+    expect(writer.nodes[1]?.namedStyleType).toBe("HEADING_3");
+    expect(writer.nodes[1]?.text).toBe("D1: New Decision 1");
+    expect(writer.nodes[2]?.namedStyleType).toBe("NORMAL_TEXT");
+    expect(writer.nodes[2]?.text).toBe("Context for D1");
+    expect(writer.nodes[3]?.namedStyleType).toBe("HEADING_3");
+    expect(writer.nodes[3]?.text).toBe("D2: New Decision 2");
+    expect(writer.nodes[4]?.namedStyleType).toBe("NORMAL_TEXT");
+    expect(writer.nodes[4]?.text).toBe("Context for D2");
+  });
+
   test("replaceMarkdown on a heading replaces ONLY the heading without touching children", () => {
     const nodes: DocNode[] = [
       {
@@ -1614,6 +1700,40 @@ Conclusion paragraph
     expect(() => applyOps(writer, [{ at: 1, replaceSection: "New text" }])).toThrow(
       /replaceSection requires a heading node target/,
     );
+  });
+
+  test("replaceSection guards against deleting child headings under top-level heading", () => {
+    const nodes: DocNode[] = [
+      {
+        end: 10,
+        headingId: "h.top",
+        tapeIndex: 1,
+        kind: "paragraph",
+        namedStyleType: "HEADING_1",
+        start: 0,
+        text: "Top Heading",
+      },
+      {
+        end: 20,
+        headingId: "h.sub",
+        tapeIndex: 2,
+        kind: "paragraph",
+        namedStyleType: "HEADING_2",
+        start: 10,
+        text: "Sub Heading",
+      },
+      { end: 30, tapeIndex: 3, kind: "paragraph", namedStyleType: "NORMAL_TEXT", start: 20, text: "Body text" },
+    ];
+    const writer = new DomWriter(nodes);
+
+    expect(() => applyOps(writer, [{ at: "h.top", replaceSection: "# New Top Heading\n\nSome body" }])).toThrow(
+      /replaceSection on HEADING_1.*would delete 1 child heading\(s\)/,
+    );
+
+    // Passes when force: true
+    expect(() =>
+      applyOps(writer, [{ at: "h.top", force: true, replaceSection: "# New Top Heading\n\nSome body" }]),
+    ).not.toThrow();
   });
 
   test("anti-demolition guard blocks deleting and recreating unchanged nodes", () => {
@@ -1913,31 +2033,6 @@ Conclusion paragraph
       "Section 2",
       "Footer",
     ]);
-  });
-
-  test("replaceSectionMarkdown acts as alias for replaceSection", () => {
-    const nodes: DocNode[] = [
-      {
-        end: 10,
-        headingId: "h.sec",
-        tapeIndex: 1,
-        kind: "paragraph",
-        namedStyleType: "HEADING_1",
-        start: 0,
-        text: "Old Sec",
-      },
-      { end: 20, tapeIndex: 2, kind: "paragraph", namedStyleType: "NORMAL_TEXT", start: 10, text: "Old text" },
-    ];
-    const writer = new DomWriter(nodes);
-
-    applyOps(writer, [
-      {
-        at: "h.sec",
-        replaceSectionMarkdown: "# New Sec\n\nNew text",
-      },
-    ]);
-
-    expect(writer.nodes.map((n) => n.text)).toEqual(["New Sec", "New text"]);
   });
 
   test("markdownStyles attribute on op applies custom styles", () => {

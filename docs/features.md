@@ -14,7 +14,7 @@ Use this guide to avoid overconfidence when planning mutations or estimating whe
 | | **Section Breaks** | ✅ | ✅ (`sectionBreak`) | ✅ (`insertSectionBreak`, `updateSectionStyle`) | ✅ | ✅ (`insertSectionBreak`, `columnCount`, margins) | Insertion supported (`CONTINUOUS`, `NEXT_PAGE`). ⚠️ **Cannot clone detachedly** (governs margins, page orientation, headers/footers). Guarded in `cloneNode`. |
 | | **Page Breaks** | ✅ | ✅ (`pageBreak`) | ✅ (`insertPageBreak`) | ✅ | ✅ (`pageBreak`) | Safe to insert/remove. |
 | | **Column Breaks** | ✅ | ✅ (`columnBreak`) | ❌ No insert request | ✅ | ⚠️ Read-only | Cannot insert column breaks via REST API. |
-| | **Page Setup & Margins** | ✅ | ✅ (`documentStyle`) | ✅ (`updateDocumentStyle`) | ✅ | ✅ Full (`pageSetup`) | Roundtrip page geometry (margins, orientation, pageSize) via query dump and apply YAML. |
+| | **Page Setup & Margins** | ✅ | ✅ (`documentStyle`) | ✅ (`updateDocumentStyle`) | ✅ | ✅ Full (`pageSetup`) | Roundtrip page geometry (margins, orientation, pageSize) via query dump and workflow `pageSetup`. |
 | | **Headers / Footers** | ✅ | ✅ (segment IDs) | ✅ (`createHeader`, `createFooter`) | ✅ | ⚠️ Not a `run` kind yet | Not on body tape. Use the Docs UI until chrome steps exist. |
 | | **Pageless Mode** | ✅ | ✅ (`documentFormat.documentMode`) | ❌ Output only | ❌ | ⚠️ Read-only | Cannot toggle pageless mode via REST API. |
 | | **Table of Contents (TOC)** | ✅ | ✅ (`tableOfContents`) | ❌ Read-only paragraphs | ✅ (`addTableOfContents`) | ⚠️ Read-only | 🚫 **Do not mutate/delete TOC nodes**: Overwriting with `innerText` or `remove` destroys live links. API cannot regenerate TOC. |
@@ -54,6 +54,7 @@ Use this guide to avoid overconfidence when planning mutations or estimating whe
 | | **Footnotes** | ✅ | ✅ (`footnoteReference`) | ✅ (`createFootnote`) | ✅ (`appendFootnote`) | ✅ Full (`insertFootnote`) | Native footnote reference creation supported via `insertFootnote` / `createFootnote`. |
 | | **Bookmarks** | ✅ | ✅ (`bookmarkId`) | ❌ Read-only | ✅ (`addBookmark`) | ⚠️ Read-only | Bookmarks can be targeted by links (`#bookmark=id`). Cannot insert via REST API. |
 | **Collaboration** | **Drive Comment Threads** | ✅ | ✅ (Drive API) | ⚠️ Partial | ❌ | ✅ (`gws drive comments`) | Drive API lists/replies to comments, but **cannot create text-anchored comments** (UI mints private `kix.*` IDs). |
+| | **File Permissions & Sharing** | ✅ | ✅ (Drive API) | ✅ (Drive API) | ✅ | ✅ Full (`docPermissionAdd`, `docPermissionRemove`, `docPermissionList`) | Granular access control (reader, commenter, writer, owner) across users, groups, domains, and public links. |
 | | **Suggestions (Track Changes)** | ✅ | ✅ (via developer preview) | ⚠️ Accept/Reject preview | ❌ | ⚠️ Read-only | Live suggestions cannot be created via public REST API. |
 
 ---
@@ -115,7 +116,7 @@ The following operations carry silent data loss risks that agents must be explic
 * **Nesting Level Immutability on Existing Items:** Once a list item is created in Google Docs, leading tabs are stripped by the API. The REST API offers no property or request to mutate `nestingLevel` on an existing paragraph (`updateParagraphStyle` lacks nesting controls).
 * **Surgical Diffing & Replacement:** When using `replaceSection` or `replaceMarkdown`, `gdocsmith` detects changes in list item `nestingLevel` or bullet preset. Instead of attempting invalid in-place text updates, it replaces the modified item by inserting a new spec with leading tabs and deleting the old node, ensuring accurate nesting without losing surrounding unchanged paragraphs.
 * **Query & Selector Support:** Queries expose `bullet: { nestingLevel, preset, type }`. Selectors can filter by nesting level using `[level=N]`, `[nestingLevel=N]`, `[bullet:N]`, or `:level(N)`. Diagnostic outputs reflect levels as `NORMAL_TEXT[bullet:1]`.
-* **Markdown Export / SS:** `kind: query` + `output: markdown` dumps a document, tab, or `under:` section as body-only markdown (`{ markdown, audit }`). Custom run styles and lossy omissions live on `audit`, not YAML frontmatter. List items use hierarchical indentation (`"  ".repeat(nestingLevel)`) and tight lists without extra blank lines. `output: yaml` is the lossless DOM tree.
+* **Markdown Export / SS:** `kind: query` + `output: markdown` dumps a document, tab, or `nodeUnder:` section as body-only markdown (`{ markdown, audit }`). Custom run styles and lossy omissions live on `audit`. List items use hierarchical indentation (`"  ".repeat(nestingLevel)`) and tight lists without extra blank lines. Use `output: nodes` with `full: true` for a lossless JSON tape dump.
 
 ---
 

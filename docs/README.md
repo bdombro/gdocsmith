@@ -2,7 +2,7 @@
 
 | If you are… | Read |
 | --- | --- |
-| **Using the CLI** | [../README.md](../README.md) |
+| **Overview & MCP Quickstart** | [../README.md](../README.md) |
 | **Agent skill router** | [../skills/gdocsmith/SKILL.md](../skills/gdocsmith/SKILL.md) |
 | **Architecture / Internals** | [architecture.md](architecture.md) |
 | **Edit loop** | [runbook-diagram.md](runbook-diagram.md) |

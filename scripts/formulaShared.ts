@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 /* Shared Ruby fragments and Homebrew formula generation helpers. */
 
 import { createHash } from "node:crypto";

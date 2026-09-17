@@ -5,44 +5,57 @@ import { closeStep } from "./close.ts";
 import { docCopyStep } from "./docCopy.ts";
 import { docCreateStep } from "./docCreate.ts";
 import { docDeleteStep } from "./docDelete.ts";
+import { docPermissionAddStep } from "./docPermissionAdd.ts";
+import { docPermissionListStep } from "./docPermissionList.ts";
+import { docPermissionRemoveStep } from "./docPermissionRemove.ts";
 import { docRenameStep } from "./docRename.ts";
 import { docTrashStep } from "./docTrash.ts";
-import { dumpStep } from "./dump.ts";
 import { innerTextStep } from "./innerText.ts";
 import { markdownInsertStep } from "./markdownInsert.ts";
 import { openStep } from "./open.ts";
 import { queryStep } from "./query.ts";
 import { removeStep } from "./remove.ts";
 import { replaceStep } from "./replace.ts";
+import { sectionCopyStep } from "./sectionCopy.ts";
 import { stepKindRead } from "./stepKind.ts";
 import { surgicalStep } from "./surgical.ts";
 import { tabAddStep } from "./tabAdd.ts";
+import { tabCopyStep } from "./tabCopy.ts";
 import { tabDeleteStep } from "./tabDelete.ts";
+import { tabMoveStep } from "./tabMove.ts";
 import { tabRenameStep } from "./tabRename.ts";
 import { textReplaceStep } from "./textReplace.ts";
 import type { ApplyScriptRuntime, WorkflowStepHandler, WorkflowStepKind } from "./types.ts";
 
 /** Handlers for explicit workflow step kinds (alphabetical by kind). */
 export const STEP_HANDLERS: Partial<Record<WorkflowStepKind, WorkflowStepHandler>> = {
-  close: closeStep,
+  dangerousRemoveSection: removeStep,
+  docClose: closeStep,
   docCopy: docCopyStep,
   docCreate: docCreateStep,
   docDelete: docDeleteStep,
+  docOpen: openStep,
+  docPermissionAdd: docPermissionAddStep,
+  docPermissionList: docPermissionListStep,
+  docPermissionRemove: docPermissionRemoveStep,
   docRename: docRenameStep,
   docTrash: docTrashStep,
-  dump: dumpStep,
   innerText: innerTextStep,
   markdownInsert: markdownInsertStep,
-  open: openStep,
   query: queryStep,
   remove: removeStep,
   replace: replaceStep,
   replaceMarkdown: surgicalStep,
   replaceSection: surgicalStep,
+  sectionCopy: sectionCopyStep,
   surgical: surgicalStep,
   tabAdd: tabAddStep,
+  tabCopy: tabCopyStep,
   tabDelete: tabDeleteStep,
+  tabDuplicate: tabCopyStep,
+  tabMove: tabMoveStep,
   tabRename: tabRenameStep,
+  tabReorder: tabMoveStep,
   textReplace: textReplaceStep,
 };
 

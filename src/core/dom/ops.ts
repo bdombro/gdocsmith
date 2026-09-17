@@ -19,7 +19,7 @@ import {
 } from "./element.ts";
 import { CHIP_MUTATE_MSG, EXISTING_NEST_MSG, HEADING_BULLET_MSG, hasChips } from "./guards.ts";
 import { type MarkdownParseOptions, markdownStylesParse, parseMarkdownToElements } from "./markdownParser.ts";
-import { DocDom, formatMissingScopedTargetMsg, missingNodeIdMsg, neighborhoodFrom } from "./query.ts";
+import { DocDom, formatMissingScopedTargetMsg, missingNodeIdMsg, neighborhoodFrom, nodeAtFind } from "./query.ts";
 import { hangingFirstLine, hasIndent, hasStyle, type StylePatch } from "./style.ts";
 import {
   asAlignment,
@@ -31,6 +31,7 @@ import {
   type NamedStyle,
   type ParagraphAlignment,
   type QueryTextStyle,
+  STYLE_TO_LEVEL,
   type TableCell,
 } from "./types.ts";
 import type { DomWriter } from "./write.ts";
@@ -104,8 +105,6 @@ export type TapeMutation = {
   replaceMarkdown?: string | boolean;
   /** Section-level diff-preserving markdown replacement. Target MUST be a heading. Accepts markdown text or file path. */
   replaceSection?: string | boolean;
-  /** Alias for replaceSection. */
-  replaceSectionMarkdown?: string | boolean;
   /** Explicit styled text runs for inline formatting (e.g. { text: "word", code: true, fontSize: 9 }). */
   runs?: InlineRunInput[];
   /** Native paragraph / text / cell / section fields. Combinable with innerText/replace. */
@@ -159,7 +158,6 @@ export const TAPE_MUTATION_KEYS = [
   "replace",
   "replaceMarkdown",
   "replaceSection",
-  "replaceSectionMarkdown",
   "runs",
   "style",
   "tableAlignment",
@@ -277,6 +275,8 @@ export type AppliedOpPlanPreview = Pick<AppliedOpPlan, "action" | "index" | "tar
 /** Compact cell row for `query --full` (no API indexes). */
 export type CellSummary = {
   alignment?: ParagraphAlignment;
+  /** Foreground hex colors found across text runs in this cell. */
+  fontColors?: string[];
   /** `"h.arch.table.0.1.3c8f"` — copy into write `at`. */
   id: string;
   image?: { count: number; heightPt?: number; widthPt?: number };
@@ -300,7 +300,11 @@ export type NodeSummary = {
     type?: "NUMBERED" | "BULLET" | "CHECKBOX";
   };
   chips?: Array<{ title: string; uri: string }>;
+  /** Column index if inside a table. */
+  col?: number;
   columnCount?: number;
+  /** Foreground hex colors found across text runs. */
+  fontColors?: string[];
   footnoteIds?: string[];
   /** True if this node contains a math equation (REST API cannot recreate equations). */
   hasEquation?: boolean;
@@ -317,6 +321,8 @@ export type NodeSummary = {
   lossWarning?: string;
   markup?: string;
   namedStyleType?: DocNode["namedStyleType"];
+  /** Row index if inside a table. */
+  row?: number;
   shading?: string;
   spaceAbove?: number;
   spaceBelow?: number;
@@ -348,6 +354,8 @@ export type LiveDumpTab = {
 export type LiveDump = {
   customStyledNodes?: Array<number | string>;
   documentId?: string;
+  /** Empty apply envelope; mutations go in `tabs[].ops`. */
+  ops: [];
   pageSetup?: PageSetup;
   segmentId?: string;
   styles?: Record<string, QueryTextStyle>;
@@ -384,7 +392,7 @@ export function liveDump(opts: {
   if (opts.tabId) tab.tabId = opts.tabId;
   if (opts.tabTitle) tab.tabTitle = opts.tabTitle;
 
-  const dump: LiveDump = { tabs: [tab] };
+  const dump: LiveDump = { ops: [], tabs: [tab] };
 
   if (opts.documentId) dump.documentId = opts.documentId;
   if (truncated) dump.truncated = true;
@@ -530,7 +538,7 @@ export function domOpsParse(raw: unknown): ParsedDomFile {
     };
   }
   throw new Error(
-    "DOM mutations file must be `{ tabs: [{ tabId, ops }] }`, `{ ops: [ ... ] }`, or a list of ops (YAML or JSON)",
+    "DOM mutations file must be `{ tabs: [{ tabId, ops }] }`, `{ ops: [ ... ] }`, or a list of ops (JSON)",
   );
 }
 
@@ -618,13 +626,6 @@ export function tapeMutationsApply(
     const inferredPosition: InsertPosition =
       op.after != null ? "afterend" : op.before != null ? "beforebegin" : (op.position ?? "afterend");
 
-    if (op.replaceSectionMarkdown !== undefined) {
-      if (op.replaceSection !== undefined) {
-        throw new Error(`ops[${index}] specify either "replaceSection" or "replaceSectionMarkdown", not both`);
-      }
-      op.replaceSection = op.replaceSectionMarkdown;
-    }
-
     if (op.replace !== undefined) {
       if (op.innerText !== undefined) {
         throw new Error(`ops[${index}] specify either "replace" or "innerText", not both`);
@@ -642,7 +643,7 @@ export function tapeMutationsApply(
       op.replaceSection = resolveMarkdownContent(op.replaceSection, op.file, "replaceSection", index);
     }
 
-    const markdownOpts = markdownParseOptionsFromOp(op);
+    const markdownOpts = markdownParseOptionsFromOp(op, writer);
 
     if (op.insertMarkdown !== undefined) {
       if (typeof op.insertMarkdown !== "string") {
@@ -1027,7 +1028,47 @@ export function tapeMutationsApply(
         );
       }
       const scopeNodes = neighborhoodFrom(writer.nodes, target.tapeIndex);
+      if (markdownOpts.h1IsTitle === undefined && target.namedStyleType === "TITLE") {
+        markdownOpts.h1IsTitle = true;
+      }
       const incomingSpecs = parseMarkdownToElements(op.replaceSection, markdownOpts);
+
+      const isTopLevelHeading = target.namedStyleType === "TITLE" || target.namedStyleType === "HEADING_1";
+      if (isTopLevelHeading) {
+        const targetLevel = STYLE_TO_LEVEL[target.namedStyleType as NamedStyle] ?? 1;
+        const childHeadings = scopeNodes.filter(
+          (n) => n.tapeIndex !== target.tapeIndex && isHeadingStyle(n.namedStyleType),
+        );
+        const incomingChildHeadings = incomingSpecs.filter(
+          (s) =>
+            s.kind === "paragraph" &&
+            isHeadingStyle((s as ParagraphSpec).namedStyleType) &&
+            (STYLE_TO_LEVEL[(s as ParagraphSpec).namedStyleType as NamedStyle] ?? 99) > targetLevel,
+        );
+        if (childHeadings.length > 0 && incomingChildHeadings.length === 0 && !effectiveForce) {
+          const previewList = childHeadings
+            .slice(0, 5)
+            .map((h) => `"${preview(h.text ?? "")}"`)
+            .join(", ");
+          throw new Error(
+            `ops[${index}] replaceSection on ${target.namedStyleType} "${preview(target.text ?? "")}" would delete ${childHeadings.length} child heading(s) (${previewList}). To replace only the title/heading paragraph, use replace or replaceMarkdown. To replace the entire section including all subsections, include them in your markdown or pass force: true.`,
+          );
+        }
+      }
+
+      const targetLevel = STYLE_TO_LEVEL[target.namedStyleType as NamedStyle] ?? 1;
+      const incomingStartsWithHeading =
+        incomingSpecs.length > 0 &&
+        incomingSpecs[0]?.kind === "paragraph" &&
+        isHeadingStyle((incomingSpecs[0] as ParagraphSpec).namedStyleType);
+
+      const incomingLevel = incomingStartsWithHeading
+        ? (STYLE_TO_LEVEL[(incomingSpecs[0] as ParagraphSpec).namedStyleType as NamedStyle] ?? 99)
+        : 99;
+
+      const incomingReplacesAnchor = incomingStartsWithHeading && incomingLevel <= targetLevel;
+
+      const diffNodes = incomingReplacesAnchor ? scopeNodes : scopeNodes.slice(1);
 
       plan.push(
         withWarnings(
@@ -1039,13 +1080,13 @@ export function tapeMutationsApply(
           },
           [
             ...chipWarnings(target, cell, para),
-            `Diff-replacing section (${scopeNodes.length} live node(s) vs ${incomingSpecs.length} markdown element(s)).`,
+            `Diff-replacing section (${diffNodes.length} live node(s) vs ${incomingSpecs.length} markdown element(s)).`,
           ],
           op.as,
         ),
       );
 
-      diffAndApplyMarkdown(writer, scopeNodes, incomingSpecs, target, effectiveForce);
+      diffAndApplyMarkdown(writer, diffNodes, incomingSpecs, target, effectiveForce);
       if (op.as) namedAnchors.set(op.as.trim(), target);
       continue;
     }
@@ -1057,6 +1098,9 @@ export function tapeMutationsApply(
       assertNotFragile(target, "replace", effectiveForce);
       // Single-node replacement only! Never touches following siblings.
       const scopeNodes = [target];
+      if (markdownOpts.h1IsTitle === undefined && target.namedStyleType === "TITLE") {
+        markdownOpts.h1IsTitle = true;
+      }
       const incomingSpecs = parseMarkdownToElements(op.replaceMarkdown, markdownOpts);
 
       plan.push(
@@ -1726,6 +1770,18 @@ export function targetResolve(
     }
   }
 
+  // 6. Match heading or node by title/slug (e.g. nodeAt: "Motivation" or "h.motivation")
+  const titleOrSlugHit = nodeAtFind(dom.nodes, dest.rawAt ?? "");
+  if (titleOrSlugHit) {
+    if (dest.cell && isHeadingStyle(titleOrSlugHit.namedStyleType)) {
+      const sectionNodes = neighborhoodFrom(dom.nodes, titleOrSlugHit.tapeIndex);
+      const tables = sectionNodes.filter((n) => n.kind === "table");
+      const targetTable = tables[(dest.tableIndex ?? 1) - 1];
+      if (targetTable) return targetTable;
+    }
+    return titleOrSlugHit;
+  }
+
   if (dest.nodeId != null) {
     throw new Error(missingNodeIdMsg(dest.nodeId, dom.nodes.length));
   }
@@ -1950,6 +2006,9 @@ export function nodeSummarize(node: DocNode, opts: { full?: boolean } = {}): Nod
     kind: node.kind,
   };
   if (node.namedStyleType) out.namedStyleType = node.namedStyleType;
+  if (node.row != null) out.row = node.row;
+  if (node.col != null) out.col = node.col;
+  if (node.fontColors?.length) out.fontColors = node.fontColors;
   if (node.alignment) out.alignment = node.alignment;
   if (node.bullet) {
     out.bullet = {
@@ -2038,6 +2097,7 @@ export const summarizeNode = nodeSummarize;
 /** Formats a compact summary of a table cell or cell paragraph for diagnostic output. */
 function summarizeCell(cell: TableCell | CellParagraph, id: string): CellSummary {
   const out: CellSummary = { id: cell.scopedId ?? id, text: cell.text };
+  if (cell.fontColors?.length) out.fontColors = cell.fontColors;
   if (cell.alignment) out.alignment = cell.alignment;
   if (cell.indentStart) out.indentStart = cell.indentStart.magnitude;
   if (cell.indentFirstLine) out.indentFirstLine = cell.indentFirstLine.magnitude;
@@ -2179,9 +2239,12 @@ function preview(text: string): string {
 function markdownParseOptionsFromOp(
   /** Mutation carrying optional markdown parse fields. */
   op: TapeMutation,
+  /** Writer context holding link resolver or document metadata. */
+  writer?: DomWriter,
 ): MarkdownParseOptions {
   return {
     customStyles: op.markdownStyles ? markdownStylesParse(op.markdownStyles) : undefined,
     h1IsTitle: op.h1IsTitle,
+    linkResolver: writer?.linkResolver,
   };
 }

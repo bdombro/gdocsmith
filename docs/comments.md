@@ -28,7 +28,7 @@ gws drive comments list --params '{"fileId":"<ID>","fields":"comments(id,content
 
 ## Match
 
-`kind: query` with `contains:` on the quoted text, then `kind: dump`. Compact dumps may echo headings only.
+`kind: query` with `contains:` on the quoted text deposits matches into `dumped[as]`. Compact dumps may echo headings only.
 
 1. Exactly one `node.text === quote` → that `at`.
 2. Quote contains `\n`: split; exactly one run of consecutive nodes matching each part → those ids.

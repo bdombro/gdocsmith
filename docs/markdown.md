@@ -6,21 +6,24 @@ Specification of supported CommonMark / GFM syntax, custom style directives, and
 
 `kind: markdownInsert` translates standard Markdown into native Google Docs DOM elements (`paragraphs`, `namedStyleType` headings, `lists`, 0-margin code block callouts, and native `tables`).
 
-```yaml
-steps:
-  - kind: open
-    doc: <documentId>
-    as: spec
-  - kind: markdownInsert
-    doc: spec
-    tab: Architecture
-    after: h.arch.9a1b
-    h1IsTitle: true
-    file: spec.md
+```json
+{
+  "steps": [
+    { "kind": "docOpen", "doc": "<documentId>", "as": "spec" },
+    {
+      "kind": "markdownInsert",
+      "doc": "spec",
+      "tab": "Architecture",
+      "nodeAfter": "h.arch.9a1b",
+      "h1IsTitle": true,
+      "file": "spec.md"
+    }
+  ]
+}
 ```
 
 ```bash
-gdocsmith run < workflow.yaml
+gdocsmith run < workflow.json
 ```
 
 `dryRun: true` on the document validates without writing. Treat the first `#` as `TITLE` with `h1IsTitle: true`.
@@ -69,31 +72,22 @@ Agents define reusable typographic styles on the insert/replace step (`markdownS
 
 ### Syntax Example
 
-```yaml
-steps:
-  - kind: markdownInsert
-    doc: spec
-    after: h.arch.9a1b
-    markdownStyles:
-      footnote:
-        style: italic
-        color: "#6b7280"
-        size: 9
-      alert:
-        style: bold
-        color: "#e11d48"
-      pill:
-        background: "#f3f4f6"
-        font: "Courier New"
-        size: 9
-    markdown: |
-      # Migration RFC
-
-      Status: ::pill[IN_PROGRESS]::
-
-      ::alert[Warning: Breaking change affects all v1 clients.]::
-
-      See the ::footnote[architecture notes in [Reference Spec](https://internal.corp/spec)]:: for details.
+```json
+{
+  "steps": [
+    {
+      "kind": "markdownInsert",
+      "doc": "spec",
+      "after": "h.arch.9a1b",
+      "markdownStyles": {
+        "footnote": { "style": "italic", "color": "#6b7280", "size": 9 },
+        "alert": { "style": "bold", "color": "#e11d48" },
+        "pill": { "background": "#f3f4f6", "font": "Courier New", "size": 9 }
+      },
+      "markdown": "# Migration RFC\n\nStatus: ::pill[IN_PROGRESS]::\n\n::alert[Warning: Breaking change affects all v1 clients.]::\n\nSee the ::footnote[architecture notes in [Reference Spec](https://internal.corp/spec)]:: for details."
+    }
+  ]
+}
 ```
 
 ### Supported Style Properties

@@ -8,7 +8,6 @@ import {
   applyDom,
   buildDocumentStyleRequest,
   compileDom,
-  LAST_PARAGRAPH_MSG,
   resolveNestingIndent,
   resolveNestingStyle,
   wrapBatchUpdateError,
@@ -609,7 +608,7 @@ describe("DomWriter apply", () => {
     expect(err.message).toMatch(/atomic/);
   });
 
-  test("refuses remove of the last paragraph", () => {
+  test("removes the last paragraph cleanly via preceding newline range", () => {
     const h = heading2();
     const body: DocNode = {
       end: 20,
@@ -621,12 +620,22 @@ describe("DomWriter apply", () => {
     };
     const writer = new DomWriter([h, body]);
     writer.remove(body);
-    expect(() => compileDom(writer)).toThrow(LAST_PARAGRAPH_MSG);
+    const { requests } = compileDom(writer);
+    expect(requests).toEqual([
+      { deleteContentRange: { range: { endIndex: 19, startIndex: 7 } } },
+      {
+        updateParagraphStyle: {
+          fields: "namedStyleType",
+          paragraphStyle: { namedStyleType: "HEADING_2" },
+          range: { endIndex: 8, startIndex: 1 },
+        },
+      },
+    ]);
 
     const w2 = new DomWriter([h, body]);
     w2.remove(h);
-    const { requests } = compileDom(w2);
-    expect(requests).toEqual([{ deleteContentRange: { range: { endIndex: 8, startIndex: 1 } } }]);
+    const { requests: r2 } = compileDom(w2);
+    expect(r2).toEqual([{ deleteContentRange: { range: { endIndex: 8, startIndex: 1 } } }]);
   });
 
   test("namedStyleType demotes a heading without changing text", () => {

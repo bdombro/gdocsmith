@@ -4,6 +4,7 @@ import type { InlineRunInput } from "~/core/inline.ts";
 import type { GoogleDoc } from "~/core/types.ts";
 import { createElement, type ElementSpec, type InsertPosition, stripTrailingNewline } from "./element.ts";
 import { assertWritable } from "./guards.ts";
+import { createSymbolicLinkResolver } from "./linkResolver.ts";
 import { hasStyle, hasTableChrome, type StylePatch } from "./style.ts";
 import {
   type CellParagraph,
@@ -76,10 +77,16 @@ export type DomMutation =
 
 /** Options for a write session. */
 export type DomWriterOpts = {
+  /** Google Doc data for resolving cross-tab and cross-heading symbolic links. */
+  doc?: GoogleDoc;
   force?: boolean;
+  /** Custom link resolver function. */
+  linkResolver?: (href: string) => string;
   lists?: GoogleDoc["lists"];
   /** Docs segmentId for headers/footers/footnotes. Omit for body. */
   segmentId?: string;
+  /** In-memory simulated tabs map. */
+  simulatedTabs?: Map<string, DocNode[]>;
   /** Docs tabId. Omit only for legacy fixtures without tabs. */
   tabId?: string;
 };
@@ -89,7 +96,9 @@ export type DomWriterOpts = {
  * snapshot `id` (1…n from parse, then max+1 for inserts in this session).
  */
 export class DomWriter {
+  readonly doc?: GoogleDoc;
   readonly force: boolean;
+  readonly linkResolver?: (href: string) => string;
   readonly lists: GoogleDoc["lists"];
   readonly segmentId?: string;
   readonly tabId?: string;
@@ -101,10 +110,21 @@ export class DomWriter {
   #nextOpIndex?: number;
 
   constructor(nodes: DocNode[], opts: DomWriterOpts = {}) {
+    this.doc = opts.doc;
     this.force = opts.force ?? false;
     this.lists = opts.lists;
     this.segmentId = opts.segmentId;
     this.tabId = opts.tabId;
+    this.linkResolver =
+      opts.linkResolver ??
+      (opts.doc || nodes.length
+        ? createSymbolicLinkResolver({
+            currentTabId: opts.tabId,
+            doc: opts.doc,
+            nodes,
+            simulatedTabs: opts.simulatedTabs,
+          })
+        : undefined);
     this.#original = nodes.map(cloneNode);
     this.#nodes = nodes.map(cloneNode);
     this.#nextId = nodes.reduce((m, n) => Math.max(m, n.tapeIndex), 0) + 1;
@@ -635,6 +655,25 @@ function specToNode(spec: ElementSpec, tapeIndex: number): DocNode {
   };
   if (spec.style) {
     applyPatchToPara(node, spec.style);
+    if (spec.style.foregroundColor || spec.style.fontSize || spec.style.italic) {
+      node.style = {
+        ...(spec.style.fontSize ? { fontSize: spec.style.fontSize } : {}),
+        ...(spec.style.foregroundColor ? { foregroundColor: spec.style.foregroundColor } : {}),
+        ...(spec.style.italic ? { italic: spec.style.italic } : {}),
+      };
+    }
+    if (spec.style.foregroundColor) {
+      node.fontColors = [spec.style.foregroundColor.toUpperCase()];
+    }
+  }
+  if (spec.runs?.length) {
+    const runColors = spec.runs
+      .map((r) => r.foregroundColor)
+      .filter((c): c is string => Boolean(c))
+      .map((c) => c.toUpperCase());
+    if (runColors.length > 0) {
+      node.fontColors = Array.from(new Set([...(node.fontColors ?? []), ...runColors]));
+    }
   }
   return node;
 }

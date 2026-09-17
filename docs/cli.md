@@ -12,22 +12,25 @@ Google Docs surgical authoring and workflow engine
 
 #### Subcommands
 
-- `run` — Execute an ordered Google Docs workflow from YAML or JSON (`steps` with `kind`).
+- `run` — Execute an ordered Google Docs workflow from JSON (`steps` with `kind`).
 - `status` — Show app version.
 
 ### `gdocsmith run`
 
-Execute an ordered Google Docs workflow from YAML or JSON (`steps` with `kind`).
+Execute an ordered Google Docs workflow from JSON (`steps` with `kind`).
 
-> • Pipe stdin or pass one document (`run < file.yaml`). Knobs live in the document (`dryRun`, `force`, `json`, `quiet`).
-> • Each step requires `kind` (e.g. open|close|docCreate|docCopy|query|dump|markdownInsert|replaceSection|…).
+> • Pipe stdin or pass one JSON document. Knobs: `dryRun`, `force`, `quiet` on the document.
+> • Each step requires `kind` (e.g. docOpen|docClose|docCreate|docCopy|query|markdownInsert|replaceSection|…).
+> • File-touching steps require `doc:` (raw id or open alias). `docCreate` binds `as`; `docCopy` uses `copyFrom`. There is no run-level documentId.
 > • Raw IDs only: extract between `/document/d/` and `/edit`. Full URLs are rejected.
-> • Surgical targeting: copy heading-scoped ids from `kind: query` into `at`, `after`, or `before` (e.g. `h.arch.9a1b`). NEVER compute startIndex/endIndex or write raw batchUpdate scripts.
-> • In-place updates: prefer `replaceSection`, `replaceMarkdown`, or `replace` over deleting and re-inserting content (no demolish-and-rebuild).
+> • Surgical targeting: copy heading-scoped ids from `kind: query` into `nodeAt`, `nodeAfter`, or `nodeBefore` (e.g. `h.arch.9a1b`). NEVER compute startIndex/endIndex or write raw batchUpdate scripts.
+> • In-place updates: prefer `replaceSection`, `replaceMarkdown`, or `replace` over deleting and re-inserting content (no demolish-and-rebuild). Use `replace` or `replaceMarkdown` for heading titles; `replaceSection` on an H1 replaces all subsections under it.
 > • Real headings only (`TITLE`, `HEADING_1`–`HEADING_3`). No bullet glyphs in surgical text; use run-in bold (`**Label**: value`).
-> • Bindings: only `open` and `query` set aliases. `query` with `as:` writes `dumped[as]` (use `output: markdown` or `yaml` to serialize a doc/tab/section). `dump` re-emits an alias; dump of an open alias is `{ id, title }` only.
-> • Prefer one `run` per phase until step kinds are proven; then batch related steps. Chip/table/clone writes use `kind: surgical`.
-> • Dry run: `dryRun: true` returns a unified git diff without writing.
+> • Bindings: `docOpen` sets document aliases. Every `run` call is stateless; aliases do not persist across multiple `run` invocations. `dump: true` on docOpen/docCreate/docCopy dumps doc/tab metadata into `dumped[as]`. `query` with `as:` writes matches into `dumped[as]` (`output: markdown` or `nodes`). Query aliases cannot be used as mutation anchors.
+> • Cross-doc transfers: use `kind: sectionCopy` with `fromDoc:` and `fromSection:` to transfer sections server-side without streaming markdown, or query source with `output: markdown` and write with `replaceSection`. Anchors must always belong to the target `doc:`.
+> • Symbolic links: use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown; gdocsmith automatically resolves them to native Docs deep links (`?tab=...#heading=...`).
+> • Prefer one `run` per phase until step kinds are proven; then batch related steps. Chip/table writes use `kind: surgical`.
+> • Dry run: `dryRun: true` includes a unified git diff in the JSON `diff` field without writing.
 
 #### Output
 
@@ -49,7 +52,7 @@ JSON Schema for output when/if handler emits JSON
     "dumped": {
       "type": "object",
       "additionalProperties": {},
-      "description": "Values extracted by `kind: query` (with `as:`) and `kind: dump`."
+      "description": "Values extracted by `kind: query` (with `as:`) and `dump: true`."
     },
     "highlights": {
       "type": "array",

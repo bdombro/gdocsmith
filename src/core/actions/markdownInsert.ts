@@ -1,18 +1,19 @@
-/* Workflow step: markdownInsert — insert markdown or YAML DOM at an anchor. */
+/* Workflow step: markdownInsert — insert markdown at an anchor. */
 
 import { readFileSync } from "node:fs";
 import { DomWriter, findNodeAt } from "~/core/dom/index.ts";
+import { createSymbolicLinkResolver } from "~/core/dom/linkResolver.ts";
 import { markdownStylesParse, parseMarkdownToElements } from "~/core/dom/markdownParser.ts";
 import { assignScopedIds, parseDocument } from "~/core/dom/parse.ts";
 import type { DocNode } from "~/core/dom/types.ts";
 import { Gdoc } from "~/core/gdoc.ts";
-import { markdownInsertExecute, yamlInsertExecute } from "~/core/markdown.ts";
-import { resolveTab } from "~/core/tabs.ts";
+import { markdownInsertExecute } from "~/core/markdown.ts";
+import { findTab, resolveTab } from "~/core/tabs.ts";
 import type { ApplyHighlightHeadingJson } from "~/core/workflowTypes.ts";
 import { simulatedNodesOf, simulatedNodesSet } from "./simulated.ts";
 import type { WorkflowStepHandler } from "./types.ts";
 
-/** Inserts markdown or YAML DOM content at an anchor on an open document. */
+/** Inserts markdown content at an anchor on an open document. */
 export const markdownInsertStep: WorkflowStepHandler = async (runtime, stepIndex, step) => {
   const targetDoc = runtime.openDocResolve(step.doc);
   const tabHint = runtime.aliasResolve(step.tab);
@@ -25,51 +26,51 @@ export const markdownInsertStep: WorkflowStepHandler = async (runtime, stepIndex
     throw new Error(`steps[${stepIndex}] markdownInsert requires text: or file:`);
   }
 
-  const anchorId = runtime.aliasResolve(step.at ?? step.after ?? step.before);
-  const position = step.before != null ? "beforebegin" : "afterend";
+  const rawAnchor = step.nodeAt ?? step.nodeAfter ?? step.nodeBefore;
+  const anchorId = runtime.aliasResolve(rawAnchor);
+  const position = step.nodeBefore != null ? "beforebegin" : "afterend";
   const h1IsTitle = Boolean(step.h1IsTitle);
   const customStyles = markdownStylesParse(step.markdownStyles ?? null);
 
-  if (!runtime.dryRun) {
-    const isYaml = markdown.trimStart().startsWith("nodes:") || markdown.trimStart().startsWith("- kind:");
+  const liveTab = targetDoc.gdoc.data.tabs?.length
+    ? resolveTab(targetDoc.gdoc.data, tabHint)
+    : { tabId: undefined, title: targetDoc.title };
 
-    if (isYaml) {
-      await yamlInsertExecute({
-        anchorId,
-        client: runtime.client,
-        documentId: targetDoc.docId,
-        force: runtime.force,
-        position,
-        tabHint,
-        yaml: markdown,
-      });
-    } else {
-      await markdownInsertExecute({
-        anchorId,
-        client: runtime.client,
-        customStyles,
-        documentId: targetDoc.docId,
-        force: runtime.force,
-        h1IsTitle,
-        markdown,
-        position,
-        tabHint,
-      });
-    }
+  if (!runtime.dryRun) {
+    await markdownInsertExecute({
+      anchorId,
+      client: runtime.client,
+      customStyles,
+      doc: targetDoc.gdoc.data,
+      documentId: targetDoc.docId,
+      force: runtime.force,
+      h1IsTitle,
+      linkResolver: createSymbolicLinkResolver({ currentTabId: liveTab.tabId, doc: targetDoc.gdoc.data }),
+      markdown,
+      position,
+      tabHint,
+    });
     targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
   } else {
-    const liveTab = targetDoc.gdoc.data.tabs?.length
-      ? resolveTab(targetDoc.gdoc.data, tabHint)
-      : { tabId: undefined, title: targetDoc.title };
     const gdoc = liveTab.tabId ? targetDoc.gdoc.withTab(liveTab.tabId) : targetDoc.gdoc;
-    const parsed = parseDocument(gdoc);
+    const simulatedNodes = simulatedNodesOf(targetDoc.gdoc, liveTab.tabId);
+    const parsed = simulatedNodes
+      ? { nodes: simulatedNodes, segments: [], title: targetDoc.title }
+      : parseDocument(gdoc);
+    const simTabs = (targetDoc.gdoc as import("./types.ts").SimulatedGdoc).simulatedTabs;
     const writer = new DomWriter(parsed.nodes, {
+      doc: targetDoc.gdoc.data,
       force: runtime.force,
       lists: gdoc.data.lists,
+      simulatedTabs: simTabs,
       tabId: liveTab.tabId,
     });
 
-    const elements = parseMarkdownToElements(markdown, { customStyles, h1IsTitle });
+    const elements = parseMarkdownToElements(markdown, {
+      customStyles,
+      h1IsTitle,
+      linkResolver: writer.linkResolver,
+    });
     if (elements.length > 0) {
       const startAnchor = anchorId ? findNodeAt(parsed.nodes, anchorId) : parsed.nodes[parsed.nodes.length - 1];
       if (startAnchor) {
@@ -80,22 +81,47 @@ export const markdownInsertStep: WorkflowStepHandler = async (runtime, stepIndex
         }
       }
     }
+    const existingSim = targetDoc.gdoc as import("./types.ts").SimulatedGdoc;
+    const simNodes = existingSim.simulatedNodes;
+
     targetDoc.gdoc = new Gdoc(
       {
-        ...gdoc.data,
-        body: { content: [] },
+        ...targetDoc.gdoc.data,
       },
       targetDoc.docId,
     );
+    if (simNodes) (targetDoc.gdoc as import("./types.ts").SimulatedGdoc).simulatedNodes = simNodes;
+    if (simTabs) (targetDoc.gdoc as import("./types.ts").SimulatedGdoc).simulatedTabs = simTabs;
+
     assignScopedIds(writer.nodes);
-    simulatedNodesSet(targetDoc.gdoc, writer.nodes);
+    simulatedNodesSet(targetDoc.gdoc, writer.nodes, liveTab.tabId);
+
+    // Sync simulated nodes back into targetDoc.gdoc.data tab/body so parseDocument sees them
+    if (liveTab.tabId && targetDoc.gdoc.data.tabs?.length) {
+      const tab = findTab(targetDoc.gdoc.data.tabs, liveTab.tabId);
+      if (tab) {
+        if (!tab.documentTab) tab.documentTab = {};
+        const elements = writer.nodes.map((n, i) => ({
+          endIndex: (i + 1) * 2,
+          paragraph: {
+            elements: [{ textRun: { content: `${n.text ?? ""}\n` } }],
+            paragraphStyle: { namedStyleType: n.namedStyleType ?? "NORMAL_TEXT" },
+          },
+          startIndex: i * 2,
+        }));
+        tab.documentTab.body = { content: elements };
+      }
+    }
   }
 
-  const targetTabId = tabHint ?? "t.0";
-  const simulated = simulatedNodesOf(targetDoc.gdoc);
+  const resolvedTab = targetDoc.gdoc.data.tabs?.length
+    ? resolveTab(targetDoc.gdoc.data, tabHint)
+    : { tabId: undefined, title: targetDoc.title };
+  const targetTabId = resolvedTab.tabId ?? "t.0";
+  const simulated = simulatedNodesOf(targetDoc.gdoc, resolvedTab.tabId);
   const afterParsed = simulated
     ? { nodes: simulated }
-    : parseDocument(tabHint ? targetDoc.gdoc.withTab(tabHint) : targetDoc.gdoc);
+    : parseDocument(resolvedTab.tabId ? targetDoc.gdoc.withTab(resolvedTab.tabId) : targetDoc.gdoc);
   const headings: ApplyHighlightHeadingJson[] = afterParsed.nodes
     .filter(
       (n: DocNode) =>

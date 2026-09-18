@@ -162,7 +162,7 @@ export async function elementsInsertExecute(params: ExecuteElementsInsertParams)
       chunksApplied++;
 
       if (cIdx < chunks.length - 1) {
-        freshDoc = await Gdoc.load(params.documentId, client);
+        freshDoc = await Gdoc.load(params.documentId, client, { forceFetch: true });
         gdoc = tabId ? freshDoc.withTab(tabId) : freshDoc;
         parsedDoc = parseDocument(gdoc);
 

@@ -116,8 +116,13 @@ export async function domApply(
   if (opts.dryRun || !compiled.requests.length) return compiled;
 
   try {
-    await client.batchUpdate(documentId, compiled.requests);
+    await client.batchUpdate(documentId, compiled.requests, {
+      requiredRevisionId: opts.doc?.revisionId,
+    });
   } catch (err) {
+    if (isRevisionMismatchError(err)) {
+      throw err;
+    }
     throw wrapBatchUpdateError(err, {
       batch: "main",
       origins: compiled.requestOrigins,
@@ -264,6 +269,17 @@ export function googleRequestIndexParse(message: string): number | undefined {
   const m = /\brequests\[(\d+)\]/.exec(message);
   if (!m) return undefined;
   return Number(m[1]);
+}
+
+/**
+ * Detects whether an error was caused by a Google Docs writeControl revision ID mismatch.
+ */
+export function isRevisionMismatchError(
+  /** Error object or string to inspect. */
+  err: unknown,
+): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /revision (ID )?provided.*does not match|writeControl.*revision|write control.*does not match/i.test(msg);
 }
 
 /** Parses requests[12] from a Docs/gws error string (alias for googleRequestIndexParse). */

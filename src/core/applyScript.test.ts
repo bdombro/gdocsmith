@@ -1,9 +1,13 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import type { GdocsmithDocument } from "../commands/run/types.ts";
 import { applyScriptExecute } from "./applyScript.ts";
+import { docCache } from "./cache/docCache.ts";
 import type { GdocsmithStepInput, StepContent, StepTabCreate } from "./workflowTypes.ts";
 
 describe("applyScriptExecute", () => {
+  beforeEach(() => {
+    docCache.clear();
+  });
   test("runs docCreate and markdownInsert in dry-run with unified diff preview", async () => {
     const doc: GdocsmithDocument = {
       dryRun: true,

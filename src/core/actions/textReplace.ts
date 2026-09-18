@@ -56,7 +56,7 @@ export const textReplaceStep: WorkflowStepHandler = async (runtime, _stepIndex, 
       replacements: [{ find: step.find, replace: replaceStr }],
       tabHint: targetTabId,
     });
-    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
+    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
     runtime.stepsExecuted++;
     return;
   }

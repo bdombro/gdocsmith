@@ -147,4 +147,26 @@ describe("DriveClient permissions", () => {
 
     await expect(client.userDomainGet()).rejects.toThrow(/Cannot auto-detect workspace domain from personal account/);
   });
+
+  test("headRevisionIdGet fetches and returns headRevisionId", async () => {
+    let capturedUrl = "";
+    const client = new DriveClient(async (url) => {
+      capturedUrl = url;
+      return new Response(JSON.stringify({ headRevisionId: "rev-abc-123" }), { status: 200 });
+    });
+
+    const rev = await client.headRevisionIdGet("doc-123");
+    expect(rev).toBe("rev-abc-123");
+    expect(capturedUrl).toContain("/files/doc-123?");
+    expect(capturedUrl).toContain("fields=headRevisionId");
+  });
+
+  test("headRevisionIdGet returns undefined when API call fails", async () => {
+    const client = new DriveClient(async () => {
+      return new Response("Not Found", { status: 404 });
+    });
+
+    const rev = await client.headRevisionIdGet("nonexistent");
+    expect(rev).toBeUndefined();
+  });
 });

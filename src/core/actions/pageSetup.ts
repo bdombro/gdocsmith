@@ -56,7 +56,7 @@ export const pageSetupStep: WorkflowStepHandler = async (
 
   if (!runtime.dryRun) {
     await runtime.client.batchUpdate(targetDoc.docId, [req]);
-    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
+    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   } else {
     const updateStyle = (req as { updateDocumentStyle: { documentStyle: Record<string, unknown> } }).updateDocumentStyle
       .documentStyle;

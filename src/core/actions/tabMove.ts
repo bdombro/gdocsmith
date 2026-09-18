@@ -78,7 +78,7 @@ export const tabMoveStep: WorkflowStepHandler = async (
       }
       throw err;
     }
-    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
+    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   } else {
     const tabs: DocTab[] = targetDoc.gdoc.data.tabs ? [...targetDoc.gdoc.data.tabs] : [];
     const fromIdx = tabs.findIndex((t) => t.tabProperties?.tabId === resolved.tabId);

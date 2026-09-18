@@ -88,6 +88,7 @@ export async function surgicalMutationExecute(
       namedAnchors: new Map(),
       plans: [],
       rootAnchors: new Map(),
+      steps: [],
       writer,
     };
     targetDoc.pendingWriters.set(tabKey, pending);
@@ -107,6 +108,8 @@ export async function surgicalMutationExecute(
       pending.plans.push(...plans);
     }
   }
+
+  pending.steps.push({ op, step, stepIndex: runtime.stepsExecuted });
 
   assignScopedIds(pending.writer.nodes);
   simulatedNodesSet(targetDoc.gdoc, pending.writer.nodes, liveTab.tabId);

@@ -22,6 +22,22 @@ export type SkillConfig = {
 };
 
 /**
+ * Returns the absolute filesystem path to the SQLite cache database.
+ */
+export function cacheDbPath(): string {
+  if (process.env.GDOCSMITH_CACHE_DB) return process.env.GDOCSMITH_CACHE_DB;
+  if (process.env.GDOCSMITH_CACHE_DIR === ":memory:") return ":memory:";
+  return join(cacheDir(), "db.sqlite");
+}
+
+/**
+ * Resolves the cache directory path based on environment variables or defaults.
+ */
+export function cacheDir(): string {
+  return process.env.GDOCSMITH_CACHE_DIR ?? join(homedir(), ".cache", "gdocsmith");
+}
+
+/**
  * Loads skill config from disk or returns empty defaults if missing or unreadable.
  */
 export function skillConfigLoad(): SkillConfig {

@@ -59,7 +59,7 @@ export const tabRenameStep: WorkflowStepHandler = async (runtime, stepIndex, ste
       }
       throw err;
     }
-    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
+    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   } else {
     if (targetDoc.gdoc.data.tabs?.length) {
       const tab = findTab(targetDoc.gdoc.data.tabs, resolved.tabId);

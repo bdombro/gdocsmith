@@ -23,7 +23,7 @@ export const tabDeleteStep: WorkflowStepHandler = async (runtime, stepIndex, ste
     }
     const req = RequestBuilder.deleteTab(resolved.tabId);
     await runtime.client.batchUpdate(targetDoc.docId, [req]);
-    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
+    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   }
   runtime.stepsExecuted++;
 };

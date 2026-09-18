@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 // @bun
+import { createRequire } from "node:module";
+var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
 // ../bun-argsbarg/src/config/file.ts
 import { existsSync as existsSync6, mkdirSync as mkdirSync4, readFileSync as readFileSync2, rmSync as rmSync2, unlinkSync, writeFileSync as writeFileSync3 } from "node:fs";
@@ -5218,11 +5220,7 @@ function headlessSuccessToHttpResponse(result, leafApiResponse, defaultStatus) {
 }
 function headlessFailureToHttpResponse(result, obscureUnexpected = false) {
   const status = resolveHttpErrorStatus(result);
-  let message = firstErrorLine(result.message);
-  if (obscureUnexpected && result.failureKind === "unexpected") {
-    message = obscureUnexpectedClientMessage();
-  }
-  return apiErrorResponse(status, { error: message });
+  return apiErrorResponse(status, { error: formatHeadlessError(result, obscureUnexpected) });
 }
 function resolveHttpErrorStatus(result) {
   if (result.failureKind) {
@@ -5240,10 +5238,13 @@ function resolveHttpErrorStatus(result) {
   return 500;
 }
 function headlessFailureMcpMessage(result, obscureUnexpected = false) {
+  return formatHeadlessError(result, obscureUnexpected);
+}
+function formatHeadlessError(result, obscureUnexpected) {
   if (obscureUnexpected && result.failureKind === "unexpected") {
     return obscureUnexpectedClientMessage();
   }
-  return firstErrorLine(result.message);
+  return stripAnsi(result.message).trim();
 }
 
 // ../bun-argsbarg/src/log/trace.ts
@@ -10925,6 +10926,16 @@ import { promisify } from "node:util";
 import { mkdirSync as mkdirSync9, readFileSync as readFileSync5, writeFileSync as writeFileSync8 } from "node:fs";
 import { homedir } from "node:os";
 import { join as join11 } from "node:path";
+function cacheDbPath() {
+  if (process.env.GDOCSMITH_CACHE_DB)
+    return process.env.GDOCSMITH_CACHE_DB;
+  if (process.env.GDOCSMITH_CACHE_DIR === ":memory:")
+    return ":memory:";
+  return join11(cacheDir(), "db.sqlite");
+}
+function cacheDir() {
+  return process.env.GDOCSMITH_CACHE_DIR ?? join11(homedir(), ".cache", "gdocsmith");
+}
 function skillConfigLoad() {
   try {
     return JSON.parse(readFileSync5(configFile(), "utf8"));
@@ -11029,11 +11040,41 @@ async function validAccessTokenGet(forceRefresh = false) {
 var getValidAccessToken = validAccessTokenGet;
 var memTokenCache = null;
 
-// src/core/gws.ts
-var execFileAsync2 = promisify2(execFile2);
+// src/core/fetchWithRetry.ts
+async function fetchWithRetry(url, init, options = {}) {
+  const { backoffMs = 500, fetcher = fetchGoogleApi, retries = 3 } = options;
+  let lastError;
+  for (let attempt = 0;attempt < retries; attempt++) {
+    try {
+      const res = await fetcher(url, init);
+      if ((res.status === 429 || res.status >= 500 && res.status !== 501) && attempt < retries - 1) {
+        await sleep(backoffMs * 2 ** attempt);
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries - 1 && isTransientError(err)) {
+        await sleep(backoffMs * 2 ** attempt);
+        continue;
+      }
+      throw err;
+    }
+  }
+  if (lastError)
+    throw lastError;
+  throw new Error(`Fetch failed after ${retries} attempts: ${url}`);
+}
+function isTransientError(err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /HTTP request failed|ECONNRESET|ETIMEDOUT|socket hang up|fetch failed|network timeout/i.test(msg);
+}
 function sleep(ms) {
   return new Promise((resolve5) => setTimeout(resolve5, ms));
 }
+
+// src/core/gws.ts
+var execFileAsync2 = promisify2(execFile2);
 var DOCS_BASE_URL = "https://docs.googleapis.com/v1";
 var DRIVE_BASE_URL = "https://www.googleapis.com/drive/v3";
 function gwsErrorFormat(raw, targetId) {
@@ -11146,28 +11187,21 @@ class GwsClientImpl {
     }
   }
   async getDocument(documentId) {
-    let lastErr;
-    for (let attempt = 0;attempt < 3; attempt++) {
-      try {
-        const url = `${DOCS_BASE_URL}/documents/${encodeURIComponent(documentId)}?includeTabsContent=true`;
-        const res = await this.fetcher(url);
-        const text = await res.text();
-        if (!res.ok) {
-          throw new Error(formatGwsError(text, documentId));
-        }
-        return JSON.parse(text);
-      } catch (err) {
-        lastErr = err;
-        const msg = err instanceof Error ? err.message : String(err);
-        if (attempt < 2 && /HTTP request failed|ECONNRESET|ETIMEDOUT|socket hang up|fetch failed/i.test(msg)) {
-          await sleep(2000 * (attempt + 1));
-          continue;
-        }
-        throw new Error(formatGwsError(msg, documentId));
+    const url = `${DOCS_BASE_URL}/documents/${encodeURIComponent(documentId)}?includeTabsContent=true`;
+    try {
+      const res = await fetchWithRetry(url, undefined, {
+        fetcher: this.fetcher,
+        retries: 3
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        throw new Error(formatGwsError(text, documentId));
       }
+      return JSON.parse(text);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(formatGwsError(msg, documentId));
     }
-    const finalMsg = lastErr instanceof Error ? lastErr.message : String(lastErr);
-    throw new Error(formatGwsError(finalMsg, documentId));
   }
   async run(args) {
     try {
@@ -11288,6 +11322,29 @@ class DriveClient {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(formatGwsError(msg, fileId));
+    }
+  }
+  async getHeadRevisionId(fileId) {
+    return this.headRevisionIdGet(fileId);
+  }
+  async headRevisionIdGet(fileId) {
+    try {
+      const q = new URLSearchParams({
+        fields: "headRevisionId",
+        supportsAllDrives: "true"
+      });
+      const url = `${DRIVE_BASE_URL}/files/${encodeURIComponent(fileId)}?${q.toString()}`;
+      const res = await fetchWithRetry(url, undefined, {
+        fetcher: this.fetcher,
+        retries: 3
+      });
+      const text = await res.text();
+      if (!res.ok)
+        return;
+      const data = JSON.parse(text);
+      return data.headRevisionId;
+    } catch {
+      return;
     }
   }
   async listPermissions(fileId, fields = "permissions(id,displayName,emailAddress,domain,role,type)") {
@@ -11524,8 +11581,8 @@ class Gdoc {
     this.id = id;
     this.tabId = tabId;
   }
-  static async load(id, client = gws) {
-    return new Gdoc(await client.getDocument(id), id);
+  static async load(id, client = gws, options) {
+    return docCache.get(id, client, options);
   }
   static idParse(input) {
     return parseRef(input).documentId;
@@ -11557,6 +11614,218 @@ class Gdoc {
     return this.insertedTableAtFind(index);
   }
 }
+
+// src/core/cache/sqlite.ts
+import { mkdirSync as mkdirSync10 } from "node:fs";
+import { dirname as dirname6 } from "node:path";
+var isBun = typeof process.versions.bun !== "undefined";
+var sqliteModule = isBun ? await import("bun:sqlite") : await import("node:sqlite");
+
+class SqliteDatabase {
+  db;
+  constructor(dbPath = cacheDbPath()) {
+    if (dbPath !== ":memory:") {
+      mkdirSync10(dirname6(dbPath), { recursive: true });
+    }
+    this.db = isBun ? new sqliteModule.Database(dbPath) : new sqliteModule.DatabaseSync(dbPath);
+    if (dbPath !== ":memory:") {
+      try {
+        this.db.exec("PRAGMA journal_mode = WAL;");
+      } catch {}
+    }
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS doc_snapshots (
+        data_json TEXT NOT NULL,
+        doc_id TEXT PRIMARY KEY,
+        fetched_at INTEGER NOT NULL,
+        revision_id TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_doc_snapshots_fetched_at ON doc_snapshots(fetched_at);
+    `);
+  }
+  close() {
+    this.db.close();
+  }
+  clear() {
+    this.db.exec("DELETE FROM doc_snapshots;");
+  }
+  delete(docId) {
+    this.db.prepare("DELETE FROM doc_snapshots WHERE doc_id = ?;").run(docId);
+  }
+  exec(sql) {
+    this.db.exec(sql);
+  }
+  get(docId) {
+    const row = this.db.prepare("SELECT data_json, doc_id, fetched_at, revision_id FROM doc_snapshots WHERE doc_id = ?;").get(docId);
+    if (!row || typeof row !== "object")
+      return;
+    return row;
+  }
+  prune(olderThanMs) {
+    const cutoff = Date.now() - olderThanMs;
+    this.db.prepare("DELETE FROM doc_snapshots WHERE fetched_at < ?;").run(cutoff);
+  }
+  set(docId, revisionId, dataJson, fetchedAt = Date.now()) {
+    this.db.prepare(`
+        INSERT INTO doc_snapshots (data_json, doc_id, fetched_at, revision_id)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(doc_id) DO UPDATE SET
+          data_json = excluded.data_json,
+          fetched_at = excluded.fetched_at,
+          revision_id = excluded.revision_id;
+      `).run(dataJson, docId, fetchedAt, revisionId);
+  }
+  touch(docId, fetchedAt = Date.now()) {
+    this.db.prepare("UPDATE doc_snapshots SET fetched_at = ? WHERE doc_id = ?;").run(fetchedAt, docId);
+  }
+}
+
+// src/core/cache/docCache.ts
+var DEFAULT_TTL1_MS = 1e4;
+var DEFAULT_TTL2_MS = 300000;
+var DEFAULT_SQLITE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+class DocCache {
+  db;
+  driveClient;
+  inFlight = new Map;
+  memoryCache = new Map;
+  ttl1Ms;
+  ttl2Ms;
+  constructor(options = {}) {
+    this.db = options.db ?? new SqliteDatabase;
+    this.driveClient = options.driveClient ?? gwsDrive;
+    this.ttl1Ms = options.ttl1Ms ?? DEFAULT_TTL1_MS;
+    this.ttl2Ms = options.ttl2Ms ?? DEFAULT_TTL2_MS;
+    try {
+      this.db.prune(DEFAULT_SQLITE_RETENTION_MS);
+    } catch {}
+  }
+  clear() {
+    this.memoryCache.clear();
+    this.inFlight.clear();
+    this.db.clear();
+  }
+  async get(docId, client = gws, options) {
+    if (options?.noCache) {
+      const data = await client.getDocument(docId);
+      return new Gdoc(data, docId);
+    }
+    if (options?.forceFetch) {
+      return this.fetchAndStore(docId, client);
+    }
+    const now = Date.now();
+    const memEntry = this.memoryCache.get(docId);
+    if (memEntry) {
+      const age = now - memEntry.fetchedAt;
+      if (age < this.ttl1Ms) {
+        return new Gdoc(structuredClone(memEntry.gdoc.data), docId);
+      }
+      if (age < this.ttl2Ms) {
+        this.revalidateInBackground(docId, client, memEntry);
+        return new Gdoc(structuredClone(memEntry.gdoc.data), docId);
+      }
+      return this.hardValidateOrRefresh(docId, client, memEntry);
+    }
+    const stored = this.db.get(docId);
+    if (stored) {
+      try {
+        const docData = JSON.parse(stored.data_json);
+        const gdoc = new Gdoc(docData, docId);
+        const entry = {
+          fetchedAt: stored.fetched_at,
+          gdoc
+        };
+        this.memoryCache.set(docId, entry);
+        const age = now - entry.fetchedAt;
+        if (age < this.ttl1Ms) {
+          return new Gdoc(docData, docId);
+        }
+        if (age < this.ttl2Ms) {
+          this.revalidateInBackground(docId, client, entry);
+          return new Gdoc(docData, docId);
+        }
+        return this.hardValidateOrRefresh(docId, client, entry);
+      } catch {}
+    }
+    return this.fetchAndStore(docId, client);
+  }
+  invalidate(docId) {
+    this.memoryCache.delete(docId);
+    this.inFlight.delete(docId);
+    this.db.delete(docId);
+  }
+  reap() {
+    const now = Date.now();
+    for (const [docId, entry] of this.memoryCache.entries()) {
+      if (now - entry.fetchedAt >= this.ttl2Ms) {
+        this.memoryCache.delete(docId);
+      }
+    }
+  }
+  set(docId, gdoc) {
+    const now = Date.now();
+    const revId = gdoc.data.revisionId ?? "";
+    this.db.set(docId, revId, JSON.stringify(gdoc.data), now);
+    this.memoryCache.set(docId, {
+      fetchedAt: now,
+      gdoc: new Gdoc(structuredClone(gdoc.data), docId)
+    });
+  }
+  async fetchAndStore(docId, client) {
+    const existingPromise = this.inFlight.get(docId);
+    if (existingPromise) {
+      return existingPromise;
+    }
+    const fetchPromise = (async () => {
+      const data = await client.getDocument(docId);
+      const now = Date.now();
+      const revId = data.revisionId ?? "";
+      this.db.set(docId, revId, JSON.stringify(data), now);
+      this.memoryCache.set(docId, {
+        fetchedAt: now,
+        gdoc: new Gdoc(structuredClone(data), docId)
+      });
+      return new Gdoc(structuredClone(data), docId);
+    })();
+    this.inFlight.set(docId, fetchPromise);
+    try {
+      return await fetchPromise;
+    } finally {
+      this.inFlight.delete(docId);
+    }
+  }
+  async hardValidateOrRefresh(docId, client, entry) {
+    try {
+      const cloudRev = await this.driveClient.headRevisionIdGet(docId);
+      if (cloudRev && cloudRev === entry.gdoc.data.revisionId) {
+        const now = Date.now();
+        entry.fetchedAt = now;
+        this.db.touch(docId, now);
+        return new Gdoc(structuredClone(entry.gdoc.data), docId);
+      }
+    } catch {}
+    return this.fetchAndStore(docId, client);
+  }
+  revalidateInBackground(docId, client, entry) {
+    if (this.inFlight.has(docId))
+      return;
+    const task = (async () => {
+      try {
+        const cloudRev = await this.driveClient.headRevisionIdGet(docId);
+        if (cloudRev && cloudRev === entry.gdoc.data.revisionId) {
+          const now = Date.now();
+          entry.fetchedAt = now;
+          this.db.touch(docId, now);
+        } else {
+          await this.fetchAndStore(docId, client);
+        }
+      } catch {}
+    })();
+    task.catch(() => {});
+  }
+}
+var docCache = new DocCache;
 
 // node_modules/marked/lib/marked.esm.js
 function A() {
@@ -13547,44 +13816,52 @@ class InlineMarkup {
 
 // src/core/requests.ts
 class RequestBuilder {
-  static buildTableFill(header, rows, tableEl, segmentId, tabId) {
+  static buildTableFill(header, rows, tableEl, segmentId, tabId, cellSpecials) {
     const inserts = [];
     const tableRows = tableEl.table?.tableRows ?? [];
     for (let r = 0;r < rows.length; r++) {
       const cells = tableRows[r]?.tableCells ?? [];
       for (let c = 0;c < rows[r]?.length; c++) {
         const cellText = rows[r]?.[c] ?? "";
-        if (!cellText)
+        const specials = cellSpecials?.[r]?.[c];
+        if (!cellText && !specials?.length)
           continue;
         const idx = RequestBuilder.#cellInsertIndex(cells[c] ?? {});
+        if (!cellText) {
+          inserts.push({ boldRow: false, idx, line: "", runs: [], specials });
+          continue;
+        }
         const { runs, text: plain } = InlineMarkup.parse(cellText);
         const line = plain.endsWith(`
 `) ? plain : `${plain}
 `;
-        inserts.push({ boldRow: header && r === 0, idx, line, runs });
+        inserts.push({ boldRow: header && r === 0, idx, line, runs, specials });
       }
     }
     inserts.sort((a, b2) => b2.idx - a.idx);
     const requests = [];
-    for (const { boldRow, idx, line, runs } of inserts) {
-      requests.push({
-        insertText: { location: loc(idx, segmentId, tabId), text: line }
-      });
-      const textEnd = idx + Math.max(0, line.length - (line.endsWith(`
-`) ? 1 : 0));
-      if (textEnd > idx) {
-        requests.push(RequestBuilder.clearInlineStyles(idx, textEnd, segmentId, tabId));
-      }
-      requests.push(...RequestBuilder.#textStyleRequests(idx, runs, segmentId, tabId));
-      if (boldRow) {
+    for (const { boldRow, idx, line, runs, specials } of inserts) {
+      if (line) {
         requests.push({
-          updateTextStyle: {
-            fields: "bold",
-            range: rng(idx, idx + line.length - 1, segmentId, tabId),
-            textStyle: { bold: true }
-          }
+          insertText: { location: loc(idx, segmentId, tabId), text: line }
         });
+        const textEnd = idx + Math.max(0, line.length - (line.endsWith(`
+`) ? 1 : 0));
+        if (textEnd > idx) {
+          requests.push(RequestBuilder.clearInlineStyles(idx, textEnd, segmentId, tabId));
+        }
+        requests.push(...RequestBuilder.#textStyleRequests(idx, runs, segmentId, tabId));
+        if (boldRow) {
+          requests.push({
+            updateTextStyle: {
+              fields: "bold",
+              range: rng(idx, idx + line.length - 1, segmentId, tabId),
+              textStyle: { bold: true }
+            }
+          });
+        }
       }
+      requests.push(...RequestBuilder.insertInlineSpecials({ index: idx, segmentId, specials, tabId }));
     }
     return requests;
   }
@@ -14217,6 +14494,52 @@ class RequestBuilder {
       }
     };
   }
+  static insertInlineSpecials(opts) {
+    const specials = opts.specials;
+    if (!specials?.length)
+      return [];
+    const ordered = [...specials].sort((a, b2) => b2.offset - a.offset);
+    const reqs = [];
+    for (const special of ordered) {
+      const at2 = opts.index + special.offset;
+      if (special.kind === "person") {
+        reqs.push(RequestBuilder.insertPerson({
+          email: special.email,
+          index: at2,
+          segmentId: opts.segmentId,
+          tabId: opts.tabId
+        }));
+      } else if (special.kind === "date") {
+        reqs.push(RequestBuilder.insertDate({
+          dateFormat: special.dateFormat,
+          displayText: special.displayText,
+          index: at2,
+          segmentId: opts.segmentId,
+          tabId: opts.tabId,
+          timestamp: special.timestamp
+        }));
+      } else if (special.kind === "richLink") {
+        reqs.push(RequestBuilder.insertRichLink({
+          index: at2,
+          mimeType: special.mimeType,
+          segmentId: opts.segmentId,
+          tabId: opts.tabId,
+          title: special.title,
+          uri: special.uri
+        }));
+      } else {
+        reqs.push(RequestBuilder.insertInlineImage({
+          heightPt: special.heightPt,
+          index: at2,
+          segmentId: opts.segmentId,
+          tabId: opts.tabId,
+          uri: special.uri,
+          widthPt: special.widthPt
+        }));
+      }
+    }
+    return reqs;
+  }
 }
 function loc(index, segmentId, tabId) {
   return {
@@ -14415,6 +14738,172 @@ function sortObjectKeys(obj) {
     }
   }
   return sorted;
+}
+
+// src/core/dom/inlineSpecials.ts
+function paragraphInlineClone(node) {
+  return inlineClonePlan(node.text ?? "", node.chips, node.images);
+}
+function tableCellInlineClone(cell) {
+  const paras = cell.paragraphs?.length ? cell.paragraphs : [cell];
+  const parts = paras.map((p) => {
+    const sourceText = p.chips?.length || p.images?.length ? p.text ?? "" : p.markup ?? p.text ?? "";
+    return inlineClonePlan(sourceText, p.chips, p.images);
+  });
+  const specials = [];
+  const unclonable = [];
+  const texts = [];
+  let offset = 0;
+  for (let i = 0;i < parts.length; i++) {
+    const part = parts[i];
+    texts.push(part.text);
+    for (const special of part.specials) {
+      specials.push({ ...special, offset: special.offset + offset });
+    }
+    unclonable.push(...part.unclonable);
+    offset += part.text.length + (i < parts.length - 1 ? 1 : 0);
+  }
+  return { specials, text: texts.join(`
+`), unclonable };
+}
+function unclonableFromNode(node) {
+  const loc2 = node.scopedId ? `node ${node.scopedId}` : `node ${node.tapeIndex}`;
+  const out = [];
+  if (node.hasEquation)
+    out.push(`${loc2}: contains a math equation`);
+  if (node.hasHorizontalRule)
+    out.push(`${loc2}: contains a horizontal rule`);
+  if (node.footnoteIds?.length)
+    out.push(`${loc2}: contains ${node.footnoteIds.length} footnote(s)`);
+  if (node.kind === "tableOfContents")
+    out.push(`${loc2}: Table of Contents`);
+  if (node.kind === "table" && node.table) {
+    for (const row of node.table.cells) {
+      for (const cell of row) {
+        const cellLoc = cell.scopedId ? `cell ${cell.scopedId}` : "table cell";
+        const paras = cell.paragraphs?.length ? cell.paragraphs : [cell];
+        for (const p of paras) {
+          if (p.hasEquation)
+            out.push(`${cellLoc}: contains a math equation`);
+          if (p.hasHorizontalRule)
+            out.push(`${cellLoc}: contains a horizontal rule`);
+        }
+        const plan2 = tableCellInlineClone(cell);
+        out.push(...plan2.unclonable.map((msg) => `${cellLoc}: ${msg}`));
+      }
+    }
+    return out;
+  }
+  const plan = paragraphInlineClone(node);
+  out.push(...plan.unclonable.map((msg) => `${loc2}: ${msg}`));
+  return out;
+}
+function inlineClonePlan(text, chips, images) {
+  const unclonable = [];
+  const items = [];
+  for (const chip of chips ?? []) {
+    const converted = chipToSpecial(chip, text);
+    if ("unclonable" in converted) {
+      unclonable.push(converted.unclonable);
+      continue;
+    }
+    items.push(converted);
+  }
+  for (const image of images ?? []) {
+    const converted = imageToSpecial(image, text);
+    if ("unclonable" in converted) {
+      unclonable.push(converted.unclonable);
+      continue;
+    }
+    items.push(converted);
+  }
+  items.sort((a, b2) => a.offset - b2.offset);
+  let cursor = 0;
+  let outText = "";
+  const specials = [];
+  for (const item of items) {
+    const at2 = Math.max(0, Math.min(item.offset, text.length));
+    if (at2 < cursor)
+      continue;
+    outText += text.slice(cursor, at2);
+    if (item.special) {
+      specials.push({ ...item.special, offset: outText.length });
+    }
+    cursor = at2 + item.dropLen;
+  }
+  outText += text.slice(cursor);
+  return { specials, text: outText, unclonable };
+}
+function chipToSpecial(chip, text) {
+  const offset = chip.textOffset ?? 0;
+  const kind = chip.kind ?? chipKindInfer(chip);
+  if (kind === "person") {
+    const email = chip.email || emailFromMailto(chip.uri);
+    if (!email) {
+      return { unclonable: `person chip "${chip.title || chip.uri}" has no email` };
+    }
+    return { dropLen: 0, offset, special: { email, kind: "person", offset } };
+  }
+  if (kind === "date") {
+    if (!chip.timestamp) {
+      return { unclonable: `date chip "${chip.title}" has no timestamp` };
+    }
+    const special = {
+      kind: "date",
+      offset,
+      timestamp: chip.timestamp
+    };
+    if (chip.dateFormat)
+      special.dateFormat = chip.dateFormat;
+    if (chip.title)
+      special.displayText = chip.title;
+    return { dropLen: 0, offset, special };
+  }
+  if (kind === "richLink") {
+    if (!chip.uri) {
+      return { unclonable: `rich link chip "${chip.title}" has no uri` };
+    }
+    const title = chip.title;
+    const dropLen = title && text.startsWith(title, offset) ? title.length : 0;
+    const special = { kind: "richLink", offset, uri: chip.uri };
+    if (chip.mimeType)
+      special.mimeType = chip.mimeType;
+    if (title)
+      special.title = title;
+    return { dropLen, offset, special };
+  }
+  return { unclonable: `unsupported smart chip "${chip.title || chip.uri}"` };
+}
+function imageToSpecial(image, text) {
+  const offset = image.textOffset ?? 0;
+  const uri2 = image.sourceUri ?? "";
+  if (!/^https?:\/\//i.test(uri2)) {
+    return {
+      unclonable: "inline image has no public source URI (Drive/internal images cannot be reinserted via REST)"
+    };
+  }
+  const dropLen = text.startsWith("[Image]", offset) ? "[Image]".length : 0;
+  const special = { kind: "inlineImage", offset, uri: uri2 };
+  if (image.heightPt != null)
+    special.heightPt = image.heightPt;
+  if (image.widthPt != null)
+    special.widthPt = image.widthPt;
+  return { dropLen, offset, special };
+}
+function chipKindInfer(chip) {
+  if (chip.uri.startsWith("mailto:"))
+    return "person";
+  if (/^https?:\/\//i.test(chip.uri))
+    return "richLink";
+  if (chip.timestamp || chip.dateId)
+    return "date";
+  return;
+}
+function emailFromMailto(uri2) {
+  if (!uri2.toLowerCase().startsWith("mailto:"))
+    return;
+  const email = uri2.slice("mailto:".length).trim();
+  return email || undefined;
 }
 
 // src/core/paragraph.ts
@@ -14868,15 +15357,19 @@ function parseBullet(paragraph, data) {
 }
 function parseChips(paragraph) {
   const chips = [];
-  for (const el of paragraph.elements ?? []) {
+  const elements = paragraph.elements ?? [];
+  for (let i = 0;i < elements.length; i++) {
+    const el = elements[i];
     const start = el.startIndex ?? 0;
     const end = el.endIndex ?? start + 1;
+    const textOffset = Paragraph.text({ elements: elements.slice(0, i) }, false).length;
     if (el.richLink?.richLinkProperties) {
       const props = el.richLink.richLinkProperties;
       const chip = {
         end,
         kind: "richLink",
         start,
+        textOffset,
         title: props.title ?? "",
         uri: props.uri ?? ""
       };
@@ -14887,44 +15380,82 @@ function parseChips(paragraph) {
       chips.push(chip);
     } else if (el.person?.personProperties) {
       const props = el.person.personProperties;
-      chips.push({
+      const chip = {
         end,
         kind: "person",
         personId: el.person.personId,
         start,
+        textOffset,
         title: props.name || props.email || "Person",
         uri: props.email ? `mailto:${props.email}` : ""
-      });
+      };
+      if (props.email)
+        chip.email = props.email;
+      chips.push(chip);
     } else if (el.dateElement?.dateElementProperties) {
       const props = el.dateElement.dateElementProperties;
-      chips.push({
+      const chip = {
         dateId: el.dateElement.dateId,
         end,
         kind: "date",
         start,
+        textOffset,
         title: props.displayText || "Date",
         uri: ""
-      });
+      };
+      if (props.dateFormat)
+        chip.dateFormat = props.dateFormat;
+      const timestamp = dateTimestampFromProps(props);
+      if (timestamp)
+        chip.timestamp = timestamp;
+      chips.push(chip);
     }
   }
   return chips;
 }
+function dateTimestampFromProps(props) {
+  const raw = props.date;
+  if (typeof raw === "string" && raw.trim()) {
+    const ms = Date.parse(raw);
+    return Number.isNaN(ms) ? raw : new Date(ms).toISOString();
+  }
+  if (raw && typeof raw === "object") {
+    const year = raw.year;
+    const month = raw.month;
+    const day = raw.day;
+    if (typeof year === "number" && typeof month === "number" && typeof day === "number") {
+      return new Date(Date.UTC(year, month - 1, day)).toISOString();
+    }
+  }
+  return;
+}
 function parseImages(paragraph, data) {
   const images = [];
-  for (const el of paragraph.elements ?? []) {
+  const elements = paragraph.elements ?? [];
+  for (let i = 0;i < elements.length; i++) {
+    const el = elements[i];
     const objectId = el.inlineObjectElement?.inlineObjectId;
     if (!objectId)
       continue;
     const start = el.startIndex ?? 0;
     const end = el.endIndex ?? start + 1;
-    const size = data.inlineObjects?.[objectId]?.inlineObjectProperties?.embeddedObject?.size;
-    const image = { end, objectId, start };
+    const embedded = data.inlineObjects?.[objectId]?.inlineObjectProperties?.embeddedObject;
+    const size = embedded?.size;
+    const image = {
+      end,
+      objectId,
+      start,
+      textOffset: Paragraph.text({ elements: elements.slice(0, i) }, false).length
+    };
     const widthPt = size?.width?.magnitude;
     const heightPt = size?.height?.magnitude;
     if (typeof widthPt === "number")
       image.widthPt = widthPt;
     if (typeof heightPt === "number")
       image.heightPt = heightPt;
+    const sourceUri = embedded?.imageProperties?.sourceUri;
+    if (sourceUri)
+      image.sourceUri = sourceUri;
     images.push(image);
   }
   return images;
@@ -15611,16 +16142,16 @@ function normalize(s) {
 
 // src/core/dom/clone.ts
 async function cloneNodeOpsResolve(ops, context) {
-  const docCache = new Map;
+  const docCache2 = new Map;
   if (context.defaultDoc) {
-    docCache.set(context.defaultDocumentId, context.defaultDoc);
+    docCache2.set(context.defaultDocumentId, context.defaultDoc);
   }
   async function getDoc(docId) {
-    if (!docCache.has(docId)) {
+    if (!docCache2.has(docId)) {
       const loaded = await Gdoc.load(docId);
-      docCache.set(docId, loaded);
+      docCache2.set(docId, loaded);
     }
-    return docCache.get(docId);
+    return docCache2.get(docId);
   }
   for (let i = 0;i < ops.length; i++) {
     const op = ops[i];
@@ -15675,15 +16206,12 @@ async function cloneNodeOpsResolve(ops, context) {
 function elementSpecFromNode(node, options) {
   if (node.kind === "paragraph") {
     const warnings = [];
-    let text = options?.innerText ?? node.markup ?? node.text ?? "";
-    if (node.images?.length) {
-      if (!text.includes("[Image]")) {
-        text = text.trim() ? `${text} [Image]` : "[Image]";
-      }
-      warnings.push(`Node ${node.tapeIndex}: ${node.images.length} image(s) replaced with [Image] placeholder because Google Docs API does not support inserting internal image URLs.`);
-    }
-    if (node.chips?.length) {
-      warnings.push(`Node ${node.tapeIndex}: ${node.chips.length} smart chip(s) flattened to text/link because Google Docs API cannot create native smart chips.`);
+    const sourceText = options?.innerText ?? (node.chips?.length || node.images?.length ? node.text ?? "" : node.markup ?? node.text ?? "");
+    const plan = paragraphInlineClone({ chips: node.chips, images: node.images, text: sourceText });
+    let text = plan.text;
+    warnings.push(...plan.unclonable.map((msg) => `Node ${node.tapeIndex}: ${msg}`));
+    if (plan.unclonable.some((msg) => msg.includes("inline image")) && !text.includes("[Image]")) {
+      text = text.trim() ? `${text} [Image]` : "[Image]";
     }
     if (node.footnoteIds?.length) {
       warnings.push(`Node ${node.tapeIndex}: ${node.footnoteIds.length} footnote(s) omitted because Google Docs API cannot clone footnote bodies atomically.`);
@@ -15707,6 +16235,8 @@ function elementSpecFromNode(node, options) {
       namedStyleType: node.namedStyleType ?? "NORMAL_TEXT",
       text
     };
+    if (plan.specials.length > 0)
+      spec.specials = plan.specials;
     if (node.alignment)
       spec.alignment = node.alignment;
     if (Object.keys(stylePatch).length > 0)
@@ -15730,31 +16260,25 @@ function elementSpecFromNode(node, options) {
   }
   if (node.kind === "table" && node.table) {
     const warnings = [];
-    let imageCount = 0;
-    let chipCount = 0;
-    for (const row of node.table.cells) {
-      for (const cell of row) {
-        if (cell.images?.length)
-          imageCount += cell.images.length;
-        if (cell.chips?.length)
-          chipCount += cell.chips.length;
-      }
-    }
-    if (imageCount > 0) {
-      warnings.push(`Node ${node.tapeIndex} table: ${imageCount} image(s) replaced with [Image] placeholder.`);
-    }
-    if (chipCount > 0) {
-      warnings.push(`Node ${node.tapeIndex} table: ${chipCount} smart chip(s) flattened.`);
-    }
-    const rows = node.table.cells.map((row) => row.map((cell) => {
-      const paras = cell.paragraphs && cell.paragraphs.length > 0 ? cell.paragraphs : [cell];
-      return paras.map((p) => p.markup ?? p.text ?? "").join(`
-`);
-    }));
+    const cellSpecials = [];
+    const rows = node.table.cells.map((row) => {
+      const specialsRow = [];
+      const texts = row.map((cell) => {
+        const plan = tableCellInlineClone(cell);
+        warnings.push(...plan.unclonable.map((msg) => `Node ${node.tapeIndex} table: ${msg}`));
+        specialsRow.push(plan.specials.length > 0 ? plan.specials : undefined);
+        return plan.text;
+      });
+      cellSpecials.push(specialsRow);
+      return texts;
+    });
     const spec = {
       kind: "table",
       table: { rows }
     };
+    if (cellSpecials.some((row) => row.some((s) => s?.length))) {
+      spec.table.cellSpecials = cellSpecials;
+    }
     if (warnings.length > 0)
       spec.warnings = warnings;
     return spec;
@@ -15922,6 +16446,8 @@ function elementCreate(kind, props = {}, opts) {
       kind: "table",
       table: { rows: rows.map((row) => row.map(String)) }
     };
+    if (tp.cellSpecials?.length)
+      spec2.table.cellSpecials = tp.cellSpecials;
     if (tp.warnings?.length)
       spec2.warnings = tp.warnings;
     return spec2;
@@ -15940,6 +16466,8 @@ function elementCreate(kind, props = {}, opts) {
   };
   if (p.runs?.length)
     spec.runs = p.runs;
+  if (p.specials?.length)
+    spec.specials = p.specials;
   if (p.alignment)
     spec.alignment = p.alignment;
   if (p.warnings?.length)
@@ -17813,7 +18341,13 @@ function elementFromJson(raw, force = false) {
       throw new Error('table element requires rows: { "kind": "table", "rows": [["cell"]] }');
     }
     const warnings = Array.isArray(raw.warnings) ? raw.warnings : undefined;
-    return createElement("table", { rows, warnings }, { force });
+    const nestedTable = raw.table;
+    const cellSpecials = Array.isArray(nestedTable?.cellSpecials) ? nestedTable.cellSpecials : Array.isArray(raw.cellSpecials) ? raw.cellSpecials : undefined;
+    return createElement("table", {
+      ...cellSpecials ? { cellSpecials } : {},
+      rows,
+      warnings
+    }, { force });
   }
   const props = {
     namedStyleType: raw.namedStyleType,
@@ -17839,6 +18373,9 @@ function elementFromJson(raw, force = false) {
   }
   if (Array.isArray(raw.runs)) {
     props.runs = raw.runs;
+  }
+  if (Array.isArray(raw.specials)) {
+    props.specials = raw.specials;
   }
   return createElement(kind ?? "paragraph", props, { force });
 }
@@ -18128,6 +18665,7 @@ function domCompile(writer, opts = {}) {
       ], op.mutationIndexes);
       tables += 1;
       tableInserts.push({
+        ...op.cellSpecials ? { cellSpecials: op.cellSpecials } : {},
         insertIndex: writeAt2,
         rows: op.rows,
         ...seg ? { segmentId: seg } : {},
@@ -18466,14 +19004,36 @@ function domCompile(writer, opts = {}) {
         offset += parsed.plains[i]?.length + 1;
       }
     }
+    const specialCount = op.specs.reduce((n, s) => n + (s.specials?.length ?? 0), 0);
+    if (specialCount > 0) {
+      let specialOffset = 0;
+      const specialStarts = [];
+      for (let i = 0;i < op.specs.length; i++) {
+        const spec = op.specs[i];
+        const tabs = allBullets && !peerJoin && spec.bullet ? spec.bullet.nestingLevel : 0;
+        specialStarts.push({ index: writeAt + specialOffset + tabs, specials: spec.specials });
+        specialOffset += parsed.plains[i]?.length + 1;
+      }
+      for (let i = specialStarts.length - 1;i >= 0; i--) {
+        const item = specialStarts[i];
+        push(RequestBuilder.insertInlineSpecials({
+          index: item.index,
+          segmentId: seg,
+          specials: item.specials,
+          tabId: tab
+        }), op.mutationIndexes);
+      }
+      insertChars += specialCount;
+    }
     const delta = 1 + parsed.bodies.join(`
-`).length;
+`).length + specialCount;
     let cursor = writeAt;
     for (let i = 0;i < op.specs.length; i++) {
       const spec = op.specs[i];
       const id = op.ids[i];
       const start = cursor;
-      const end = start + parsed.bodies[i]?.length + 1;
+      const nSpecials = spec.specials?.length ?? 0;
+      const end = start + parsed.bodies[i]?.length + 1 + nSpecials;
       live.set(id, {
         ...spec.alignment ? { alignment: spec.alignment } : {},
         ...spec.bullet ? {
@@ -18611,6 +19171,7 @@ function coalesce(mutations) {
     if (m2.spec.kind === "table") {
       out.push({
         afterId: m2.anchorId,
+        ...m2.spec.table.cellSpecials ? { cellSpecials: m2.spec.table.cellSpecials } : {},
         mutationIndexes: [m2.opIndex ?? i],
         newId: m2.newId,
         position: m2.position,
@@ -18956,6 +19517,9 @@ function requestContentDelta(request) {
   }
   if ("insertPageBreak" in request || "insertSectionBreak" in request)
     return 1;
+  if ("insertPerson" in request || "insertDate" in request || "insertRichLink" in request || "insertInlineImage" in request) {
+    return 1;
+  }
   if ("deleteContentRange" in request) {
     const range = request.deleteContentRange.range;
     return -(range.endIndex - range.startIndex);
@@ -19069,8 +19633,13 @@ async function domApply(documentId, writer, opts = {}) {
   if (opts.dryRun || !compiled.requests.length)
     return compiled;
   try {
-    await client.batchUpdate(documentId, compiled.requests);
+    await client.batchUpdate(documentId, compiled.requests, {
+      requiredRevisionId: opts.doc?.revisionId
+    });
   } catch (err) {
+    if (isRevisionMismatchError(err)) {
+      throw err;
+    }
     throw wrapBatchUpdateError(err, {
       batch: "main",
       origins: compiled.requestOrigins,
@@ -19084,7 +19653,7 @@ async function domApply(documentId, writer, opts = {}) {
       const tableEl = gdoc.findInsertedTableAt(table.insertIndex) ?? gdoc.findTableAt(table.insertIndex);
       if (!tableEl?.table)
         continue;
-      const fill = RequestBuilder.buildTableFill(table.rows.length > 1, table.rows, tableEl, table.segmentId, table.tabId);
+      const fill = RequestBuilder.buildTableFill(table.rows.length > 1, table.rows, tableEl, table.segmentId, table.tabId, table.cellSpecials);
       if (fill.length) {
         await client.batchUpdate(documentId, fill);
       }
@@ -19198,9 +19767,684 @@ function googleRequestIndexParse(message) {
     return;
   return Number(m2[1]);
 }
+function isRevisionMismatchError(err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /revision (ID )?provided.*does not match|writeControl.*revision|write control.*does not match/i.test(msg);
+}
 var parseGoogleRequestIndex = googleRequestIndexParse;
 
+// src/core/dom/write.ts
+class DomWriter {
+  doc;
+  force;
+  linkResolver;
+  lists;
+  segmentId;
+  tabId;
+  #mutations = [];
+  #nodes;
+  #original;
+  #nextId;
+  #nextOpIndex;
+  constructor(nodes, opts = {}) {
+    this.doc = opts.doc;
+    this.force = opts.force ?? false;
+    this.lists = opts.lists;
+    this.segmentId = opts.segmentId;
+    this.tabId = opts.tabId;
+    this.linkResolver = opts.linkResolver ?? (opts.doc || nodes.length ? createSymbolicLinkResolver({
+      currentTabId: opts.tabId,
+      doc: opts.doc,
+      nodes,
+      simulatedTabs: opts.simulatedTabs
+    }) : undefined);
+    this.#original = nodes.map(cloneNode);
+    this.#nodes = nodes.map(cloneNode);
+    this.#nextId = nodes.reduce((m2, n) => Math.max(m2, n.tapeIndex), 0) + 1;
+  }
+  originalNodes() {
+    return this.#original.map(cloneNode);
+  }
+  get nodes() {
+    return this.#nodes;
+  }
+  mutations() {
+    return [...this.#mutations];
+  }
+  setNextOpIndex(index) {
+    this.#nextOpIndex = index;
+  }
+  createElement(...args) {
+    const [kind, props, opts] = args;
+    return createElement(kind, props, { force: this.force, ...opts });
+  }
+  wrap(node) {
+    const live = this.#find(node.tapeIndex);
+    if (!live)
+      throw new Error(`Node ${node.tapeIndex} is not in the tape`);
+    return new DomHandle(this, live);
+  }
+  insertAdjacentElement(anchor, position, element) {
+    if (position === "afterbegin" || position === "beforeend") {
+      const heading = isHeadingStyle(this.#find(anchor.tapeIndex)?.namedStyleType);
+      throw new Error(heading ? `insertAdjacentElement("${position}") would write inside the heading. Use beforebegin/afterend (siblings).` : `insertAdjacentElement("${position}") is not a sibling insert. Use beforebegin/afterend.`);
+    }
+    const live = this.#find(anchor.tapeIndex);
+    if (!live)
+      throw new Error(`Anchor ${anchor.tapeIndex} is not in the tape`);
+    if (element.kind === "paragraph") {
+      assertWritable(element, { force: this.force });
+    }
+    const created = specToNode(element, this.#nextId++);
+    this.#push({
+      anchorId: live.tapeIndex,
+      newId: created.tapeIndex,
+      position,
+      spec: element,
+      type: "insertAdjacent"
+    });
+    const i = this.#nodes.findIndex((n) => n.tapeIndex === live.tapeIndex);
+    const at2 = position === "beforebegin" ? i : i + 1;
+    this.#nodes.splice(at2, 0, created);
+    return created;
+  }
+  setInnerText(node, text, cell, para, opts) {
+    const live = this.#find(node.tapeIndex);
+    if (!live)
+      throw new Error(`Node ${node.tapeIndex} is not in the tape`);
+    const next = stripTrailingNewline(text);
+    if (cell) {
+      const target = requireCellPara(live, cell, para);
+      assertWritable({ text: next }, { force: this.force });
+      this.#push({
+        cell,
+        nodeId: live.tapeIndex,
+        ...para ? { para } : {},
+        ...opts?.runs ? { runs: opts.runs } : {},
+        text: next,
+        type: "innerText"
+      });
+      target.text = next;
+      delete target.markup;
+      delete target.chips;
+      delete target.fontColors;
+      delete target.footnoteIds;
+      syncCellHead(live, cell);
+      return;
+    }
+    if (live.kind !== "paragraph") {
+      throw new Error('innerText is only supported on paragraph nodes (use at: "h.arch.table.0.1.3c8f" from query --full for tables)');
+    }
+    assertWritable({ bullet: live.bullet, namedStyleType: live.namedStyleType, text: next }, { force: this.force });
+    const pending = this.#pendingSpec(live.tapeIndex);
+    if (pending?.kind === "paragraph") {
+      pending.text = next;
+      if (opts?.runs)
+        pending.runs = opts.runs;
+      live.text = next;
+      delete live.markup;
+      delete live.chips;
+      delete live.fontColors;
+      delete live.footnoteIds;
+      return;
+    }
+    this.#push({
+      nodeId: live.tapeIndex,
+      ...opts?.runs ? { runs: opts.runs } : {},
+      text: next,
+      type: "innerText"
+    });
+    live.text = next;
+    delete live.markup;
+    delete live.chips;
+    delete live.fontColors;
+    delete live.footnoteIds;
+  }
+  setNamedStyleType(node, namedStyleType) {
+    const live = this.#find(node.tapeIndex);
+    if (!live)
+      throw new Error(`Node ${node.tapeIndex} is not in the tape`);
+    if (live.kind !== "paragraph") {
+      throw new Error("namedStyleType is only supported on paragraph nodes");
+    }
+    const pending = this.#pendingSpec(live.tapeIndex);
+    if (pending?.kind === "paragraph") {
+      pending.namedStyleType = namedStyleType;
+      live.namedStyleType = namedStyleType;
+      return;
+    }
+    this.#push({
+      namedStyleType,
+      nodeId: live.tapeIndex,
+      type: "namedStyleType"
+    });
+    live.namedStyleType = namedStyleType;
+  }
+  setStyle(node, patch, cell, para) {
+    if (patch?.tableAlignment !== undefined) {
+      throw new Error("tableAlignment is not supported: Google Docs tables default to full page width (left-aligned under the hood). Google Docs REST API has no property or request for table page alignment (center/left/right). Use fixed columnWidth to control column sizes (table remains left-aligned), or cellTextAlignment to align cell text.");
+    }
+    if (patch?.cellTextAlignment !== undefined && !patch.alignment) {
+      patch.alignment = patch.cellTextAlignment;
+    }
+    if (!hasStyle(patch))
+      return;
+    const live = this.#find(node.tapeIndex);
+    if (!live)
+      throw new Error(`Node ${node.tapeIndex} is not in the tape`);
+    if (cell) {
+      const target = requireCellPara(live, cell, para);
+      this.#push({
+        cell,
+        nodeId: live.tapeIndex,
+        ...para ? { para } : {},
+        patch,
+        type: "style"
+      });
+      applyPatchToPara(target, patch);
+      applyPatchToTable(live, patch);
+      if (patch.cellBackground) {
+        const tableCell = requireCell(live, cell);
+        tableCell.backgroundColor = patch.cellBackground;
+      }
+      syncCellHead(live, cell);
+      return;
+    }
+    if (patch.columnCount != null && live.kind !== "sectionBreak") {
+      throw new Error("columnCount is only valid on a sectionBreak node");
+    }
+    if (live.kind === "table") {
+      const disallowed = tableDisallowedKeys(patch);
+      if (disallowed.length) {
+        if (disallowed.includes("tableAlignment")) {
+          throw new Error("tableAlignment is not supported: Google Docs REST API has no property or request for table page alignment (center/left/right). Use fixed columnWidth to control table width, or alignment to align cell text.");
+        }
+        throw new Error(`style on a table node only accepts alignment, cellBackground, columnWidth, borderColor, borderWidth, cellPadding, contentAlignment, minRowHeight (not ${disallowed.join(", ")}). Cell text uses at: "h.arch.table.0.1.3c8f".`);
+      }
+      this.#push({ nodeId: live.tapeIndex, patch, type: "style" });
+      applyPatchToTable(live, patch);
+      return;
+    }
+    if (hasTableChrome(patch)) {
+      throw new Error("columnWidth, borders, cellPadding, contentAlignment, minRowHeight, and cellBackground require a table node or cell id");
+    }
+    if (live.kind !== "paragraph" && live.kind !== "sectionBreak" && patch.columnCount == null) {
+      throw new Error('style is only supported on paragraph, table, or sectionBreak nodes (use at: "h.arch.table.0.1.3c8f" from query --full for cells)');
+    }
+    const pending = this.#pendingSpec(live.tapeIndex);
+    if (pending?.kind === "paragraph") {
+      pending.style = { ...pending.style, ...patch };
+      if (patch.alignment)
+        pending.alignment = patch.alignment;
+      if (patch.indentStart != null) {
+        pending.indentStart = { magnitude: patch.indentStart, unit: "PT" };
+      }
+      applyPatchToPara(live, patch);
+      return;
+    }
+    this.#push({ nodeId: live.tapeIndex, patch, type: "style" });
+    applyPatchToPara(live, patch);
+    if (patch.columnCount != null)
+      live.columnCount = patch.columnCount;
+  }
+  setAlignment(node, alignment, cell, para) {
+    this.setStyle(node, { alignment }, cell, para);
+  }
+  setBulletPreset(node, preset) {
+    const live = this.#find(node.tapeIndex);
+    if (!live)
+      throw new Error(`Node ${node.tapeIndex} is not in the tape`);
+    if (live.kind !== "paragraph") {
+      throw new Error("bullet restyle is only valid on a paragraph");
+    }
+    this.#push({ nodeId: live.tapeIndex, preset, type: "bullets" });
+  }
+  remove(node) {
+    const live = this.#find(node.tapeIndex);
+    if (!live)
+      throw new Error(`Node ${node.tapeIndex} is not in the tape`);
+    this.#push({ nodeId: live.tapeIndex, type: "remove" });
+    this.#nodes.splice(this.#nodes.findIndex((n) => n.tapeIndex === live.tapeIndex), 1);
+  }
+  insertTableRow(tableNode, cell, insertBelow = true, cells) {
+    const live = this.#find(tableNode.tapeIndex);
+    if (!live)
+      throw new Error(`Node ${tableNode.tapeIndex} is not in the tape`);
+    if (live.kind !== "table") {
+      throw new Error("insertTableRow is only valid on a table node");
+    }
+    this.#push({
+      cell,
+      ...cells ? { cells } : {},
+      insertBelow,
+      nodeId: live.tapeIndex,
+      type: "insertTableRow"
+    });
+  }
+  deleteTableRow(tableNode, cell) {
+    const live = this.#find(tableNode.tapeIndex);
+    if (!live)
+      throw new Error(`Node ${tableNode.tapeIndex} is not in the tape`);
+    if (live.kind !== "table") {
+      throw new Error("deleteTableRow is only valid on a table node");
+    }
+    this.#push({
+      cell,
+      nodeId: live.tapeIndex,
+      type: "deleteTableRow"
+    });
+  }
+  insertTableColumn(tableNode, cell, insertRight = true) {
+    const live = this.#find(tableNode.tapeIndex);
+    if (!live)
+      throw new Error(`Node ${tableNode.tapeIndex} is not in the tape`);
+    if (live.kind !== "table") {
+      throw new Error("insertTableColumn is only valid on a table node");
+    }
+    this.#push({
+      cell,
+      insertRight,
+      nodeId: live.tapeIndex,
+      type: "insertTableColumn"
+    });
+  }
+  deleteTableColumn(tableNode, cell) {
+    const live = this.#find(tableNode.tapeIndex);
+    if (!live)
+      throw new Error(`Node ${tableNode.tapeIndex} is not in the tape`);
+    if (live.kind !== "table") {
+      throw new Error("deleteTableColumn is only valid on a table node");
+    }
+    this.#push({
+      cell,
+      nodeId: live.tapeIndex,
+      type: "deleteTableColumn"
+    });
+  }
+  #push(mutation) {
+    this.#mutations.push(this.#nextOpIndex != null ? { ...mutation, opIndex: this.#nextOpIndex } : mutation);
+  }
+  #find(tapeIndex) {
+    return this.#nodes.find((n) => n.tapeIndex === tapeIndex);
+  }
+  #pendingSpec(tapeIndex) {
+    for (const m2 of this.#mutations) {
+      if (m2.type === "insertAdjacent" && m2.newId === tapeIndex)
+        return m2.spec;
+    }
+    return;
+  }
+}
+
+class DomHandle {
+  writer;
+  node;
+  constructor(writer, node) {
+    this.writer = writer;
+    this.node = node;
+  }
+  get innerText() {
+    return this.node.text ?? "";
+  }
+  set innerText(text) {
+    this.writer.setInnerText(this.node, text);
+  }
+  set namedStyleType(namedStyleType) {
+    this.writer.setNamedStyleType(this.node, namedStyleType);
+  }
+  set alignment(alignment) {
+    this.writer.setAlignment(this.node, alignment);
+  }
+  insertAdjacentElement(position, element) {
+    const created = this.writer.insertAdjacentElement(this.node, position, element);
+    return new DomHandle(this.writer, created);
+  }
+  remove() {
+    this.writer.remove(this.node);
+  }
+}
+function clonePara(p) {
+  return {
+    ...p,
+    ...p.chips ? { chips: p.chips.map((chip) => ({ ...chip })) } : {},
+    ...p.images ? { images: p.images.map((img) => ({ ...img })) } : {}
+  };
+}
+function cloneNode(node) {
+  return {
+    ...node,
+    ...node.bullet ? { bullet: { ...node.bullet } } : {},
+    ...node.footnoteIds ? { footnoteIds: [...node.footnoteIds] } : {},
+    ...node.indentStart ? { indentStart: { ...node.indentStart } } : {},
+    ...node.indentFirstLine ? { indentFirstLine: { ...node.indentFirstLine } } : {},
+    ...node.indentEnd ? { indentEnd: { ...node.indentEnd } } : {},
+    ...node.table ? {
+      table: {
+        ...node.table.columnWidth != null ? { columnWidth: node.table.columnWidth } : {},
+        ...node.table.borderColor ? { borderColor: node.table.borderColor } : {},
+        ...node.table.cellPadding != null ? { cellPadding: node.table.cellPadding } : {},
+        ...node.table.contentAlignment ? { contentAlignment: node.table.contentAlignment } : {},
+        ...node.table.minRowHeight != null ? { minRowHeight: node.table.minRowHeight } : {},
+        cells: node.table.cells.map((row) => row.map((cell) => ({
+          ...clonePara(cell),
+          paragraphs: (cell.paragraphs ?? [cell]).map(clonePara),
+          ...cell.backgroundColor ? { backgroundColor: cell.backgroundColor } : {}
+        })))
+      }
+    } : {},
+    ...node.images ? { images: node.images.map((img) => ({ ...img })) } : {},
+    ...node.chips ? { chips: node.chips.map((chip) => ({ ...chip })) } : {}
+  };
+}
+function specToNode(spec, tapeIndex) {
+  if (spec.kind === "table") {
+    return {
+      end: -1,
+      tapeIndex,
+      kind: "table",
+      start: -1,
+      table: {
+        cells: spec.table.rows.map((row, r) => row.map((text, c) => {
+          const parsed2 = chipsImagesFromSpecials(spec.table.cellSpecials?.[r]?.[c]);
+          const p = { end: -1, start: -1, text, ...parsed2 };
+          return { ...p, paragraphs: [p] };
+        }))
+      }
+    };
+  }
+  if (spec.kind === "pageBreak") {
+    return { end: -1, tapeIndex, kind: "pageBreak", start: -1 };
+  }
+  if (spec.kind === "sectionBreak") {
+    return { end: -1, tapeIndex, kind: "sectionBreak", start: -1 };
+  }
+  if (spec.kind === "person") {
+    return {
+      chips: [
+        {
+          email: spec.email,
+          end: -1,
+          kind: "person",
+          start: -1,
+          textOffset: 0,
+          title: spec.email,
+          uri: `mailto:${spec.email}`
+        }
+      ],
+      end: -1,
+      tapeIndex,
+      kind: "paragraph",
+      namedStyleType: "NORMAL_TEXT",
+      start: -1,
+      text: `@${spec.email}`
+    };
+  }
+  if (spec.kind === "richLink") {
+    return {
+      chips: [
+        {
+          end: -1,
+          kind: "richLink",
+          start: -1,
+          textOffset: 0,
+          title: spec.title ?? spec.uri,
+          uri: spec.uri,
+          ...spec.mimeType ? { mimeType: spec.mimeType } : {}
+        }
+      ],
+      end: -1,
+      tapeIndex,
+      kind: "paragraph",
+      namedStyleType: "NORMAL_TEXT",
+      start: -1,
+      text: spec.title ?? spec.uri
+    };
+  }
+  if (spec.kind === "date") {
+    return {
+      chips: [
+        {
+          end: -1,
+          kind: "date",
+          start: -1,
+          textOffset: 0,
+          title: spec.displayText ?? spec.timestamp ?? "date",
+          uri: "",
+          ...spec.dateFormat ? { dateFormat: spec.dateFormat } : {},
+          ...spec.timestamp ? { timestamp: spec.timestamp } : {}
+        }
+      ],
+      end: -1,
+      tapeIndex,
+      kind: "paragraph",
+      namedStyleType: "NORMAL_TEXT",
+      start: -1,
+      text: spec.displayText ?? spec.timestamp ?? ""
+    };
+  }
+  if (spec.kind === "footnote") {
+    return {
+      end: -1,
+      footnoteIds: [""],
+      tapeIndex,
+      kind: "paragraph",
+      namedStyleType: "NORMAL_TEXT",
+      start: -1,
+      text: spec.text ?? "[^]"
+    };
+  }
+  if (spec.kind === "inlineImage") {
+    return {
+      end: -1,
+      tapeIndex,
+      images: [
+        {
+          end: -1,
+          objectId: "",
+          start: -1,
+          sourceUri: spec.uri,
+          textOffset: 0,
+          ...spec.heightPt != null ? { heightPt: spec.heightPt } : {},
+          ...spec.widthPt != null ? { widthPt: spec.widthPt } : {}
+        }
+      ],
+      kind: "paragraph",
+      namedStyleType: "NORMAL_TEXT",
+      start: -1,
+      text: ""
+    };
+  }
+  const node = {
+    ...spec.alignment ? { alignment: spec.alignment } : {},
+    ...spec.bullet ? { bullet: { nestingLevel: spec.bullet.nestingLevel } } : {},
+    ...spec.indentStart ? { indentStart: spec.indentStart } : {},
+    end: -1,
+    tapeIndex,
+    kind: "paragraph",
+    namedStyleType: spec.namedStyleType,
+    start: -1,
+    text: spec.text
+  };
+  const parsed = chipsImagesFromSpecials(spec.specials);
+  if (parsed.chips)
+    node.chips = parsed.chips;
+  if (parsed.images)
+    node.images = parsed.images;
+  if (spec.style) {
+    applyPatchToPara(node, spec.style);
+    if (spec.style.foregroundColor || spec.style.fontSize || spec.style.italic) {
+      node.style = {
+        ...spec.style.fontSize ? { fontSize: spec.style.fontSize } : {},
+        ...spec.style.foregroundColor ? { foregroundColor: spec.style.foregroundColor } : {},
+        ...spec.style.italic ? { italic: spec.style.italic } : {}
+      };
+    }
+    if (spec.style.foregroundColor) {
+      node.fontColors = [spec.style.foregroundColor.toUpperCase()];
+    }
+  }
+  if (spec.runs?.length) {
+    const runColors = spec.runs.map((r) => r.foregroundColor).filter((c) => Boolean(c)).map((c) => c.toUpperCase());
+    if (runColors.length > 0) {
+      node.fontColors = Array.from(new Set([...node.fontColors ?? [], ...runColors]));
+    }
+  }
+  return node;
+}
+function chipsImagesFromSpecials(specials) {
+  if (!specials?.length)
+    return {};
+  const chips = [];
+  const images = [];
+  for (const special of specials) {
+    if (special.kind === "person") {
+      chips.push({
+        email: special.email,
+        end: -1,
+        kind: "person",
+        start: -1,
+        textOffset: special.offset,
+        title: special.email,
+        uri: `mailto:${special.email}`
+      });
+    } else if (special.kind === "date") {
+      const chip = {
+        end: -1,
+        kind: "date",
+        start: -1,
+        textOffset: special.offset,
+        title: special.displayText ?? special.timestamp,
+        uri: ""
+      };
+      if (special.dateFormat)
+        chip.dateFormat = special.dateFormat;
+      chip.timestamp = special.timestamp;
+      chips.push(chip);
+    } else if (special.kind === "richLink") {
+      const chip = {
+        end: -1,
+        kind: "richLink",
+        start: -1,
+        textOffset: special.offset,
+        title: special.title ?? special.uri,
+        uri: special.uri
+      };
+      if (special.mimeType)
+        chip.mimeType = special.mimeType;
+      chips.push(chip);
+    } else {
+      const image = {
+        end: -1,
+        objectId: "",
+        start: -1,
+        sourceUri: special.uri,
+        textOffset: special.offset
+      };
+      if (special.heightPt != null)
+        image.heightPt = special.heightPt;
+      if (special.widthPt != null)
+        image.widthPt = special.widthPt;
+      images.push(image);
+    }
+  }
+  return {
+    ...chips.length ? { chips } : {},
+    ...images.length ? { images } : {}
+  };
+}
+function requireCell(node, cell) {
+  if (node.kind !== "table" || !node.table) {
+    throw new Error("cell id is only valid on a table node");
+  }
+  const [r, c] = cell;
+  const hit = node.table.cells[r]?.[c];
+  if (!hit) {
+    throw new Error(`No cell [${r}, ${c}] — table is ${node.table.cells.length}×${node.table.cells[0]?.length ?? 0}`);
+  }
+  if (!hit.paragraphs?.length) {
+    hit.paragraphs = [{ end: hit.end, start: hit.start, text: hit.text }];
+  }
+  return hit;
+}
+function requireCellPara(node, cell, para) {
+  const tableCell = requireCell(node, cell);
+  const i = para ?? 0;
+  const hit = tableCell.paragraphs[i];
+  if (!hit) {
+    throw new Error(`No paragraph ${i} in cell [${cell[0]}, ${cell[1]}] (${tableCell.paragraphs.length} paragraphs)`);
+  }
+  return hit;
+}
+function syncCellHead(node, cell) {
+  const tableCell = requireCell(node, cell);
+  const head = tableCell.paragraphs[0];
+  if (!head)
+    return;
+  tableCell.alignment = head.alignment;
+  tableCell.end = head.end;
+  tableCell.images = head.images;
+  tableCell.markup = head.markup;
+  tableCell.start = head.start;
+  tableCell.text = head.text;
+}
+function tableDisallowedKeys(patch) {
+  const allowed = new Set([
+    "alignment",
+    "borderColor",
+    "borderWidth",
+    "cellBackground",
+    "cellPadding",
+    "cellTextAlignment",
+    "columnWidth",
+    "contentAlignment",
+    "minRowHeight",
+    "pinnedHeaderRows",
+    "preventOverflow"
+  ]);
+  return Object.keys(patch).filter((k) => patch[k] !== undefined && !allowed.has(k));
+}
+function applyPatchToTable(node, patch) {
+  if (!node.table)
+    return;
+  if (patch.columnWidth != null)
+    node.table.columnWidth = patch.columnWidth;
+  if (patch.borderColor)
+    node.table.borderColor = patch.borderColor;
+  if (patch.cellPadding != null)
+    node.table.cellPadding = patch.cellPadding;
+  if (patch.contentAlignment)
+    node.table.contentAlignment = patch.contentAlignment;
+  if (patch.minRowHeight != null)
+    node.table.minRowHeight = patch.minRowHeight;
+  if (patch.pinnedHeaderRows != null)
+    node.table.pinnedHeaderRows = patch.pinnedHeaderRows;
+  if (patch.preventOverflow != null)
+    node.table.preventOverflow = patch.preventOverflow;
+}
+function applyPatchToPara(target, patch) {
+  if (patch.alignment)
+    target.alignment = patch.alignment;
+  if (patch.lineSpacing != null)
+    target.lineSpacing = patch.lineSpacing;
+  if (patch.shading)
+    target.shading = patch.shading;
+  if (patch.spaceAbove != null)
+    target.spaceAbove = patch.spaceAbove;
+  if (patch.spaceBelow != null)
+    target.spaceBelow = patch.spaceBelow;
+  if (patch.indentStart != null) {
+    target.indentStart = { magnitude: patch.indentStart, unit: "PT" };
+  }
+  if (patch.indentFirstLine != null) {
+    target.indentFirstLine = { magnitude: patch.indentFirstLine, unit: "PT" };
+  }
+  if (patch.indentEnd != null) {
+    target.indentEnd = { magnitude: patch.indentEnd, unit: "PT" };
+  }
+}
+
 // src/core/actions/flush.ts
+var RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 15000, 30000, 60000];
 async function pendingWritersFlush(runtime, docRef) {
   const docsToFlush = [];
   if (docRef) {
@@ -19221,6 +20465,73 @@ async function pendingWritersFlush(runtime, docRef) {
     const writersWithMutations = entries.map((e) => e.writer).filter((w) => w.mutations().length > 0);
     if (writersWithMutations.length > 0) {
       const allPlans = entries.flatMap((e) => e.plans);
+      try {
+        await applyDom(docCtx.docId, writersWithMutations, {
+          client: runtime.client,
+          doc: docCtx.gdoc.data,
+          dryRun: false,
+          force: runtime.force,
+          plan: allPlans
+        });
+        docCtx.gdoc = await Gdoc.load(docCtx.docId, runtime.client, { forceFetch: true });
+      } catch (err) {
+        if (!isRevisionMismatchError(err)) {
+          throw err;
+        }
+        await replayPendingMutations(runtime, docCtx, RETRY_DELAYS_MS);
+      }
+    }
+    docCtx.pendingWriters.clear();
+  }
+}
+async function replayPendingMutations(runtime, docCtx, delays) {
+  docCache.invalidate(docCtx.docId);
+  for (let attempt = 0;attempt < delays.length; attempt++) {
+    await sleep2(delays[attempt]);
+    docCtx.gdoc = await Gdoc.load(docCtx.docId, runtime.client, { forceFetch: true });
+    if (!docCtx.pendingWriters)
+      break;
+    for (const [tabKey, entry] of docCtx.pendingWriters.entries()) {
+      const tabId = tabKey === "default" ? undefined : tabKey;
+      const gdoc = tabId ? docCtx.gdoc.withTab(tabId) : docCtx.gdoc;
+      const parsed = parseDocument(gdoc);
+      const writer = new DomWriter(parsed.nodes, {
+        doc: docCtx.gdoc.data,
+        force: runtime.force,
+        lists: gdoc.data.lists,
+        tabId
+      });
+      entry.afterendTails = new Map;
+      entry.doc = gdoc.data;
+      entry.namedAnchors = new Map;
+      entry.plans = [];
+      entry.rootAnchors = new Map;
+      entry.writer = writer;
+      for (const item of entry.steps) {
+        const op = item.op;
+        const plans = tapeMutationsApply(entry.writer, [op], entry.writer.mutations().length, {
+          afterendTails: entry.afterendTails,
+          force: runtime.force || Boolean(op.force),
+          namedAnchors: entry.namedAnchors,
+          rootAnchors: entry.rootAnchors
+        });
+        if (plans?.length) {
+          entry.plans.push(...plans);
+        }
+        assignScopedIds(entry.writer.nodes);
+        const stepAs = item.step?.as;
+        if (stepAs) {
+          const namedNode = entry.namedAnchors.get(stepAs);
+          if (namedNode?.scopedId) {
+            runtime.aliasMap.set(stepAs, namedNode.scopedId);
+          }
+        }
+      }
+    }
+    const entries = Array.from(docCtx.pendingWriters.values());
+    const writersWithMutations = entries.map((e) => e.writer).filter((w) => w.mutations().length > 0);
+    const allPlans = entries.flatMap((e) => e.plans);
+    try {
       await applyDom(docCtx.docId, writersWithMutations, {
         client: runtime.client,
         doc: docCtx.gdoc.data,
@@ -19228,10 +20539,19 @@ async function pendingWritersFlush(runtime, docRef) {
         force: runtime.force,
         plan: allPlans
       });
-      docCtx.gdoc = await Gdoc.load(docCtx.docId, runtime.client);
+      docCtx.gdoc = await Gdoc.load(docCtx.docId, runtime.client, { forceFetch: true });
+      return;
+    } catch (retryErr) {
+      if (!isRevisionMismatchError(retryErr)) {
+        throw retryErr;
+      }
+      docCache.invalidate(docCtx.docId);
     }
-    docCtx.pendingWriters.clear();
   }
+  throw new Error(`Document "${docCtx.docId}" was modified externally and remained busy after retry attempts.`);
+}
+function sleep2(ms) {
+  return new Promise((resolve5) => setTimeout(resolve5, ms));
 }
 
 // src/core/actions/close.ts
@@ -20142,566 +21462,6 @@ function buildHunks(edits, context) {
   }
   return hunks;
 }
-// src/core/dom/write.ts
-class DomWriter {
-  doc;
-  force;
-  linkResolver;
-  lists;
-  segmentId;
-  tabId;
-  #mutations = [];
-  #nodes;
-  #original;
-  #nextId;
-  #nextOpIndex;
-  constructor(nodes, opts = {}) {
-    this.doc = opts.doc;
-    this.force = opts.force ?? false;
-    this.lists = opts.lists;
-    this.segmentId = opts.segmentId;
-    this.tabId = opts.tabId;
-    this.linkResolver = opts.linkResolver ?? (opts.doc || nodes.length ? createSymbolicLinkResolver({
-      currentTabId: opts.tabId,
-      doc: opts.doc,
-      nodes,
-      simulatedTabs: opts.simulatedTabs
-    }) : undefined);
-    this.#original = nodes.map(cloneNode);
-    this.#nodes = nodes.map(cloneNode);
-    this.#nextId = nodes.reduce((m2, n) => Math.max(m2, n.tapeIndex), 0) + 1;
-  }
-  originalNodes() {
-    return this.#original.map(cloneNode);
-  }
-  get nodes() {
-    return this.#nodes;
-  }
-  mutations() {
-    return [...this.#mutations];
-  }
-  setNextOpIndex(index) {
-    this.#nextOpIndex = index;
-  }
-  createElement(...args) {
-    const [kind, props, opts] = args;
-    return createElement(kind, props, { force: this.force, ...opts });
-  }
-  wrap(node) {
-    const live = this.#find(node.tapeIndex);
-    if (!live)
-      throw new Error(`Node ${node.tapeIndex} is not in the tape`);
-    return new DomHandle(this, live);
-  }
-  insertAdjacentElement(anchor, position, element) {
-    if (position === "afterbegin" || position === "beforeend") {
-      const heading = isHeadingStyle(this.#find(anchor.tapeIndex)?.namedStyleType);
-      throw new Error(heading ? `insertAdjacentElement("${position}") would write inside the heading. Use beforebegin/afterend (siblings).` : `insertAdjacentElement("${position}") is not a sibling insert. Use beforebegin/afterend.`);
-    }
-    const live = this.#find(anchor.tapeIndex);
-    if (!live)
-      throw new Error(`Anchor ${anchor.tapeIndex} is not in the tape`);
-    if (element.kind === "paragraph") {
-      assertWritable(element, { force: this.force });
-    }
-    const created = specToNode(element, this.#nextId++);
-    this.#push({
-      anchorId: live.tapeIndex,
-      newId: created.tapeIndex,
-      position,
-      spec: element,
-      type: "insertAdjacent"
-    });
-    const i = this.#nodes.findIndex((n) => n.tapeIndex === live.tapeIndex);
-    const at2 = position === "beforebegin" ? i : i + 1;
-    this.#nodes.splice(at2, 0, created);
-    return created;
-  }
-  setInnerText(node, text, cell, para, opts) {
-    const live = this.#find(node.tapeIndex);
-    if (!live)
-      throw new Error(`Node ${node.tapeIndex} is not in the tape`);
-    const next = stripTrailingNewline(text);
-    if (cell) {
-      const target = requireCellPara(live, cell, para);
-      assertWritable({ text: next }, { force: this.force });
-      this.#push({
-        cell,
-        nodeId: live.tapeIndex,
-        ...para ? { para } : {},
-        ...opts?.runs ? { runs: opts.runs } : {},
-        text: next,
-        type: "innerText"
-      });
-      target.text = next;
-      delete target.markup;
-      delete target.chips;
-      delete target.fontColors;
-      delete target.footnoteIds;
-      syncCellHead(live, cell);
-      return;
-    }
-    if (live.kind !== "paragraph") {
-      throw new Error('innerText is only supported on paragraph nodes (use at: "h.arch.table.0.1.3c8f" from query --full for tables)');
-    }
-    assertWritable({ bullet: live.bullet, namedStyleType: live.namedStyleType, text: next }, { force: this.force });
-    const pending = this.#pendingSpec(live.tapeIndex);
-    if (pending?.kind === "paragraph") {
-      pending.text = next;
-      if (opts?.runs)
-        pending.runs = opts.runs;
-      live.text = next;
-      delete live.markup;
-      delete live.chips;
-      delete live.fontColors;
-      delete live.footnoteIds;
-      return;
-    }
-    this.#push({
-      nodeId: live.tapeIndex,
-      ...opts?.runs ? { runs: opts.runs } : {},
-      text: next,
-      type: "innerText"
-    });
-    live.text = next;
-    delete live.markup;
-    delete live.chips;
-    delete live.fontColors;
-    delete live.footnoteIds;
-  }
-  setNamedStyleType(node, namedStyleType) {
-    const live = this.#find(node.tapeIndex);
-    if (!live)
-      throw new Error(`Node ${node.tapeIndex} is not in the tape`);
-    if (live.kind !== "paragraph") {
-      throw new Error("namedStyleType is only supported on paragraph nodes");
-    }
-    const pending = this.#pendingSpec(live.tapeIndex);
-    if (pending?.kind === "paragraph") {
-      pending.namedStyleType = namedStyleType;
-      live.namedStyleType = namedStyleType;
-      return;
-    }
-    this.#push({
-      namedStyleType,
-      nodeId: live.tapeIndex,
-      type: "namedStyleType"
-    });
-    live.namedStyleType = namedStyleType;
-  }
-  setStyle(node, patch, cell, para) {
-    if (patch?.tableAlignment !== undefined) {
-      throw new Error("tableAlignment is not supported: Google Docs tables default to full page width (left-aligned under the hood). Google Docs REST API has no property or request for table page alignment (center/left/right). Use fixed columnWidth to control column sizes (table remains left-aligned), or cellTextAlignment to align cell text.");
-    }
-    if (patch?.cellTextAlignment !== undefined && !patch.alignment) {
-      patch.alignment = patch.cellTextAlignment;
-    }
-    if (!hasStyle(patch))
-      return;
-    const live = this.#find(node.tapeIndex);
-    if (!live)
-      throw new Error(`Node ${node.tapeIndex} is not in the tape`);
-    if (cell) {
-      const target = requireCellPara(live, cell, para);
-      this.#push({
-        cell,
-        nodeId: live.tapeIndex,
-        ...para ? { para } : {},
-        patch,
-        type: "style"
-      });
-      applyPatchToPara(target, patch);
-      applyPatchToTable(live, patch);
-      if (patch.cellBackground) {
-        const tableCell = requireCell(live, cell);
-        tableCell.backgroundColor = patch.cellBackground;
-      }
-      syncCellHead(live, cell);
-      return;
-    }
-    if (patch.columnCount != null && live.kind !== "sectionBreak") {
-      throw new Error("columnCount is only valid on a sectionBreak node");
-    }
-    if (live.kind === "table") {
-      const disallowed = tableDisallowedKeys(patch);
-      if (disallowed.length) {
-        if (disallowed.includes("tableAlignment")) {
-          throw new Error("tableAlignment is not supported: Google Docs REST API has no property or request for table page alignment (center/left/right). Use fixed columnWidth to control table width, or alignment to align cell text.");
-        }
-        throw new Error(`style on a table node only accepts alignment, cellBackground, columnWidth, borderColor, borderWidth, cellPadding, contentAlignment, minRowHeight (not ${disallowed.join(", ")}). Cell text uses at: "h.arch.table.0.1.3c8f".`);
-      }
-      this.#push({ nodeId: live.tapeIndex, patch, type: "style" });
-      applyPatchToTable(live, patch);
-      return;
-    }
-    if (hasTableChrome(patch)) {
-      throw new Error("columnWidth, borders, cellPadding, contentAlignment, minRowHeight, and cellBackground require a table node or cell id");
-    }
-    if (live.kind !== "paragraph" && live.kind !== "sectionBreak" && patch.columnCount == null) {
-      throw new Error('style is only supported on paragraph, table, or sectionBreak nodes (use at: "h.arch.table.0.1.3c8f" from query --full for cells)');
-    }
-    const pending = this.#pendingSpec(live.tapeIndex);
-    if (pending?.kind === "paragraph") {
-      pending.style = { ...pending.style, ...patch };
-      if (patch.alignment)
-        pending.alignment = patch.alignment;
-      if (patch.indentStart != null) {
-        pending.indentStart = { magnitude: patch.indentStart, unit: "PT" };
-      }
-      applyPatchToPara(live, patch);
-      return;
-    }
-    this.#push({ nodeId: live.tapeIndex, patch, type: "style" });
-    applyPatchToPara(live, patch);
-    if (patch.columnCount != null)
-      live.columnCount = patch.columnCount;
-  }
-  setAlignment(node, alignment, cell, para) {
-    this.setStyle(node, { alignment }, cell, para);
-  }
-  setBulletPreset(node, preset) {
-    const live = this.#find(node.tapeIndex);
-    if (!live)
-      throw new Error(`Node ${node.tapeIndex} is not in the tape`);
-    if (live.kind !== "paragraph") {
-      throw new Error("bullet restyle is only valid on a paragraph");
-    }
-    this.#push({ nodeId: live.tapeIndex, preset, type: "bullets" });
-  }
-  remove(node) {
-    const live = this.#find(node.tapeIndex);
-    if (!live)
-      throw new Error(`Node ${node.tapeIndex} is not in the tape`);
-    this.#push({ nodeId: live.tapeIndex, type: "remove" });
-    this.#nodes.splice(this.#nodes.findIndex((n) => n.tapeIndex === live.tapeIndex), 1);
-  }
-  insertTableRow(tableNode, cell, insertBelow = true, cells) {
-    const live = this.#find(tableNode.tapeIndex);
-    if (!live)
-      throw new Error(`Node ${tableNode.tapeIndex} is not in the tape`);
-    if (live.kind !== "table") {
-      throw new Error("insertTableRow is only valid on a table node");
-    }
-    this.#push({
-      cell,
-      ...cells ? { cells } : {},
-      insertBelow,
-      nodeId: live.tapeIndex,
-      type: "insertTableRow"
-    });
-  }
-  deleteTableRow(tableNode, cell) {
-    const live = this.#find(tableNode.tapeIndex);
-    if (!live)
-      throw new Error(`Node ${tableNode.tapeIndex} is not in the tape`);
-    if (live.kind !== "table") {
-      throw new Error("deleteTableRow is only valid on a table node");
-    }
-    this.#push({
-      cell,
-      nodeId: live.tapeIndex,
-      type: "deleteTableRow"
-    });
-  }
-  insertTableColumn(tableNode, cell, insertRight = true) {
-    const live = this.#find(tableNode.tapeIndex);
-    if (!live)
-      throw new Error(`Node ${tableNode.tapeIndex} is not in the tape`);
-    if (live.kind !== "table") {
-      throw new Error("insertTableColumn is only valid on a table node");
-    }
-    this.#push({
-      cell,
-      insertRight,
-      nodeId: live.tapeIndex,
-      type: "insertTableColumn"
-    });
-  }
-  deleteTableColumn(tableNode, cell) {
-    const live = this.#find(tableNode.tapeIndex);
-    if (!live)
-      throw new Error(`Node ${tableNode.tapeIndex} is not in the tape`);
-    if (live.kind !== "table") {
-      throw new Error("deleteTableColumn is only valid on a table node");
-    }
-    this.#push({
-      cell,
-      nodeId: live.tapeIndex,
-      type: "deleteTableColumn"
-    });
-  }
-  #push(mutation) {
-    this.#mutations.push(this.#nextOpIndex != null ? { ...mutation, opIndex: this.#nextOpIndex } : mutation);
-  }
-  #find(tapeIndex) {
-    return this.#nodes.find((n) => n.tapeIndex === tapeIndex);
-  }
-  #pendingSpec(tapeIndex) {
-    for (const m2 of this.#mutations) {
-      if (m2.type === "insertAdjacent" && m2.newId === tapeIndex)
-        return m2.spec;
-    }
-    return;
-  }
-}
-
-class DomHandle {
-  writer;
-  node;
-  constructor(writer, node) {
-    this.writer = writer;
-    this.node = node;
-  }
-  get innerText() {
-    return this.node.text ?? "";
-  }
-  set innerText(text) {
-    this.writer.setInnerText(this.node, text);
-  }
-  set namedStyleType(namedStyleType) {
-    this.writer.setNamedStyleType(this.node, namedStyleType);
-  }
-  set alignment(alignment) {
-    this.writer.setAlignment(this.node, alignment);
-  }
-  insertAdjacentElement(position, element) {
-    const created = this.writer.insertAdjacentElement(this.node, position, element);
-    return new DomHandle(this.writer, created);
-  }
-  remove() {
-    this.writer.remove(this.node);
-  }
-}
-function clonePara(p) {
-  return {
-    ...p,
-    ...p.chips ? { chips: p.chips.map((chip) => ({ ...chip })) } : {},
-    ...p.images ? { images: p.images.map((img) => ({ ...img })) } : {}
-  };
-}
-function cloneNode(node) {
-  return {
-    ...node,
-    ...node.bullet ? { bullet: { ...node.bullet } } : {},
-    ...node.footnoteIds ? { footnoteIds: [...node.footnoteIds] } : {},
-    ...node.indentStart ? { indentStart: { ...node.indentStart } } : {},
-    ...node.indentFirstLine ? { indentFirstLine: { ...node.indentFirstLine } } : {},
-    ...node.indentEnd ? { indentEnd: { ...node.indentEnd } } : {},
-    ...node.table ? {
-      table: {
-        ...node.table.columnWidth != null ? { columnWidth: node.table.columnWidth } : {},
-        ...node.table.borderColor ? { borderColor: node.table.borderColor } : {},
-        ...node.table.cellPadding != null ? { cellPadding: node.table.cellPadding } : {},
-        ...node.table.contentAlignment ? { contentAlignment: node.table.contentAlignment } : {},
-        ...node.table.minRowHeight != null ? { minRowHeight: node.table.minRowHeight } : {},
-        cells: node.table.cells.map((row) => row.map((cell) => ({
-          ...clonePara(cell),
-          paragraphs: (cell.paragraphs ?? [cell]).map(clonePara),
-          ...cell.backgroundColor ? { backgroundColor: cell.backgroundColor } : {}
-        })))
-      }
-    } : {},
-    ...node.images ? { images: node.images.map((img) => ({ ...img })) } : {},
-    ...node.chips ? { chips: node.chips.map((chip) => ({ ...chip })) } : {}
-  };
-}
-function specToNode(spec, tapeIndex) {
-  if (spec.kind === "table") {
-    return {
-      end: -1,
-      tapeIndex,
-      kind: "table",
-      start: -1,
-      table: {
-        cells: spec.table.rows.map((row) => row.map((text) => {
-          const p = { end: -1, start: -1, text };
-          return { ...p, paragraphs: [p] };
-        }))
-      }
-    };
-  }
-  if (spec.kind === "pageBreak") {
-    return { end: -1, tapeIndex, kind: "pageBreak", start: -1 };
-  }
-  if (spec.kind === "sectionBreak") {
-    return { end: -1, tapeIndex, kind: "sectionBreak", start: -1 };
-  }
-  if (spec.kind === "person") {
-    return {
-      chips: [{ end: -1, start: -1, title: spec.email, uri: `mailto:${spec.email}` }],
-      end: -1,
-      tapeIndex,
-      kind: "paragraph",
-      namedStyleType: "NORMAL_TEXT",
-      start: -1,
-      text: `@${spec.email}`
-    };
-  }
-  if (spec.kind === "richLink") {
-    return {
-      chips: [{ end: -1, start: -1, title: spec.title ?? spec.uri, uri: spec.uri }],
-      end: -1,
-      tapeIndex,
-      kind: "paragraph",
-      namedStyleType: "NORMAL_TEXT",
-      start: -1,
-      text: spec.title ?? spec.uri
-    };
-  }
-  if (spec.kind === "date") {
-    return {
-      chips: [{ end: -1, start: -1, title: spec.displayText ?? spec.timestamp ?? "date", uri: "" }],
-      end: -1,
-      tapeIndex,
-      kind: "paragraph",
-      namedStyleType: "NORMAL_TEXT",
-      start: -1,
-      text: spec.displayText ?? spec.timestamp ?? ""
-    };
-  }
-  if (spec.kind === "footnote") {
-    return {
-      end: -1,
-      tapeIndex,
-      kind: "paragraph",
-      namedStyleType: "NORMAL_TEXT",
-      start: -1,
-      text: "[^]"
-    };
-  }
-  if (spec.kind === "inlineImage") {
-    return {
-      end: -1,
-      tapeIndex,
-      images: [{ end: -1, heightPt: spec.heightPt, objectId: "", start: -1, widthPt: spec.widthPt }],
-      kind: "paragraph",
-      namedStyleType: "NORMAL_TEXT",
-      start: -1,
-      text: ""
-    };
-  }
-  const node = {
-    ...spec.alignment ? { alignment: spec.alignment } : {},
-    ...spec.bullet ? { bullet: { nestingLevel: spec.bullet.nestingLevel } } : {},
-    ...spec.indentStart ? { indentStart: spec.indentStart } : {},
-    end: -1,
-    tapeIndex,
-    kind: "paragraph",
-    namedStyleType: spec.namedStyleType,
-    start: -1,
-    text: spec.text
-  };
-  if (spec.style) {
-    applyPatchToPara(node, spec.style);
-    if (spec.style.foregroundColor || spec.style.fontSize || spec.style.italic) {
-      node.style = {
-        ...spec.style.fontSize ? { fontSize: spec.style.fontSize } : {},
-        ...spec.style.foregroundColor ? { foregroundColor: spec.style.foregroundColor } : {},
-        ...spec.style.italic ? { italic: spec.style.italic } : {}
-      };
-    }
-    if (spec.style.foregroundColor) {
-      node.fontColors = [spec.style.foregroundColor.toUpperCase()];
-    }
-  }
-  if (spec.runs?.length) {
-    const runColors = spec.runs.map((r) => r.foregroundColor).filter((c) => Boolean(c)).map((c) => c.toUpperCase());
-    if (runColors.length > 0) {
-      node.fontColors = Array.from(new Set([...node.fontColors ?? [], ...runColors]));
-    }
-  }
-  return node;
-}
-function requireCell(node, cell) {
-  if (node.kind !== "table" || !node.table) {
-    throw new Error("cell id is only valid on a table node");
-  }
-  const [r, c] = cell;
-  const hit = node.table.cells[r]?.[c];
-  if (!hit) {
-    throw new Error(`No cell [${r}, ${c}] — table is ${node.table.cells.length}×${node.table.cells[0]?.length ?? 0}`);
-  }
-  if (!hit.paragraphs?.length) {
-    hit.paragraphs = [{ end: hit.end, start: hit.start, text: hit.text }];
-  }
-  return hit;
-}
-function requireCellPara(node, cell, para) {
-  const tableCell = requireCell(node, cell);
-  const i = para ?? 0;
-  const hit = tableCell.paragraphs[i];
-  if (!hit) {
-    throw new Error(`No paragraph ${i} in cell [${cell[0]}, ${cell[1]}] (${tableCell.paragraphs.length} paragraphs)`);
-  }
-  return hit;
-}
-function syncCellHead(node, cell) {
-  const tableCell = requireCell(node, cell);
-  const head = tableCell.paragraphs[0];
-  if (!head)
-    return;
-  tableCell.alignment = head.alignment;
-  tableCell.end = head.end;
-  tableCell.images = head.images;
-  tableCell.markup = head.markup;
-  tableCell.start = head.start;
-  tableCell.text = head.text;
-}
-function tableDisallowedKeys(patch) {
-  const allowed = new Set([
-    "alignment",
-    "borderColor",
-    "borderWidth",
-    "cellBackground",
-    "cellPadding",
-    "cellTextAlignment",
-    "columnWidth",
-    "contentAlignment",
-    "minRowHeight",
-    "pinnedHeaderRows",
-    "preventOverflow"
-  ]);
-  return Object.keys(patch).filter((k) => patch[k] !== undefined && !allowed.has(k));
-}
-function applyPatchToTable(node, patch) {
-  if (!node.table)
-    return;
-  if (patch.columnWidth != null)
-    node.table.columnWidth = patch.columnWidth;
-  if (patch.borderColor)
-    node.table.borderColor = patch.borderColor;
-  if (patch.cellPadding != null)
-    node.table.cellPadding = patch.cellPadding;
-  if (patch.contentAlignment)
-    node.table.contentAlignment = patch.contentAlignment;
-  if (patch.minRowHeight != null)
-    node.table.minRowHeight = patch.minRowHeight;
-  if (patch.pinnedHeaderRows != null)
-    node.table.pinnedHeaderRows = patch.pinnedHeaderRows;
-  if (patch.preventOverflow != null)
-    node.table.preventOverflow = patch.preventOverflow;
-}
-function applyPatchToPara(target, patch) {
-  if (patch.alignment)
-    target.alignment = patch.alignment;
-  if (patch.lineSpacing != null)
-    target.lineSpacing = patch.lineSpacing;
-  if (patch.shading)
-    target.shading = patch.shading;
-  if (patch.spaceAbove != null)
-    target.spaceAbove = patch.spaceAbove;
-  if (patch.spaceBelow != null)
-    target.spaceBelow = patch.spaceBelow;
-  if (patch.indentStart != null) {
-    target.indentStart = { magnitude: patch.indentStart, unit: "PT" };
-  }
-  if (patch.indentFirstLine != null) {
-    target.indentFirstLine = { magnitude: patch.indentFirstLine, unit: "PT" };
-  }
-  if (patch.indentEnd != null) {
-    target.indentEnd = { magnitude: patch.indentEnd, unit: "PT" };
-  }
-}
 // src/core/actions/surgicalMutation.ts
 async function surgicalMutationExecute(runtime, step, mutation) {
   const targetDoc = runtime.openDocResolve(step.doc);
@@ -20749,6 +21509,7 @@ async function surgicalMutationExecute(runtime, step, mutation) {
       namedAnchors: new Map,
       plans: [],
       rootAnchors: new Map,
+      steps: [],
       writer
     };
     targetDoc.pendingWriters.set(tabKey, pending);
@@ -20767,6 +21528,7 @@ async function surgicalMutationExecute(runtime, step, mutation) {
       pending.plans.push(...plans);
     }
   }
+  pending.steps.push({ op, step, stepIndex: runtime.stepsExecuted });
   assignScopedIds(pending.writer.nodes);
   simulatedNodesSet(targetDoc.gdoc, pending.writer.nodes, liveTab.tabId);
   if (step.as) {
@@ -20987,7 +21749,7 @@ async function elementsInsertExecute(params) {
       });
       chunksApplied++;
       if (cIdx < chunks.length - 1) {
-        freshDoc = await Gdoc.load(params.documentId, client);
+        freshDoc = await Gdoc.load(params.documentId, client, { forceFetch: true });
         gdoc = tabId ? freshDoc.withTab(tabId) : freshDoc;
         parsedDoc = parseDocument(gdoc);
         const lastSpec = chunk.kind === "table" ? chunk.spec : chunk.specs[chunk.specs.length - 1];
@@ -21147,7 +21909,7 @@ var markdownInsertStep = async (runtime, stepIndex, step) => {
       position,
       tabHint
     });
-    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
+    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   } else {
     const gdoc = liveTab.tabId ? targetDoc.gdoc.withTab(liveTab.tabId) : targetDoc.gdoc;
     const simulatedNodes = simulatedNodesOf(targetDoc.gdoc, liveTab.tabId);
@@ -21358,7 +22120,7 @@ var pageSetupStep = async (runtime, stepIndex, step) => {
   }
   if (!runtime.dryRun) {
     await runtime.client.batchUpdate(targetDoc.docId, [req]);
-    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
+    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   } else {
     const updateStyle = req.updateDocumentStyle.documentStyle;
     const targetTab = tabId ? targetDoc.gdoc.data.tabs?.find((t) => t.tabProperties?.tabId === tabId) : undefined;
@@ -21763,7 +22525,7 @@ var tabCreateStep = async (runtime, stepIndex, step) => {
           tabHint: newTabId
         });
       }
-      targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
+      targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
     }
     if (runtime.dryRun) {
       const key = `${targetDoc.alias}/${newTabId}`;
@@ -21789,7 +22551,7 @@ var tabCreateStep = async (runtime, stepIndex, step) => {
       const resStr = await runtime.client.batchUpdate(targetDoc.docId, [req]);
       const res = JSON.parse(resStr || "{}");
       newTabId = res.replies?.[0]?.addDocumentTab?.tabProperties?.tabId ?? newTabId;
-      targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
+      targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
     } else {
       const existingTabs = targetDoc.gdoc.data.tabs?.length ? targetDoc.gdoc.data.tabs : [
         {
@@ -21874,42 +22636,35 @@ var tabCreateStep = async (runtime, stepIndex, step) => {
   runtime.stepsExecuted++;
 };
 function detectLossyTabElements(nodes) {
-  const counts = { chipTitles: [], equations: 0, footnotes: 0, images: 0, toc: 0 };
+  const counts = {
+    chipTitles: [],
+    equations: 0,
+    footnotes: 0,
+    horizontalRules: 0,
+    images: 0,
+    toc: 0
+  };
   const details = [];
   for (const node of nodes) {
-    const loc2 = node.scopedId ? `node ${node.scopedId}` : `node ${node.tapeIndex}`;
-    if (node.hasEquation) {
-      counts.equations++;
-      details.push(`${loc2}: contains a math equation`);
-    }
-    recordLossyChips(node.chips, loc2, details, counts);
-    recordLossyImages(node.images, loc2, details, counts);
-    if (node.footnoteIds?.length) {
-      counts.footnotes += node.footnoteIds.length;
-      details.push(`${loc2}: contains ${node.footnoteIds.length} footnote(s)`);
-    }
-    if (node.kind === "tableOfContents") {
-      counts.toc++;
-      details.push(`${loc2}: Table of Contents`);
-    }
-    if (node.kind === "table" && node.table) {
-      for (const row of node.table.cells) {
-        for (const cell of row) {
-          const cellLoc = cell.scopedId ? `cell ${cell.scopedId}` : "table cell";
-          recordLossyChips(cell.chips, cellLoc, details, counts);
-          recordLossyImages(cell.images, cellLoc, details, counts);
-          if (cell.paragraphs?.length) {
-            for (const p of cell.paragraphs) {
-              const pLoc = p.scopedId ? `cell para ${p.scopedId}` : cellLoc;
-              recordLossyChips(p.chips, pLoc, details, counts);
-              recordLossyImages(p.images, pLoc, details, counts);
-            }
-          }
-        }
-      }
+    const msgs = unclonableFromNode(node);
+    details.push(...msgs);
+    for (const msg of msgs) {
+      const chip = msg.match(/(?:person chip|date chip|rich link chip|unsupported smart chip) "([^"]*)"/);
+      if (chip)
+        counts.chipTitles.push(chip[1] || "chip");
+      else if (msg.includes("inline image"))
+        counts.images++;
+      else if (msg.includes("math equation"))
+        counts.equations++;
+      else if (msg.includes("footnote"))
+        counts.footnotes++;
+      else if (msg.includes("Table of Contents"))
+        counts.toc++;
+      else if (msg.includes("horizontal rule"))
+        counts.horizontalRules++;
     }
   }
-  return { details, summary: lossyTabScanSummary(counts) };
+  return { details, summary: lossyTabScanSummary(counts, details.length) };
 }
 function lossyTabCopyError(stepIndex, sourceTitle, scan) {
   const issueList = scan.details.map((msg) => `  • ${msg}`).join(`
@@ -21917,9 +22672,9 @@ function lossyTabCopyError(stepIndex, sourceTitle, scan) {
   return `steps[${stepIndex}] tabCreate: cannot copy tab "${sourceTitle}" losslessly (${scan.summary}). Use the Google Docs UI (right-click the tab > Duplicate) or pass force: true for lossy conversion.
 ` + `${issueList}
 
-` + `Google Docs REST API has no native tab duplication endpoint; programmatic copying degrades these elements (flattening smart chips to text/links, replacing internal images with placeholders, omitting footnotes).`;
+` + `Google Docs REST API has no native tab duplication endpoint. Person, date, and rich-link chips and public https images are reconstructed; Drive-only images, footnotes, equations, unsupported chips, TOC, and horizontal rules cannot.`;
 }
-function lossyTabScanSummary(counts) {
+function lossyTabScanSummary(counts, detailCount) {
   const parts = [];
   if (counts.chipTitles.length > 0) {
     const titles = counts.chipTitles.map((t) => `"${t}"`).join(", ");
@@ -21931,24 +22686,13 @@ function lossyTabScanSummary(counts) {
     parts.push(`${counts.equations} math equation(s)`);
   if (counts.footnotes > 0)
     parts.push(`${counts.footnotes} footnote(s)`);
+  if (counts.horizontalRules > 0)
+    parts.push(`${counts.horizontalRules} horizontal rule(s)`);
   if (counts.toc > 0)
     parts.push(`${counts.toc} table of contents`);
+  if (parts.length === 0 && detailCount > 0)
+    parts.push(`${detailCount} uncreatable element(s)`);
   return parts.join("; ");
-}
-function recordLossyChips(chips, loc2, details, counts) {
-  if (!chips?.length)
-    return;
-  const titles = chips.map((c) => `"${c.title || c.uri}"`).join(", ");
-  details.push(`${loc2}: contains ${chips.length} smart chip(s) (${titles})`);
-  for (const chip of chips) {
-    counts.chipTitles.push(chip.title || chip.uri);
-  }
-}
-function recordLossyImages(images, loc2, details, counts) {
-  if (!images?.length)
-    return;
-  counts.images += images.length;
-  details.push(`${loc2}: contains ${images.length} inline image(s)`);
 }
 
 // src/core/actions/tabDelete.ts
@@ -21967,7 +22711,7 @@ var tabDeleteStep = async (runtime, stepIndex, step) => {
     }
     const req = RequestBuilder.deleteTab(resolved.tabId);
     await runtime.client.batchUpdate(targetDoc.docId, [req]);
-    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
+    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   }
   runtime.stepsExecuted++;
 };
@@ -22022,7 +22766,7 @@ var tabMoveStep = async (runtime, stepIndex, step) => {
       }
       throw err;
     }
-    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
+    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   } else {
     const tabs = targetDoc.gdoc.data.tabs ? [...targetDoc.gdoc.data.tabs] : [];
     const fromIdx = tabs.findIndex((t) => t.tabProperties?.tabId === resolved.tabId);
@@ -22087,7 +22831,7 @@ var tabRenameStep = async (runtime, stepIndex, step) => {
       }
       throw err;
     }
-    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
+    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   } else {
     if (targetDoc.gdoc.data.tabs?.length) {
       const tab = findTab(targetDoc.gdoc.data.tabs, resolved.tabId);
@@ -22372,7 +23116,7 @@ var textReplaceStep = async (runtime, _stepIndex, step) => {
       replacements: [{ find: step.find, replace: replaceStr }],
       tabHint: targetTabId
     });
-    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
+    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
     runtime.stepsExecuted++;
     return;
   }
@@ -22597,7 +23341,7 @@ async function applyScriptExecute(doc, opts = {}) {
         doc: ctx.gdoc.data,
         pageSetup: doc.pageSetup
       });
-      ctx.gdoc = await Gdoc.load(ctx.docId, client);
+      ctx.gdoc = await Gdoc.load(ctx.docId, client, { forceFetch: true });
     }
   }
   let fullDiff = "";

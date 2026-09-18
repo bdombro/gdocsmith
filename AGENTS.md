@@ -90,6 +90,16 @@ Avoid needless extraction: keep single-use helpers in the calling file by defaul
 - Domain engine lives in `src/core/`; `dump: true` and `kind: query` extract metadata and matches into `dumped`.
 - Auth is `gws auth export` credentials; do not invent Google OAuth in this app.
 
+## Memory
+
+AI chat thread context (decisions, rejected, footguns, open items) are captured in [.agents/memories/](.agents/memories/) using Brian's `/thread-memory` skill.
+
+- Named `YYYYMMDD-{slug}.md` — read Meta first; matching bodies only (no repo glob)
+- `glossary.md` — common terms and evolution of them
+- Same thread → `/thread-memory sync` again when more settles (merge; keep `id`)
+- Save via `/thread-memory sync` (`save memory` / `save decisions`)
+- Read when modifying step schemas, AST compiler, DomWriter batching, tab lifecycle, or Docs REST API integration
+
 ## When to Halt
 
 Stop and report to the user. Do not work around, paper over, or substitute a weaker path.

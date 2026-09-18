@@ -52,7 +52,7 @@ export const markdownInsertStep: WorkflowStepHandler = async (runtime, stepIndex
       position,
       tabHint,
     });
-    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
+    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   } else {
     const gdoc = liveTab.tabId ? targetDoc.gdoc.withTab(liveTab.tabId) : targetDoc.gdoc;
     const simulatedNodes = simulatedNodesOf(targetDoc.gdoc, liveTab.tabId);

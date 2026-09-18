@@ -3,20 +3,11 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { getValidAccessToken } from "./auth.ts";
+import { fetchWithRetry } from "./fetchWithRetry.ts";
 import type { GoogleDoc } from "./types.ts";
 
 /** Promisified child process runner. */
 const execFileAsync = promisify(execFile);
-
-/**
- * Pauses execution for the specified milliseconds.
- */
-function sleep(
-  /** Duration in milliseconds. */
-  ms: number,
-): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 export const GOOGLE_DOC_MIMETYPE = "application/vnd.google-apps.document";
 const DOCS_BASE_URL = "https://docs.googleapis.com/v1";
@@ -253,28 +244,21 @@ export class GwsClientImpl implements DocsClient {
 
   /** Fetches the full document with tab content. */
   async getDocument(documentId: string): Promise<GoogleDoc> {
-    let lastErr: unknown;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const url = `${DOCS_BASE_URL}/documents/${encodeURIComponent(documentId)}?includeTabsContent=true`;
-        const res = await this.fetcher(url);
-        const text = await res.text();
-        if (!res.ok) {
-          throw new Error(formatGwsError(text, documentId));
-        }
-        return JSON.parse(text) as GoogleDoc;
-      } catch (err) {
-        lastErr = err;
-        const msg = err instanceof Error ? err.message : String(err);
-        if (attempt < 2 && /HTTP request failed|ECONNRESET|ETIMEDOUT|socket hang up|fetch failed/i.test(msg)) {
-          await sleep(2000 * (attempt + 1));
-          continue;
-        }
-        throw new Error(formatGwsError(msg, documentId));
+    const url = `${DOCS_BASE_URL}/documents/${encodeURIComponent(documentId)}?includeTabsContent=true`;
+    try {
+      const res = await fetchWithRetry(url, undefined, {
+        fetcher: this.fetcher,
+        retries: 3,
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        throw new Error(formatGwsError(text, documentId));
       }
+      return JSON.parse(text) as GoogleDoc;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(formatGwsError(msg, documentId));
     }
-    const finalMsg = lastErr instanceof Error ? lastErr.message : String(lastErr);
-    throw new Error(formatGwsError(finalMsg, documentId));
   }
 
   /** Runs an arbitrary gws command and returns stdout or throws on failure. */
@@ -429,6 +413,38 @@ export class DriveClient {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(formatGwsError(msg, fileId));
+    }
+  }
+
+  /** Alias for headRevisionIdGet. */
+  async getHeadRevisionId(
+    /** Target Drive file ID. */
+    fileId: string,
+  ): Promise<string | undefined> {
+    return this.headRevisionIdGet(fileId);
+  }
+
+  /** Fetches the head revision ID of a Drive file for cache freshness verification. */
+  async headRevisionIdGet(
+    /** Target Drive file ID. */
+    fileId: string,
+  ): Promise<string | undefined> {
+    try {
+      const q = new URLSearchParams({
+        fields: "headRevisionId",
+        supportsAllDrives: "true",
+      });
+      const url = `${DRIVE_BASE_URL}/files/${encodeURIComponent(fileId)}?${q.toString()}`;
+      const res = await fetchWithRetry(url, undefined, {
+        fetcher: this.fetcher,
+        retries: 3,
+      });
+      const text = await res.text();
+      if (!res.ok) return undefined;
+      const data = JSON.parse(text) as { headRevisionId?: string };
+      return data.headRevisionId;
+    } catch {
+      return undefined;
     }
   }
 

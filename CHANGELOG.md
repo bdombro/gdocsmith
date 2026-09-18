@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Two-tier document snapshot caching (`DocCache`) in memory and SQLite at `~/.cache/gdocsmith/db.sqlite` with dual TTL freshness (TTL1: 10s stale-while-revalidate, TTL2: 5m hard check / memory GC) and in-flight promise deduplication.
+- Dual-runtime SQLite abstraction (`SqliteDatabase`) seamlessly bridging `bun:sqlite` in Bun and `node:sqlite` in Node without native C++ compilation or external dependencies.
+- Shared `fetchWithRetry` network utility with exponential backoff on transient network errors, HTTP 429 rate limits, and 5xx server errors.
+- Native Docs API write locking using `writeControl.requiredRevisionId` on `batchUpdate` requests to prevent stale index corruption.
+- Automatic declarative step mutation replay in `pendingWritersFlush` backing off up to ~2 minutes across revision conflicts, refreshing the cloud document and re-anchoring mutations against updated character offsets.
+- Drive `headRevisionIdGet` method on `DriveClient` for fast, lightweight cloud revision freshness verification.
+- Adopted `/thread-memory` for tracking agent thread context, decisions, and glossary in `.agents/memories/`, documented in `AGENTS.md`.
 - Refactored `GdocsmithStepInput` from a flat interface into a discriminated union on `kind`, enforcing compile-time type safety and strict per-variant `required: [...]` schemas for MCP tools and CLI input.
 - Unpacked content mutation operations into discrete discriminated step types (`StepMarkdownInsert`, `StepReplaceSection`, `StepReplaceMarkdown`, `StepReplace`, `StepTextReplace`, `StepSectionCopy`, `StepRemove`, `StepSurgical`), eliminating catch-all optional properties and giving each step kind explicit required fields.
 - Consolidated tab creation into a unified `tabCreate` step supporting blank tab creation and structured tab cloning via `fromTab:`, requiring `as:` alias binding for downstream referencing.

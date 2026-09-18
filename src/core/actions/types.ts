@@ -21,6 +21,8 @@ export type PendingWriterEntry = {
   plans: AppliedOpPlan[];
   /** Chained root anchor map. */
   rootAnchors: Map<number, number>;
+  /** Recorded steps that contributed to this pending writer buffer for replay on revision conflict. */
+  steps: Array<{ op: unknown; step: unknown; stepIndex: number }>;
   /** Active DOM writer accumulating surgical mutations. */
   writer: DomWriter;
 };

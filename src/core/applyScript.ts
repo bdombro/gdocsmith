@@ -147,7 +147,7 @@ export async function applyScriptExecute(
         doc: ctx.gdoc.data,
         pageSetup: doc.pageSetup,
       });
-      ctx.gdoc = await Gdoc.load(ctx.docId, client);
+      ctx.gdoc = await Gdoc.load(ctx.docId, client, { forceFetch: true });
     }
   }
 

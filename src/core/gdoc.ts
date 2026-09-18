@@ -1,5 +1,6 @@
 /* In-memory model of a loaded Google Doc. Wraps raw documents.get payloads and provides tab overlay and table resolution helpers. */
 
+import { type DocCacheOptions, docCache } from "~/core/cache/docCache.ts";
 import { type GwsClient, gws } from "./gws.ts";
 import { overlayTab, parseRef } from "./tabs.ts";
 import type { DocElement, GoogleDoc } from "./types.ts";
@@ -15,9 +16,9 @@ export class Gdoc {
     readonly tabId?: string,
   ) {}
 
-  /** Fetches a document from the API and wraps it for reading. */
-  static async load(id: string, client: GwsClient = gws): Promise<Gdoc> {
-    return new Gdoc(await client.getDocument(id), id);
+  /** Fetches a document from the API and wraps it for reading, with two-tier caching. */
+  static async load(id: string, client: GwsClient = gws, options?: DocCacheOptions): Promise<Gdoc> {
+    return docCache.get(id, client, options);
   }
 
   /** Validates and returns the document ID, rejecting full URLs. */

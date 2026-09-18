@@ -148,7 +148,7 @@ export const tabCreateStep: WorkflowStepHandler = async (
         });
       }
 
-      targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
+      targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
     }
 
     if (runtime.dryRun) {
@@ -177,7 +177,7 @@ export const tabCreateStep: WorkflowStepHandler = async (
       const resStr = await runtime.client.batchUpdate(targetDoc.docId, [req]);
       const res = JSON.parse(resStr || "{}");
       newTabId = res.replies?.[0]?.addDocumentTab?.tabProperties?.tabId ?? newTabId;
-      targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client);
+      targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
     } else {
       const existingTabs = targetDoc.gdoc.data.tabs?.length
         ? targetDoc.gdoc.data.tabs

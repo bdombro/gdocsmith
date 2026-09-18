@@ -3,10 +3,15 @@
 import { Gdoc } from "~/core/gdoc.ts";
 import { RequestBuilder } from "~/core/requests.ts";
 import { resolveTab } from "~/core/tabs.ts";
+import { pendingWritersFlush } from "./flush.ts";
 import type { WorkflowStepHandler } from "./types.ts";
 
 /** Deletes a tab by id or title hint on an open document. */
 export const tabDeleteStep: WorkflowStepHandler = async (runtime, stepIndex, step) => {
+  if (step.doc) {
+    await pendingWritersFlush(runtime, step.doc);
+  }
+
   const targetDoc = runtime.openDocResolve(step.doc);
   const tabHint = runtime.aliasResolve(step.tab);
   if (!tabHint) throw new Error(`steps[${stepIndex}] tabDelete requires tab: <id|title>`);

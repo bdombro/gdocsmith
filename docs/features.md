@@ -16,7 +16,7 @@ Use this guide to avoid overconfidence when planning mutations or estimating whe
 | | **Column Breaks** | ✅ | ✅ (`columnBreak`) | ❌ No insert request | ✅ | ⚠️ Read-only | Cannot insert column breaks via REST API. |
 | | **Page Setup & Margins** | ✅ | ✅ (`documentStyle`) | ✅ (`updateDocumentStyle`) | ✅ | ✅ Full (`pageSetup`) | Roundtrip page geometry (margins, orientation, pageSize) via query dump and workflow `pageSetup`. |
 | | **Headers / Footers** | ✅ | ✅ (segment IDs) | ✅ (`createHeader`, `createFooter`) | ✅ | ⚠️ Not a `run` kind yet | Not on body tape. Use the Docs UI until chrome steps exist. |
-| | **Pageless Mode** | ✅ | ✅ (`documentFormat.documentMode`) | ❌ Output only | ❌ | ⚠️ Read-only | Cannot toggle pageless mode via REST API. |
+| | **Pageless Mode** | ✅ | ✅ (`documentFormat.documentMode`) | ✅ (`updateDocumentStyle`) | ✅ | ✅ Full (`pageSetup`) | Supported. Toggle via `pageSetup.mode` ("PAGES" \| "PAGELESS"), `pageSetup.pageless`, or `kind: pageSetup`. |
 | | **Table of Contents (TOC)** | ✅ | ✅ (`tableOfContents`) | ❌ Read-only paragraphs | ✅ (`addTableOfContents`) | ⚠️ Read-only | 🚫 **Do not mutate/delete TOC nodes**: Overwriting with `innerText` or `remove` destroys live links. API cannot regenerate TOC. |
 | | **Watermarks** | ✅ | ❌ Hidden | ❌ | ❌ | ❌ Unsupported | Invisible in REST API; preserved unless whole doc is wiped. |
 | **Typography & Styles** | **Heading Styles (H1–H6)** | ✅ | ✅ (`namedStyleType`) | ✅ (`updateParagraphStyle`) | ✅ | ✅ Full | Supported up to `HEADING_6`. Real styles only (never bold `NORMAL_TEXT`). |
@@ -43,7 +43,7 @@ Use this guide to avoid overconfidence when planning mutations or estimating whe
 | | **Floating / Wrap-Text Images**| ✅ | ✅ (`positionedObjects`) | ❌ Read-only (delete only) | ❌ | ⚠️ Read/Delete only | Cannot create or reposition floating wrap-around objects via REST API. |
 | | **Google Drawings (Vector)** | ✅ | ⚠️ Read-only embedded object | ❌ | ❌ | ⚠️ Read-only | Drawing canvas cannot be inspected, modified, or minted via API. |
 | | **Linked Sheets Charts** | ✅ | ⚠️ Read-only embedded object | ❌ | ❌ | ⚠️ Read-only | Cannot create or trigger refresh on linked Google Sheets charts via API. |
-| **Smart Canvas / Chips** | **People Mentions (`@user`)** | ✅ | ✅ (`person`) | ✅ (`insertPerson`) | ⚠️ | ✅ Full (`insertPerson`) | Native chip creation supported via `insertPerson`. `innerText`/`remove` on existing chips guarded. |
+| **Smart Canvas / Chips** | **People Mentions (`@user`)** | ✅ | ✅ (`person`) | ✅ (`insertPerson`) | ⚠️ | ✅ Full (`insertPerson`) | Native chip creation supported via `insertPerson`. Clone/`tabCreate` recreates mentions that have an email. `innerText`/`remove` on existing chips guarded. |
 | | **Rich File Links (`@file`)** | ✅ | ✅ (`richLink`) | ✅ (`insertRichLink`) | ⚠️ | ✅ Full (`insertRichLink`)| Native rich link chip creation supported via `insertRichLink`. |
 | | **Date Chips (`@today`)** | ✅ | ✅ (`dateElement`) | ✅ (`insertDate`) | ⚠️ | ✅ Full (`insertDate`)| Native date chip creation supported via `insertDate`. |
 | | **Dropdown Chips** | ✅ | ❌ Degrades to plain text | ❌ | ❌ | ❌ Unsupported | Dropdowns (status, priority) appear as plain text in REST API; modifying text destroys interactive dropdown. |

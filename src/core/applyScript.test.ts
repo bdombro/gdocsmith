@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { GdocsmithDocument } from "../commands/run/types.ts";
 import { applyScriptExecute } from "./applyScript.ts";
+import type { GdocsmithStepInput, StepContent, StepTabCreate } from "./workflowTypes.ts";
 
 describe("applyScriptExecute", () => {
   test("runs docCreate and markdownInsert in dry-run with unified diff preview", async () => {
@@ -121,7 +122,7 @@ describe("applyScriptExecute", () => {
     expect(mutateRes.diff).toContain("+Status: APPROVED");
   });
 
-  test("dump: true on docCreate and tabAdd dumps kind, id, title, and tabs into dumped", async () => {
+  test("dump: true on docCreate and tabCreate dumps kind, id, title, and tabs into dumped", async () => {
     const doc: GdocsmithDocument = {
       dryRun: true,
       steps: [
@@ -135,7 +136,7 @@ describe("applyScriptExecute", () => {
           as: "tab2",
           doc: "doc1",
           dump: true,
-          kind: "tabAdd",
+          kind: "tabCreate",
           title: "Sub Tab",
         },
       ],
@@ -229,7 +230,7 @@ describe("applyScriptExecute", () => {
         {
           as: "statusNode",
           kind: "dump",
-        },
+        } as unknown as GdocsmithStepInput,
       ],
     };
     expect(applyScriptExecute(doc)).rejects.toThrow("unknown kind: dump");
@@ -463,7 +464,7 @@ describe("applyScriptExecute", () => {
           kind: "query",
           as: "all",
           output: "markdown",
-        },
+        } as unknown as GdocsmithStepInput,
       ],
     };
     expect(applyScriptExecute(doc)).rejects.toThrow(/Specify doc:/);
@@ -719,7 +720,7 @@ describe("applyScriptExecute", () => {
     expect(subtreeOnly.map((n) => n.text)).toEqual(["Task 1", "Subtask 1.1"]);
   });
 
-  test("tabCopy duplicates tab and content in dryRun, supports queries and diffs", async () => {
+  test("tabCreate with fromTab duplicates tab and content in dryRun, supports queries and diffs", async () => {
     const doc: GdocsmithDocument = {
       dryRun: true,
       steps: [
@@ -735,15 +736,15 @@ describe("applyScriptExecute", () => {
         },
         {
           as: "doc1",
-          copyFrom: "sourceDoc",
-          kind: "docCopy",
+          fromDoc: "sourceDoc",
+          kind: "docCreate",
           title: "Multi-tab Copy",
         },
         {
           as: "copiedTab",
-          copyFromTab: "Main",
           doc: "doc1",
-          kind: "tabCopy",
+          fromTab: "Main",
+          kind: "tabCreate",
           title: "Feature Branch Tab",
         },
         {
@@ -763,6 +764,125 @@ describe("applyScriptExecute", () => {
     const queryPayload = res.dumped.copiedQuery as { markdown: string };
     expect(queryPayload.markdown).toContain("Spec Template");
     expect(queryPayload.markdown).toContain("Initial draft motivation.");
+  });
+
+  test("tabCreate with fromTab clones person chips without force", async () => {
+    const doc: GdocsmithDocument = {
+      dryRun: true,
+      steps: [
+        {
+          as: "doc1",
+          kind: "docCreate",
+          title: "Chip Tab Test",
+        },
+        {
+          doc: "doc1",
+          kind: "markdownInsert",
+          markdown: "# Overview\n\nLead Person",
+        },
+        {
+          doc: "doc1",
+          insertPerson: { email: "alice@example.com" },
+          kind: "surgical",
+          nodeAfter: "h.heading_3.baa5",
+        },
+        {
+          as: "copiedTab",
+          doc: "doc1",
+          dump: true,
+          fromTab: "Main",
+          kind: "tabCreate",
+          title: "Copied Chip Tab",
+        },
+      ],
+    };
+
+    const res = await applyScriptExecute(doc);
+    expect(res.ok).toBe(true);
+    const dump = res.dumped.copiedTab as { warnings?: string[] };
+    expect(dump.warnings?.some((w) => w.includes("smart chip"))).toBeFalsy();
+  });
+
+  test("tabCreate with fromTab fails closed when source tab contains footnotes without force: true", async () => {
+    const doc: GdocsmithDocument = {
+      dryRun: true,
+      steps: [
+        {
+          as: "doc1",
+          kind: "docCreate",
+          title: "Footnote Tab Test",
+        },
+        {
+          doc: "doc1",
+          kind: "markdownInsert",
+          markdown: "# Overview\n\nBody",
+        },
+        {
+          doc: "doc1",
+          insertFootnote: { text: "Citation" },
+          kind: "surgical",
+          nodeAfter: "h.heading_3.baa5",
+        },
+        {
+          as: "copiedTab",
+          doc: "doc1",
+          fromTab: "Main",
+          kind: "tabCreate",
+          title: "Copied Footnote Tab",
+        },
+      ],
+    };
+
+    let thrown: unknown;
+    try {
+      await applyScriptExecute(doc);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    const firstLine = (thrown as Error).message.split("\n")[0] ?? "";
+    expect(firstLine).toContain('cannot copy tab "Main" losslessly');
+    expect(firstLine).toContain("footnote");
+    expect(firstLine).toContain("force: true");
+  });
+
+  test("tabCreate with fromTab succeeds with force: true and attaches degradation warnings to dump", async () => {
+    const doc: GdocsmithDocument = {
+      dryRun: true,
+      steps: [
+        {
+          as: "doc1",
+          kind: "docCreate",
+          title: "Footnote Tab Test",
+        },
+        {
+          doc: "doc1",
+          kind: "markdownInsert",
+          markdown: "# Overview\n\nBody",
+        },
+        {
+          doc: "doc1",
+          insertFootnote: { text: "Citation" },
+          kind: "surgical",
+          nodeAfter: "h.heading_3.baa5",
+        },
+        {
+          as: "copiedTab",
+          doc: "doc1",
+          dump: true,
+          force: true,
+          fromTab: "Main",
+          kind: "tabCreate",
+          title: "Copied Footnote Tab",
+        },
+      ],
+    };
+
+    const res = await applyScriptExecute(doc);
+    expect(res.ok).toBe(true);
+    const dump = res.dumped.copiedTab as { warnings?: string[] };
+    expect(dump.warnings?.length).toBeGreaterThan(0);
+    expect(dump.warnings?.some((w) => w.includes("footnote"))).toBe(true);
   });
 
   test("textReplace with find/replace works without anchors and updates in-memory content", async () => {
@@ -802,7 +922,7 @@ describe("applyScriptExecute", () => {
     expect(checkResult.markdown).not.toContain("<Project Spec Title in 3-8 words>");
   });
 
-  test("docCopy in dryRun clones multi-tab doc and allows chained edits", async () => {
+  test("docCreate with fromDoc in dryRun clones multi-tab doc and allows chained edits", async () => {
     const doc: GdocsmithDocument = {
       dryRun: true,
       steps: [
@@ -819,7 +939,7 @@ describe("applyScriptExecute", () => {
         {
           as: "tab2",
           doc: "sourceDoc",
-          kind: "tabAdd",
+          kind: "tabCreate",
           title: "Second Tab",
         },
         {
@@ -830,8 +950,8 @@ describe("applyScriptExecute", () => {
         },
         {
           as: "targetDoc",
-          copyFrom: "sourceDoc",
-          kind: "docCopy",
+          fromDoc: "sourceDoc",
+          kind: "docCreate",
           title: "Copied Multi-tab Doc",
         },
         {
@@ -960,6 +1080,36 @@ describe("applyScriptExecute", () => {
     expect(outline.headings[1]?.level).toBe(2);
     expect(outline.headings[2]?.text).toBe("Objective");
     expect(outline.headings[2]?.level).toBe(2);
+
+    const headingsAliasRes = await applyScriptExecute({
+      dryRun: true,
+      steps: [
+        {
+          as: "myDoc",
+          kind: "docCreate",
+          title: "Spec Doc",
+        },
+        {
+          doc: "myDoc",
+          kind: "markdownInsert",
+          markdown: "# My Title\n\nOwner line\n\n## Motivation\n\nWhy now.\n\n## Objective\n\nGoals.",
+        },
+        {
+          as: "headingsDump",
+          doc: "myDoc",
+          kind: "query",
+          output: "headings",
+        },
+      ],
+    });
+    expect(headingsAliasRes.ok).toBe(true);
+    const headingsOutline = headingsAliasRes.dumped.headingsDump as {
+      headings: Array<{ text: string; level: number }>;
+      kind: string;
+    };
+    expect(headingsOutline.kind).toBe("outline");
+    expect(headingsOutline.headings.length).toBe(3);
+    expect(headingsOutline.headings[0]?.text).toBe("My Title");
   });
 
   test("tabMove and tabReorder reorder tabs in dryRun and updates dumped tabs", async () => {
@@ -975,13 +1125,13 @@ describe("applyScriptExecute", () => {
         {
           as: "tabAlpha",
           doc: "docWithTabs",
-          kind: "tabAdd",
+          kind: "tabCreate",
           title: "Alpha",
         },
         {
           as: "tabBeta",
           doc: "docWithTabs",
-          kind: "tabAdd",
+          kind: "tabCreate",
           title: "Beta",
         },
         {
@@ -1070,6 +1220,127 @@ describe("applyScriptExecute", () => {
     expect(finalNodes.find((n) => n.text?.includes("Owner: Brian Dombrowski"))).toBeDefined();
     const h1Count = finalNodes.filter((n) => n.namedStyleType === "HEADING_1").length;
     expect(h1Count).toBe(1);
+  });
+
+  test("dry-run diff generation for replaceSection on existing doc", async () => {
+    const mockDocData = {
+      documentId: "existing-doc",
+      title: "My Existing Doc",
+      tabs: [
+        {
+          tabProperties: { tabId: "t.0", title: "Tab 1" },
+          documentTab: {
+            body: {
+              content: [
+                { startIndex: 0, endIndex: 1, sectionBreak: {} },
+                {
+                  startIndex: 1,
+                  endIndex: 17,
+                  paragraph: {
+                    paragraphStyle: { namedStyleType: "TITLE" },
+                    elements: [{ textRun: { content: "My Existing Doc\n" } }],
+                  },
+                },
+                {
+                  startIndex: 17,
+                  endIndex: 28,
+                  paragraph: {
+                    paragraphStyle: { namedStyleType: "HEADING_2", headingId: "h.mot" },
+                    elements: [{ textRun: { content: "Motivation\n" } }],
+                  },
+                },
+                {
+                  startIndex: 28,
+                  endIndex: 60,
+                  paragraph: {
+                    paragraphStyle: { namedStyleType: "NORMAL_TEXT" },
+                    elements: [
+                      { textRun: { content: "Initial motivation with " } },
+                      { textRun: { content: "link", textStyle: { link: { url: "https://example.com" } } } },
+                      { textRun: { content: ".\n" } },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    };
+    const mockClient = {
+      getDocument: async () => structuredClone(mockDocData),
+    } as unknown as import("./gws.ts").GwsClient;
+
+    const res = await applyScriptExecute(
+      {
+        dryRun: true,
+        steps: [
+          { as: "doc", doc: "existing-doc", kind: "docOpen" },
+          {
+            doc: "doc",
+            kind: "replaceSection",
+            markdown: "## Updated Motivation\n\nNew motivation body line.",
+            nodeAt: "Motivation",
+          },
+        ],
+      },
+      { client: mockClient },
+    );
+    expect(res.diff).toContain("-## Motivation");
+    expect(res.diff).toContain("+## Updated Motivation");
+    expect(res.diff).toContain("-Initial motivation with [link](https://example.com).");
+    expect(res.diff).toContain("+New motivation body line.");
+
+    const queryRes = await applyScriptExecute(
+      {
+        dryRun: true,
+        steps: [
+          { as: "doc", doc: "existing-doc", kind: "docOpen" },
+          { as: "nodes", doc: "doc", kind: "query", output: "nodes" },
+        ],
+      },
+      { client: mockClient },
+    );
+    expect(queryRes.diff).toBe("");
+    const bodyNode = (queryRes.dumped.nodes as Array<{ id: string; text?: string }>).find((n) =>
+      n.text?.includes("Initial motivation"),
+    )!;
+
+    const replaceRes = await applyScriptExecute(
+      {
+        dryRun: true,
+        steps: [
+          { as: "doc", doc: "existing-doc", kind: "docOpen" },
+          {
+            doc: "doc",
+            kind: "replace",
+            nodeAt: bodyNode.id,
+            text: "Directly replaced paragraph text.",
+          },
+        ],
+      },
+      { client: mockClient },
+    );
+    expect(replaceRes.diff).toContain("-Initial motivation with [link](https://example.com).");
+    expect(replaceRes.diff).toContain("+Directly replaced paragraph text.");
+
+    const replaceMdRes = await applyScriptExecute(
+      {
+        dryRun: true,
+        steps: [
+          { as: "doc", doc: "existing-doc", kind: "docOpen" },
+          {
+            doc: "doc",
+            kind: "replaceMarkdown",
+            markdown: "Directly replaced with **bold** text.",
+            nodeAt: bodyNode.id,
+          },
+        ],
+      },
+      { client: mockClient },
+    );
+    expect(replaceMdRes.diff).toContain("-Initial motivation with [link](https://example.com).");
+    expect(replaceMdRes.diff).toContain("+Directly replaced with **bold** text.");
   });
 
   test("sectionCopy transfers section content between documents without roundtripping through context", async () => {
@@ -1182,7 +1453,7 @@ describe("applyScriptExecute", () => {
     expect(batchUpdateCalls).toBe(0);
   });
 
-  test("workflow optimizer hoists tabMove afterTab directly into tabAdd", async () => {
+  test("workflow optimizer hoists tabMove afterTab directly into tabCreate", async () => {
     const doc: GdocsmithDocument = {
       dryRun: true,
       steps: [
@@ -1194,7 +1465,7 @@ describe("applyScriptExecute", () => {
         {
           as: "specTab",
           doc: "doc1",
-          kind: "tabAdd",
+          kind: "tabCreate",
           title: "Project Spec",
         },
         {
@@ -1208,9 +1479,9 @@ describe("applyScriptExecute", () => {
 
     const res = await applyScriptExecute(doc);
     expect(res.ok).toBe(true);
-    // tabMove should have been marked no-op and hoisted into tabAdd
-    expect(doc.steps![1]?.afterTab).toBe("Main");
-    expect(doc.steps![2]?.noop).toBe(true);
+    // tabMove should have been marked no-op and hoisted into tabCreate
+    expect((doc.steps![1] as StepTabCreate)?.afterTab).toBe("Main");
+    expect((doc.steps![2] as { noop?: boolean })?.noop).toBe(true);
   });
 
   test("live execution skips redundant updateDocumentTabProperties when tabMove is hoisted", async () => {
@@ -1256,8 +1527,9 @@ describe("applyScriptExecute", () => {
           kind: "docOpen",
         },
         {
+          as: "specTab",
           doc: "myDoc",
-          kind: "tabAdd",
+          kind: "tabCreate",
           title: "Project Spec",
         },
         {
@@ -1277,7 +1549,7 @@ describe("applyScriptExecute", () => {
     expect(batchRequests.some((r) => r.updateDocumentTabProperties)).toBe(false);
   });
 
-  test("workflow optimizer hoists tabRename title directly into tabDuplicate", async () => {
+  test("workflow optimizer hoists tabRename title directly into tabCreate", async () => {
     const doc: GdocsmithDocument = {
       dryRun: true,
       steps: [
@@ -1288,9 +1560,9 @@ describe("applyScriptExecute", () => {
         },
         {
           as: "specTab",
-          copyFromTab: "Main",
           doc: "doc1",
-          kind: "tabDuplicate",
+          fromTab: "Main",
+          kind: "tabCreate",
           title: "Temporary Title",
         },
         {
@@ -1310,11 +1582,332 @@ describe("applyScriptExecute", () => {
 
     const res = await applyScriptExecute(doc);
     expect(res.ok).toBe(true);
-    // tabDuplicate title should have been updated to Final Specification
-    expect(doc.steps![1]?.title).toBe("Final Specification");
+    // tabCreate title should have been updated to Final Specification
+    expect((doc.steps![1] as StepTabCreate)?.title).toBe("Final Specification");
     // Intermediate step targeting Temporary Title should be updated to Final Specification
-    expect(doc.steps![2]?.tab).toBe("Final Specification");
+    expect((doc.steps![2] as StepContent)?.tab).toBe("Final Specification");
     // tabRename should be marked no-op
-    expect(doc.steps![3]?.noop).toBe(true);
+    expect((doc.steps![3] as { noop?: boolean })?.noop).toBe(true);
+  });
+
+  test("kind: pageSetup toggles document mode and dumps it", async () => {
+    const doc: GdocsmithDocument = {
+      dryRun: true,
+      steps: [
+        {
+          as: "doc1",
+          kind: "docCreate",
+          title: "Pageless Doc",
+        },
+        {
+          as: "ps",
+          doc: "doc1",
+          dump: true,
+          kind: "pageSetup",
+          mode: "PAGELESS",
+        },
+      ],
+    };
+
+    const res = await applyScriptExecute(doc);
+    expect(res.ok).toBe(true);
+    const dump = res.dumped.ps as { pageSetup?: { mode?: string; pageless?: boolean } };
+    expect(dump.pageSetup?.mode).toBe("PAGELESS");
+    expect(dump.pageSetup?.pageless).toBe(true);
+  });
+
+  test("kind: pageSetup targets a specific tab in live mode", async () => {
+    const batchRequests: Array<Record<string, unknown>> = [];
+    const mockClient = {
+      batchUpdate: async (_docId: string, reqs: Array<Record<string, unknown>>) => {
+        batchRequests.push(...reqs);
+        return { replies: [{}] };
+      },
+      getDocument: async (_docId: string) => ({
+        documentId: "docLive",
+        tabs: [
+          {
+            documentTab: {
+              body: { content: [] },
+              documentStyle: {
+                documentFormat: {
+                  documentMode: "PAGES",
+                },
+              },
+            },
+            tabProperties: { tabId: "t.main", title: "Main" },
+          },
+          {
+            documentTab: {
+              body: { content: [] },
+              documentStyle: {
+                documentFormat: {
+                  documentMode: "PAGES",
+                },
+              },
+            },
+            tabProperties: { tabId: "t.spec", title: "Spec" },
+          },
+        ],
+        title: "Live Doc",
+      }),
+    } as any;
+
+    const doc: GdocsmithDocument = {
+      dryRun: false,
+      steps: [
+        {
+          as: "myDoc",
+          doc: "docLive",
+          kind: "docOpen",
+        },
+        {
+          doc: "myDoc",
+          kind: "pageSetup",
+          mode: "PAGELESS",
+          tab: "Spec",
+        },
+      ],
+    };
+
+    const res = await applyScriptExecute(doc, { client: mockClient });
+    expect(res.ok).toBe(true);
+    expect(batchRequests.length).toBe(1);
+    expect(batchRequests[0]).toEqual({
+      updateDocumentStyle: {
+        documentStyle: {
+          documentFormat: {
+            documentMode: "PAGELESS",
+          },
+        },
+        fields: "documentFormat.documentMode",
+        tabId: "t.spec",
+      },
+    });
+  });
+
+  test("live execution batches sequential surgical mutations into a single batchUpdate per document", async () => {
+    let batchUpdateCalls = 0;
+    const batchRequests: Array<Record<string, unknown>> = [];
+    let getDocumentCalls = 0;
+
+    const liveDocData = {
+      body: {
+        content: [
+          { endIndex: 1, sectionBreak: {}, startIndex: 0 },
+          {
+            endIndex: 15,
+            paragraph: {
+              elements: [{ textRun: { content: "Original Title\n" } }],
+              paragraphStyle: { namedStyleType: "HEADING_1" },
+            },
+            startIndex: 1,
+          },
+          {
+            endIndex: 30,
+            paragraph: {
+              elements: [{ textRun: { content: "Original Body\n" } }],
+              paragraphStyle: { namedStyleType: "NORMAL_TEXT" },
+            },
+            startIndex: 15,
+          },
+        ],
+      },
+      documentId: "batchDocLive",
+      revisionId: "rev1",
+      title: "Batch Test Doc",
+    };
+
+    const mockClient = {
+      batchUpdate: async (_docId: string, reqs: Array<Record<string, unknown>>) => {
+        batchUpdateCalls++;
+        batchRequests.push(...reqs);
+        return { replies: [{}] };
+      },
+      getDocument: async (_docId: string) => {
+        getDocumentCalls++;
+        return liveDocData;
+      },
+    } as any;
+
+    const doc: GdocsmithDocument = {
+      dryRun: false,
+      steps: [
+        {
+          as: "myDoc",
+          doc: "batchDocLive",
+          kind: "docOpen",
+        },
+        {
+          doc: "myDoc",
+          kind: "replace",
+          nodeAt: "2",
+          replace: "Updated Title",
+        },
+        {
+          doc: "myDoc",
+          innerText: "Updated Body Paragraph",
+          kind: "innerText",
+          nodeAt: "3",
+        },
+        {
+          as: "introPara",
+          doc: "myDoc",
+          element: { kind: "paragraph", namedStyleType: "NORMAL_TEXT", text: "Inserted intro text" },
+          kind: "surgical",
+          nodeAfter: "2",
+        },
+      ],
+    };
+
+    const res = await applyScriptExecute(doc, { client: mockClient });
+    expect(res.ok).toBe(true);
+
+    // Exactly 1 batchUpdate call for all 3 surgical mutation steps!
+    expect(batchUpdateCalls).toBe(1);
+    // getDocument called once during preflight docOpen, and once after the single batchUpdate flush!
+    expect(getDocumentCalls).toBe(2);
+    // Compiled requests should contain deletes and inserts for all 3 mutations
+    expect(batchRequests.length).toBeGreaterThan(3);
+    expect(batchRequests.some((r) => (r as any).insertText?.text === "Updated Title")).toBe(true);
+    expect(batchRequests.some((r) => (r as any).insertText?.text === "Updated Body Paragraph")).toBe(true);
+    expect(batchRequests.some((r) => (r as any).insertText?.text === "Inserted intro text")).toBe(true);
+  });
+
+  test("live execution flushes pending mutations before an intermediate query step", async () => {
+    let batchUpdateCalls = 0;
+
+    const liveDocData = {
+      body: {
+        content: [
+          { endIndex: 1, sectionBreak: {}, startIndex: 0 },
+          {
+            endIndex: 15,
+            paragraph: {
+              elements: [{ textRun: { content: "Original Title\n" } }],
+              paragraphStyle: { namedStyleType: "HEADING_1" },
+            },
+            startIndex: 1,
+          },
+          {
+            endIndex: 30,
+            paragraph: {
+              elements: [{ textRun: { content: "Original Body\n" } }],
+              paragraphStyle: { namedStyleType: "NORMAL_TEXT" },
+            },
+            startIndex: 15,
+          },
+        ],
+      },
+      documentId: "queryFlushDoc",
+      revisionId: "rev1",
+      title: "Query Flush Doc",
+    };
+
+    const mockClient = {
+      batchUpdate: async () => {
+        batchUpdateCalls++;
+        return { replies: [{}] };
+      },
+      getDocument: async () => liveDocData,
+    } as any;
+
+    const doc: GdocsmithDocument = {
+      dryRun: false,
+      steps: [
+        {
+          as: "myDoc",
+          doc: "queryFlushDoc",
+          kind: "docOpen",
+        },
+        {
+          doc: "myDoc",
+          kind: "replace",
+          nodeAt: "2",
+          replace: "Step 1 Title",
+        },
+        {
+          as: "qResults",
+          doc: "myDoc",
+          kind: "query",
+        },
+        {
+          doc: "myDoc",
+          kind: "replace",
+          nodeAt: "3",
+          replace: "Step 2 Body",
+        },
+      ],
+    };
+
+    const res = await applyScriptExecute(doc, { client: mockClient });
+    expect(res.ok).toBe(true);
+    // Step 1 flushed before query (1), and Step 2 flushed at end of script (2)
+    expect(batchUpdateCalls).toBe(2);
+  });
+
+  test("live execution batches mutations referencing chained named anchors across steps", async () => {
+    let batchUpdateCalls = 0;
+    const batchRequests: Array<Record<string, unknown>> = [];
+
+    const liveDocData = {
+      body: {
+        content: [
+          { endIndex: 1, sectionBreak: {}, startIndex: 0 },
+          {
+            endIndex: 15,
+            paragraph: {
+              elements: [{ textRun: { content: "Original Title\n" } }],
+              paragraphStyle: { namedStyleType: "HEADING_1" },
+            },
+            startIndex: 1,
+          },
+        ],
+      },
+      documentId: "chainDocLive",
+      revisionId: "rev1",
+      title: "Chain Test Doc",
+    };
+
+    const mockClient = {
+      batchUpdate: async (_docId: string, reqs: Array<Record<string, unknown>>) => {
+        batchUpdateCalls++;
+        batchRequests.push(...reqs);
+        return { replies: [{}] };
+      },
+      getDocument: async () => liveDocData,
+    } as any;
+
+    const doc: GdocsmithDocument = {
+      dryRun: false,
+      steps: [
+        {
+          as: "myDoc",
+          doc: "chainDocLive",
+          kind: "docOpen",
+        },
+        {
+          as: "para1",
+          doc: "myDoc",
+          element: { kind: "paragraph", namedStyleType: "NORMAL_TEXT", text: "First chained paragraph" },
+          kind: "surgical",
+          nodeAfter: "2",
+        },
+        {
+          as: "para2",
+          doc: "myDoc",
+          element: { kind: "paragraph", namedStyleType: "NORMAL_TEXT", text: "Second chained paragraph" },
+          kind: "surgical",
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: workflow alias interpolation
+          nodeAfter: "${para1}",
+        },
+      ],
+    };
+
+    const res = await applyScriptExecute(doc, { client: mockClient });
+    expect(res.ok).toBe(true);
+    expect(batchUpdateCalls).toBe(1);
+    expect(batchRequests.some((r) => (r as any).insertText?.text === "First chained paragraph")).toBe(true);
+    expect(batchRequests.some((r) => (r as any).insertText?.text === "Second chained paragraph")).toBe(true);
   });
 });

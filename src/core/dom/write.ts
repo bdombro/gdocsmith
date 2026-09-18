@@ -2,13 +2,21 @@
 
 import type { InlineRunInput } from "~/core/inline.ts";
 import type { GoogleDoc } from "~/core/types.ts";
-import { createElement, type ElementSpec, type InsertPosition, stripTrailingNewline } from "./element.ts";
+import {
+  createElement,
+  type ElementSpec,
+  type InsertPosition,
+  type ParagraphInlineSpecial,
+  stripTrailingNewline,
+} from "./element.ts";
 import { assertWritable } from "./guards.ts";
 import { createSymbolicLinkResolver } from "./linkResolver.ts";
 import { hasStyle, hasTableChrome, type StylePatch } from "./style.ts";
 import {
   type CellParagraph,
   type DocNode,
+  type InlineChip,
+  type InlineImage,
   isHeadingStyle,
   type NamedStyle,
   type ParagraphAlignment,
@@ -223,6 +231,10 @@ export class DomWriter {
         type: "innerText",
       });
       target.text = next;
+      delete target.markup;
+      delete (target as Record<string, unknown>).chips;
+      delete (target as Record<string, unknown>).fontColors;
+      delete (target as Record<string, unknown>).footnoteIds;
       syncCellHead(live, cell);
       return;
     }
@@ -240,6 +252,10 @@ export class DomWriter {
       pending.text = next;
       if (opts?.runs) pending.runs = opts.runs;
       live.text = next;
+      delete live.markup;
+      delete (live as Record<string, unknown>).chips;
+      delete (live as Record<string, unknown>).fontColors;
+      delete (live as Record<string, unknown>).footnoteIds;
       return;
     }
 
@@ -250,6 +266,10 @@ export class DomWriter {
       type: "innerText",
     });
     live.text = next;
+    delete live.markup;
+    delete (live as Record<string, unknown>).chips;
+    delete (live as Record<string, unknown>).fontColors;
+    delete (live as Record<string, unknown>).footnoteIds;
   }
 
   /** Change namedStyleType on an existing paragraph. Does not change text. */
@@ -573,9 +593,10 @@ function specToNode(spec: ElementSpec, tapeIndex: number): DocNode {
       kind: "table",
       start: -1,
       table: {
-        cells: spec.table.rows.map((row) =>
-          row.map((text) => {
-            const p: CellParagraph = { end: -1, start: -1, text };
+        cells: spec.table.rows.map((row, r) =>
+          row.map((text, c) => {
+            const parsed = chipsImagesFromSpecials(spec.table.cellSpecials?.[r]?.[c]);
+            const p: CellParagraph = { end: -1, start: -1, text, ...parsed };
             return { ...p, paragraphs: [p] };
           }),
         ),
@@ -590,7 +611,17 @@ function specToNode(spec: ElementSpec, tapeIndex: number): DocNode {
   }
   if (spec.kind === "person") {
     return {
-      chips: [{ end: -1, start: -1, title: spec.email, uri: `mailto:${spec.email}` }],
+      chips: [
+        {
+          email: spec.email,
+          end: -1,
+          kind: "person",
+          start: -1,
+          textOffset: 0,
+          title: spec.email,
+          uri: `mailto:${spec.email}`,
+        },
+      ],
       end: -1,
       tapeIndex,
       kind: "paragraph",
@@ -601,7 +632,17 @@ function specToNode(spec: ElementSpec, tapeIndex: number): DocNode {
   }
   if (spec.kind === "richLink") {
     return {
-      chips: [{ end: -1, start: -1, title: spec.title ?? spec.uri, uri: spec.uri }],
+      chips: [
+        {
+          end: -1,
+          kind: "richLink",
+          start: -1,
+          textOffset: 0,
+          title: spec.title ?? spec.uri,
+          uri: spec.uri,
+          ...(spec.mimeType ? { mimeType: spec.mimeType } : {}),
+        },
+      ],
       end: -1,
       tapeIndex,
       kind: "paragraph",
@@ -612,7 +653,18 @@ function specToNode(spec: ElementSpec, tapeIndex: number): DocNode {
   }
   if (spec.kind === "date") {
     return {
-      chips: [{ end: -1, start: -1, title: spec.displayText ?? spec.timestamp ?? "date", uri: "" }],
+      chips: [
+        {
+          end: -1,
+          kind: "date",
+          start: -1,
+          textOffset: 0,
+          title: spec.displayText ?? spec.timestamp ?? "date",
+          uri: "",
+          ...(spec.dateFormat ? { dateFormat: spec.dateFormat } : {}),
+          ...(spec.timestamp ? { timestamp: spec.timestamp } : {}),
+        },
+      ],
       end: -1,
       tapeIndex,
       kind: "paragraph",
@@ -624,18 +676,29 @@ function specToNode(spec: ElementSpec, tapeIndex: number): DocNode {
   if (spec.kind === "footnote") {
     return {
       end: -1,
+      footnoteIds: [""],
       tapeIndex,
       kind: "paragraph",
       namedStyleType: "NORMAL_TEXT",
       start: -1,
-      text: "[^]",
+      text: spec.text ?? "[^]",
     };
   }
   if (spec.kind === "inlineImage") {
     return {
       end: -1,
       tapeIndex,
-      images: [{ end: -1, heightPt: spec.heightPt, objectId: "", start: -1, widthPt: spec.widthPt }],
+      images: [
+        {
+          end: -1,
+          objectId: "",
+          start: -1,
+          sourceUri: spec.uri,
+          textOffset: 0,
+          ...(spec.heightPt != null ? { heightPt: spec.heightPt } : {}),
+          ...(spec.widthPt != null ? { widthPt: spec.widthPt } : {}),
+        },
+      ],
       kind: "paragraph",
       namedStyleType: "NORMAL_TEXT",
       start: -1,
@@ -653,6 +716,9 @@ function specToNode(spec: ElementSpec, tapeIndex: number): DocNode {
     start: -1,
     text: spec.text,
   };
+  const parsed = chipsImagesFromSpecials(spec.specials);
+  if (parsed.chips) node.chips = parsed.chips;
+  if (parsed.images) node.images = parsed.images;
   if (spec.style) {
     applyPatchToPara(node, spec.style);
     if (spec.style.foregroundColor || spec.style.fontSize || spec.style.italic) {
@@ -676,6 +742,67 @@ function specToNode(spec: ElementSpec, tapeIndex: number): DocNode {
     }
   }
   return node;
+}
+
+/** Maps paragraph specials onto parsed chip/image fields for in-memory nodes. */
+function chipsImagesFromSpecials(
+  /** Inline specials from a detached spec. */
+  specials?: ParagraphInlineSpecial[],
+): { chips?: InlineChip[]; images?: InlineImage[] } {
+  if (!specials?.length) return {};
+  const chips: InlineChip[] = [];
+  const images: InlineImage[] = [];
+  for (const special of specials) {
+    if (special.kind === "person") {
+      chips.push({
+        email: special.email,
+        end: -1,
+        kind: "person",
+        start: -1,
+        textOffset: special.offset,
+        title: special.email,
+        uri: `mailto:${special.email}`,
+      });
+    } else if (special.kind === "date") {
+      const chip: InlineChip = {
+        end: -1,
+        kind: "date",
+        start: -1,
+        textOffset: special.offset,
+        title: special.displayText ?? special.timestamp,
+        uri: "",
+      };
+      if (special.dateFormat) chip.dateFormat = special.dateFormat;
+      chip.timestamp = special.timestamp;
+      chips.push(chip);
+    } else if (special.kind === "richLink") {
+      const chip: InlineChip = {
+        end: -1,
+        kind: "richLink",
+        start: -1,
+        textOffset: special.offset,
+        title: special.title ?? special.uri,
+        uri: special.uri,
+      };
+      if (special.mimeType) chip.mimeType = special.mimeType;
+      chips.push(chip);
+    } else {
+      const image: InlineImage = {
+        end: -1,
+        objectId: "",
+        start: -1,
+        sourceUri: special.uri,
+        textOffset: special.offset,
+      };
+      if (special.heightPt != null) image.heightPt = special.heightPt;
+      if (special.widthPt != null) image.widthPt = special.widthPt;
+      images.push(image);
+    }
+  }
+  return {
+    ...(chips.length ? { chips } : {}),
+    ...(images.length ? { images } : {}),
+  };
 }
 
 /** Asserts that a table node contains the specified cell coordinates. */

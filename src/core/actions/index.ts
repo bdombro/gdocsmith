@@ -1,8 +1,7 @@
 /* Workflow step handler registry (canonical kinds, alphabetical). */
 
-import type { GdocsmithStepInput } from "~/core/workflowTypes.ts";
+import type { GdocsmithStepInputInternal } from "~/core/workflowTypes.ts";
 import { closeStep } from "./close.ts";
-import { docCopyStep } from "./docCopy.ts";
 import { docCreateStep } from "./docCreate.ts";
 import { docDeleteStep } from "./docDelete.ts";
 import { docPermissionAddStep } from "./docPermissionAdd.ts";
@@ -13,14 +12,14 @@ import { docTrashStep } from "./docTrash.ts";
 import { innerTextStep } from "./innerText.ts";
 import { markdownInsertStep } from "./markdownInsert.ts";
 import { openStep } from "./open.ts";
+import { pageSetupStep } from "./pageSetup.ts";
 import { queryStep } from "./query.ts";
 import { removeStep } from "./remove.ts";
 import { replaceStep } from "./replace.ts";
 import { sectionCopyStep } from "./sectionCopy.ts";
 import { stepKindRead } from "./stepKind.ts";
 import { surgicalStep } from "./surgical.ts";
-import { tabAddStep } from "./tabAdd.ts";
-import { tabCopyStep } from "./tabCopy.ts";
+import { tabCreateStep } from "./tabCreate.ts";
 import { tabDeleteStep } from "./tabDelete.ts";
 import { tabMoveStep } from "./tabMove.ts";
 import { tabRenameStep } from "./tabRename.ts";
@@ -31,7 +30,6 @@ import type { ApplyScriptRuntime, WorkflowStepHandler, WorkflowStepKind } from "
 export const STEP_HANDLERS: Partial<Record<WorkflowStepKind, WorkflowStepHandler>> = {
   dangerousRemoveSection: removeStep,
   docClose: closeStep,
-  docCopy: docCopyStep,
   docCreate: docCreateStep,
   docDelete: docDeleteStep,
   docOpen: openStep,
@@ -42,6 +40,7 @@ export const STEP_HANDLERS: Partial<Record<WorkflowStepKind, WorkflowStepHandler
   docTrash: docTrashStep,
   innerText: innerTextStep,
   markdownInsert: markdownInsertStep,
+  pageSetup: pageSetupStep,
   query: queryStep,
   remove: removeStep,
   replace: replaceStep,
@@ -49,10 +48,8 @@ export const STEP_HANDLERS: Partial<Record<WorkflowStepKind, WorkflowStepHandler
   replaceSection: surgicalStep,
   sectionCopy: sectionCopyStep,
   surgical: surgicalStep,
-  tabAdd: tabAddStep,
-  tabCopy: tabCopyStep,
+  tabCreate: tabCreateStep,
   tabDelete: tabDeleteStep,
-  tabDuplicate: tabCopyStep,
   tabMove: tabMoveStep,
   tabRename: tabRenameStep,
   tabReorder: tabMoveStep,
@@ -60,7 +57,11 @@ export const STEP_HANDLERS: Partial<Record<WorkflowStepKind, WorkflowStepHandler
 };
 
 /** Resolves and runs one workflow step. */
-export async function stepRun(runtime: ApplyScriptRuntime, stepIndex: number, step: GdocsmithStepInput): Promise<void> {
+export async function stepRun(
+  runtime: ApplyScriptRuntime,
+  stepIndex: number,
+  step: GdocsmithStepInputInternal,
+): Promise<void> {
   const kind = stepKindRead(step);
   if (!kind) {
     throw new Error(`steps[${stepIndex}] requires kind: <WorkflowStepKind>`);

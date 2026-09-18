@@ -186,6 +186,18 @@ describe("createElement", () => {
     expect(el.indentStart).toEqual({ magnitude: 18, unit: "PT" });
   });
 
+  test("passes paragraph specials through", () => {
+    const el = createElement("paragraph", {
+      namedStyleType: "NORMAL_TEXT",
+      specials: [{ email: "a@x.com", kind: "person", offset: 0 }],
+      text: "Hi",
+    });
+    expect(el.kind).toBe("paragraph");
+    if (el.kind === "paragraph") {
+      expect(el.specials).toEqual([{ email: "a@x.com", kind: "person", offset: 0 }]);
+    }
+  });
+
   test("refuses unknown bullet preset", () => {
     expect(() =>
       createElement("paragraph", {

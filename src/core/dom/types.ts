@@ -177,6 +177,10 @@ export type DocSegmentUse = "default" | "even" | "first";
 export type InlineChip = {
   /** Date chip identifier. */
   dateId?: string;
+  /** Date format pattern from the Docs API. */
+  dateFormat?: string;
+  /** Person email when this chip is a mention. */
+  email?: string;
   /** End character offset. */
   end: number;
   /** Smart chip classification. */
@@ -189,6 +193,10 @@ export type InlineChip = {
   richLinkId?: string;
   /** Start character offset. */
   start: number;
+  /** Offset in `Paragraph.text` (trailing newline excluded) where this chip sits. */
+  textOffset?: number;
+  /** ISO timestamp for date chips. */
+  timestamp?: string;
   /** Label or title of the chip. */
   title: string;
   /** Resource URI for links or profiles. */
@@ -209,8 +217,12 @@ export type InlineImage = {
   objectId: string;
   /** Row index if inside a table cell. */
   row?: number;
+  /** Public HTTPS source URI when the image was inserted from a URL. */
+  sourceUri?: string;
   /** Start character offset. */
   start: number;
+  /** Offset in `Paragraph.text` where this image sits. */
+  textOffset?: number;
   /** Display width in points. */
   widthPt?: number;
 };

@@ -401,4 +401,50 @@ describe("auditDocNodes & exportTabToMarkdown", () => {
       "- Top bullet\n  - Child bullet\n    - Grandchild bullet\n- [ ] Check item\n  1. Numbered child\n",
     );
   });
+
+  test("serializes sequential numbered list items with interleaved nested bullets", () => {
+    const nodes: DocNode[] = [
+      {
+        bullet: { nestingLevel: 0, preset: "NUMBERED_DECIMAL_NESTED" },
+        end: 35,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 1,
+        tapeIndex: 1,
+        text: "Migrate legacy execution records",
+      },
+      {
+        bullet: { nestingLevel: 1, preset: "BULLET_DISC_CIRCLE_SQUARE" },
+        end: 55,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 36,
+        tapeIndex: 2,
+        text: "Depends on: None",
+      },
+      {
+        bullet: { nestingLevel: 0, preset: "NUMBERED_DECIMAL_NESTED" },
+        end: 100,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 56,
+        tapeIndex: 3,
+        text: "Cleanup legacy automation code paths (JIT)",
+      },
+      {
+        bullet: { nestingLevel: 1, preset: "BULLET_DISC_CIRCLE_SQUARE" },
+        end: 150,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 101,
+        tapeIndex: 4,
+        text: "Depends on: Migrate legacy execution records",
+      },
+    ];
+
+    const { markdown } = exportTabToMarkdown(nodes);
+    expect(markdown).toBe(
+      "1. Migrate legacy execution records\n  - Depends on: None\n2. Cleanup legacy automation code paths (JIT)\n  - Depends on: Migrate legacy execution records\n",
+    );
+  });
 });

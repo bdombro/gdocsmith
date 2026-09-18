@@ -407,6 +407,7 @@ function nodesRenderToMarkdown(
       } else if (named === "HEADING_6") {
         bodyLines.push(`###### ${rawText}`);
       } else if (node.bullet) {
+        const listCounters = new Map<number, number>();
         const listLines: string[] = [];
         let j = i;
         while (j < nodes.length) {
@@ -418,16 +419,27 @@ function nodesRenderToMarkdown(
           if (itemNode.images?.length && !rawItemText.includes("[Image]")) {
             rawItemText = rawItemText.trim() ? `${rawItemText} [Image]` : "[Image]";
           }
-          const indent = "  ".repeat(itemNode.bullet.nestingLevel ?? 0);
+          const level = itemNode.bullet.nestingLevel ?? 0;
+          const indent = "  ".repeat(level);
           const isCheckbox = itemNode.bullet.type === "CHECKBOX" || itemNode.bullet.preset === "BULLET_CHECKBOX";
           const isNumbered =
             itemNode.bullet.type === "NUMBERED" || Boolean(itemNode.bullet.preset?.startsWith("NUMBERED"));
 
+          for (const key of Array.from(listCounters.keys())) {
+            if (key > level) {
+              listCounters.delete(key);
+            }
+          }
+
           if (isCheckbox) {
+            listCounters.delete(level);
             listLines.push(`${indent}- [ ] ${rawItemText}`);
           } else if (isNumbered) {
-            listLines.push(`${indent}1. ${rawItemText}`);
+            const nextCount = (listCounters.get(level) ?? 0) + 1;
+            listCounters.set(level, nextCount);
+            listLines.push(`${indent}${nextCount}. ${rawItemText}`);
           } else {
+            listCounters.delete(level);
             listLines.push(`${indent}- ${rawItemText}`);
           }
           j++;

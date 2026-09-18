@@ -90,6 +90,12 @@ Avoid needless extraction: keep single-use helpers in the calling file by defaul
 - Domain engine lives in `src/core/`; `dump: true` and `kind: query` extract metadata and matches into `dumped`.
 - Auth is `gws auth export` credentials; do not invent Google OAuth in this app.
 
+## When to Halt
+
+Stop and report to the user. Do not work around, paper over, or substitute a weaker path.
+
+- Issues or shortcomings with argsbarg (MCP/CLI framework, error shaping, schema, headless handlers). do not compensate in this app.
+
 ## Code quality
 
 - Changes must be summarized in CHANGELOG.md under the UNRELEASED section

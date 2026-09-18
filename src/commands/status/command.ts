@@ -9,11 +9,15 @@ export const statusCommand = {
   description: "Show app version.",
   handler: (ctx) => {
     const out: StatusJsonOutput = { version: ctx.program.version };
-    if (ctx.hasFlag("json")) {
-      console.log(JSON.stringify(out, null, 2));
-    } else {
-      console.log(`version=${out.version}`);
+    if (ctx.invocation === "cli") {
+      if (ctx.hasFlag("json")) {
+        console.log(JSON.stringify(out, null, 2));
+      } else {
+        console.log(`version=${out.version}`);
+      }
+      return;
     }
+    return out;
   },
   key: "status",
   options: [

@@ -1283,8 +1283,14 @@ describe("applyOps", () => {
 
     expect(plan).toHaveLength(1);
     expect(plan[0]?.warnings).toBeDefined();
-    expect(plan[0]?.warnings?.some((w) => w.includes("image(s) replaced with [Image] placeholder"))).toBe(true);
-    expect(plan[0]?.warnings?.some((w) => w.includes("smart chip(s) flattened"))).toBe(true);
+    expect(plan[0]?.warnings?.some((w) => w.includes("inline image has no public source URI"))).toBe(true);
+    expect(plan[0]?.warnings?.some((w) => w.includes("smart chip(s) flattened"))).toBe(false);
+    const mutations = writer.mutations();
+    expect(mutations).toHaveLength(1);
+    if (mutations[0]?.type === "insertAdjacent") {
+      const inserted = mutations[0].spec as ParagraphSpec;
+      expect(inserted.specials?.some((s) => s.kind === "person")).toBe(true);
+    }
   });
 
   test("cloneNode throws descriptive errors for unsupported kinds like tableOfContents or sectionBreak", () => {
@@ -1734,6 +1740,33 @@ Conclusion paragraph
     expect(() =>
       applyOps(writer, [{ at: "h.top", force: true, replaceSection: "# New Top Heading\n\nSome body" }]),
     ).not.toThrow();
+  });
+
+  test("replaceSection on empty heading body inserts after the heading, not before", () => {
+    const nodes: DocNode[] = [
+      {
+        end: 10,
+        headingId: "h.top",
+        tapeIndex: 1,
+        kind: "paragraph",
+        namedStyleType: "HEADING_1",
+        start: 0,
+        text: "Top Heading",
+      },
+      {
+        end: 20,
+        headingId: "h.next",
+        tapeIndex: 2,
+        kind: "paragraph",
+        namedStyleType: "HEADING_1",
+        start: 10,
+        text: "Next Heading",
+      },
+    ];
+    const writer = new DomWriter(nodes);
+    applyOps(writer, [{ at: "h.top", replaceSection: "New body for top" }]);
+
+    expect(writer.nodes.map((n) => n.text)).toEqual(["Top Heading", "New body for top", "Next Heading"]);
   });
 
   test("anti-demolition guard blocks deleting and recreating unchanged nodes", () => {
@@ -2406,6 +2439,38 @@ Conclusion paragraph
       pageHeight: 612,
       pageSize: "LETTER",
       pageWidth: 792,
+    });
+  });
+
+  test("PageSetup extraction preserves document layout mode", () => {
+    const pagelessStyle = {
+      documentFormat: {
+        documentMode: "PAGELESS" as const,
+      },
+      pageSize: {
+        height: { magnitude: 792, unit: "PT" as const },
+        width: { magnitude: 612, unit: "PT" as const },
+      },
+    };
+    const pagelessSetup = extractPageSetup(pagelessStyle);
+    expect(pagelessSetup).toEqual({
+      mode: "PAGELESS",
+      orientation: "PORTRAIT",
+      pageHeight: 792,
+      pageSize: "LETTER",
+      pageWidth: 612,
+      pageless: true,
+    });
+
+    const pagesStyle = {
+      documentFormat: {
+        documentMode: "PAGES" as const,
+      },
+    };
+    const pagesSetup = extractPageSetup(pagesStyle);
+    expect(pagesSetup).toEqual({
+      mode: "PAGES",
+      pageless: false,
     });
   });
 

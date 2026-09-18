@@ -9,17 +9,18 @@ import { QUERY_STEP_FIELDS } from "./query.ts";
 describe("domOpFromStep", () => {
   test("forwards every TapeMutation key present on the step", () => {
     const identity = (val?: string) => val;
-    const workflowAnchor: Partial<Record<TapeMutationKey, keyof GdocsmithStepInput>> = {
+    const workflowAnchor: Partial<Record<TapeMutationKey, string>> = {
       after: "nodeAfter",
       at: "nodeAt",
       before: "nodeBefore",
     };
     for (const key of TAPE_MUTATION_KEYS) {
       const stepKey = workflowAnchor[key] ?? key;
-      const step: GdocsmithStepInput = {
+      const step = {
+        doc: "doc1",
         kind: "surgical",
         [stepKey]: sampleMutationValue(key),
-      };
+      } as GdocsmithStepInput;
       const mutation = domOpFromStep(step, identity);
       expect(mutation[key], `missing TapeMutation key ${key}`).toBeDefined();
     }
@@ -30,6 +31,7 @@ describe("domOpFromStep", () => {
     const mutation = domOpFromStep(
       {
         cloneNode: "heading",
+        doc: "doc1",
         kind: "surgical",
         nodeAfter: "heading",
       },
@@ -40,19 +42,22 @@ describe("domOpFromStep", () => {
   });
 
   test("maps markdown: onto insertMarkdown when insertMarkdown is omitted", () => {
-    const mutation = domOpFromStep({ kind: "surgical", markdown: "# Hi" }, (v) => v);
+    const mutation = domOpFromStep({ doc: "doc1", kind: "markdownInsert", markdown: "# Hi" }, (v) => v);
     expect(mutation.insertMarkdown).toBe("# Hi");
   });
 
   test("maps markdown: onto replaceMarkdown when kind is replaceMarkdown", () => {
-    const mutation = domOpFromStep({ kind: "replaceMarkdown", markdown: "# New Title", nodeAt: "h.title" }, (v) => v);
+    const mutation = domOpFromStep(
+      { doc: "doc1", kind: "replaceMarkdown", markdown: "# New Title", nodeAt: "h.title" },
+      (v) => v,
+    );
     expect(mutation.replaceMarkdown).toBe("# New Title");
     expect(mutation.insertMarkdown).toBeUndefined();
   });
 
   test("maps markdown: onto replaceSection when kind is replaceSection", () => {
     const mutation = domOpFromStep(
-      { kind: "replaceSection", markdown: "## Motivation\n\nContent", nodeAt: "h.sec" },
+      { doc: "doc1", kind: "replaceSection", markdown: "## Motivation\n\nContent", nodeAt: "h.sec" },
       (v) => v,
     );
     expect(mutation.replaceSection).toBe("## Motivation\n\nContent");
@@ -63,6 +68,7 @@ describe("domOpFromStep", () => {
     const aliases = (val?: string) => (val === "heading" ? "h.arch.9a1b" : val);
     const mutation = domOpFromStep(
       {
+        doc: "doc1",
         kind: "surgical",
         nodeAfter: "heading",
         nodeAt: "heading",
@@ -76,8 +82,11 @@ describe("domOpFromStep", () => {
 
     const underMutation = domOpFromStep(
       {
-        kind: "surgical",
+        doc: "doc1",
+        find: "foo",
+        kind: "textReplace",
         nodeUnder: "heading",
+        replace: "bar",
       },
       aliases,
     );

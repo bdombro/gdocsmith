@@ -9,6 +9,7 @@ import type { DocNode, NodeKind } from "~/core/dom/types.ts";
 import type { Gdoc } from "~/core/gdoc.ts";
 import { flattenTabs, resolveTab } from "~/core/tabs.ts";
 import type { QueryOutputFormat } from "~/core/workflowTypes.ts";
+import { pendingWritersFlush } from "./flush.ts";
 import { simulatedNodesOf } from "./simulated.ts";
 import type { WorkflowStepHandler } from "./types.ts";
 
@@ -36,6 +37,10 @@ export const QUERY_STEP_FIELDS = [
 export const queryStep: WorkflowStepHandler = async (runtime, stepIndex, step) => {
   const as = step.as;
   if (!as) throw new Error(`steps[${stepIndex}] query requires "as: <alias>"`);
+
+  if (step.doc) {
+    await pendingWritersFlush(runtime, step.doc);
+  }
 
   const output = queryOutputRead(step.output, stepIndex);
   const full = Boolean(step.full);
@@ -66,7 +71,8 @@ export const queryStep: WorkflowStepHandler = async (runtime, stepIndex, step) =
     Boolean(step.nodeKinds?.length) ||
     Boolean(step.rows?.length) ||
     Boolean(step.sameList);
-  const wholeDocument = !tabHint && !filtered && (output === "markdown" || output === "outline");
+  const wholeDocument =
+    !tabHint && !filtered && (output === "markdown" || output === "outline" || output === "headings");
 
   const tabInputs = wholeDocument
     ? documentTabsParse(targetDoc.gdoc, targetDoc.title)
@@ -83,13 +89,19 @@ export const queryStep: WorkflowStepHandler = async (runtime, stepIndex, step) =
 
   runtime.queryAliases.add(as);
 
+  const activeTabId = tabInputs[0]?.tabId;
+  const effectiveDocStyle =
+    (activeTabId ? targetDoc.gdoc.withTab(activeTabId).data.documentStyle : undefined) ??
+    targetDoc.gdoc.data.documentStyle ??
+    targetDoc.gdoc.data.tabs?.[0]?.documentTab?.documentStyle;
+
   const payload = queryPayloadBuild({
     alias: as,
     documentId: targetDoc.docId,
     full,
     nodes,
     output,
-    pageSetup: pageSetupExtract(targetDoc.gdoc.data.documentStyle),
+    pageSetup: pageSetupExtract(effectiveDocStyle),
     tabInputs,
     unfiltered: !filtered,
   });
@@ -99,7 +111,7 @@ export const queryStep: WorkflowStepHandler = async (runtime, stepIndex, step) =
 };
 
 /** Allowed `output:` values for `kind: query`. */
-const QUERY_OUTPUTS = new Set<QueryOutputFormat>(["markdown", "nodes", "outline"]);
+const QUERY_OUTPUTS = new Set<QueryOutputFormat>(["headings", "markdown", "nodes", "outline"]);
 
 /** Parses a single open document tab (or simulated tape) into export input. */
 function singleTabParse(
@@ -164,7 +176,7 @@ function queryPayloadBuild(opts: {
       markdown: exp.markdown,
     };
   }
-  if (opts.output === "outline") {
+  if (opts.output === "outline" || opts.output === "headings") {
     const tabsOutline = opts.tabInputs.map((tab) => {
       const headings = tab.nodes
         .filter((n) => isHeading(n))
@@ -223,7 +235,7 @@ function queryOutputRead(raw: unknown, stepIndex: number): QueryOutputFormat {
   if (typeof raw === "string" && QUERY_OUTPUTS.has(raw as QueryOutputFormat)) {
     return raw as QueryOutputFormat;
   }
-  throw new Error(`steps[${stepIndex}] query output must be nodes, markdown, or outline`);
+  throw new Error(`steps[${stepIndex}] query output must be nodes, markdown, outline, or headings`);
 }
 
 /** Applies query filters to a tab tape. */

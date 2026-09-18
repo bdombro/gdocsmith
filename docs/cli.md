@@ -12,25 +12,25 @@ Google Docs surgical authoring and workflow engine
 
 #### Subcommands
 
-- `run` — Execute an ordered Google Docs workflow from JSON (`steps` with `kind`).
+- `run` — Declarative Google Docs workflow engine for queries, dry-run diff previews, and document updates.
 - `status` — Show app version.
 
 ### `gdocsmith run`
 
-Execute an ordered Google Docs workflow from JSON (`steps` with `kind`).
+Declarative Google Docs workflow engine for queries, dry-run diff previews, and document updates.
 
 > • Pipe stdin or pass one JSON document. Knobs: `dryRun`, `force`, `quiet` on the document.
-> • Each step requires `kind` (e.g. docOpen|docClose|docCreate|docCopy|query|markdownInsert|replaceSection|…).
-> • File-touching steps require `doc:` (raw id or open alias). `docCreate` binds `as`; `docCopy` uses `copyFrom`. There is no run-level documentId.
+> • Each step requires `kind` (e.g. docOpen|docClose|docCreate|tabCreate|query|markdownInsert|replaceSection|…).
+> • File-touching steps require `doc:` (raw id or open alias). `docCreate` binds `as` (optional `fromDoc:` to clone). There is no run-level documentId.
 > • Raw IDs only: extract between `/document/d/` and `/edit`. Full URLs are rejected.
 > • Surgical targeting: copy heading-scoped ids from `kind: query` into `nodeAt`, `nodeAfter`, or `nodeBefore` (e.g. `h.arch.9a1b`). NEVER compute startIndex/endIndex or write raw batchUpdate scripts.
 > • In-place updates: prefer `replaceSection`, `replaceMarkdown`, or `replace` over deleting and re-inserting content (no demolish-and-rebuild). Use `replace` or `replaceMarkdown` for heading titles; `replaceSection` on an H1 replaces all subsections under it.
 > • Real headings only (`TITLE`, `HEADING_1`–`HEADING_3`). No bullet glyphs in surgical text; use run-in bold (`**Label**: value`).
-> • Bindings: `docOpen` sets document aliases. Every `run` call is stateless; aliases do not persist across multiple `run` invocations. `dump: true` on docOpen/docCreate/docCopy dumps doc/tab metadata into `dumped[as]`. `query` with `as:` writes matches into `dumped[as]` (`output: markdown` or `nodes`). Query aliases cannot be used as mutation anchors.
+> • Bindings: `docOpen`, `docCreate`, and `tabCreate` set aliases. Every `run` call is stateless; aliases do not persist across multiple `run` invocations. `dump: true` on docOpen/docCreate/tabCreate dumps metadata into `dumped[as]`. `query` with `as:` writes matches into `dumped[as]` (`output: markdown` or `nodes`). Query aliases cannot be used as mutation anchors.
 > • Cross-doc transfers: use `kind: sectionCopy` with `fromDoc:` and `fromSection:` to transfer sections server-side without streaming markdown, or query source with `output: markdown` and write with `replaceSection`. Anchors must always belong to the target `doc:`.
 > • Symbolic links: use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown; gdocsmith automatically resolves them to native Docs deep links (`?tab=...#heading=...`).
 > • Prefer one `run` per phase until step kinds are proven; then batch related steps. Chip/table writes use `kind: surgical`.
-> • Dry run: `dryRun: true` includes a unified git diff in the JSON `diff` field without writing.
+> • Dry run: optional `dryRun: true` returns a unified git diff without writing. Run mutations directly without requiring dry-run first; use dryRun only when you need to inspect an expected diff.
 
 #### Output
 
@@ -43,7 +43,7 @@ JSON Schema for output when/if handler emits JSON
   "properties": {
     "diff": {
       "type": "string",
-      "description": "Unified git diff of changes (populated on dryRun)."
+      "description": "Unified git diff of changes (populated on dryRun; empty string when 0 changes detected)."
     },
     "dryRun": {
       "type": "boolean",
@@ -298,11 +298,11 @@ MCP server and bundle tools.
 
 #### Subcommands
 
-- `bundle` — Pack dist MCP artifacts (`.mcpb`, Claude Code plugin zip) from dist/<key>.
+- `bundle` — Pack dist MCP artifacts (`.mcpb`, Claude Code plugin zip, Cursor plugin zip) from dist/<key>.
 
 ##### `gdocsmith run mcp bundle`
 
-Pack dist MCP artifacts (`.mcpb`, Claude Code plugin zip) from dist/<key>.
+Pack dist MCP artifacts (`.mcpb`, Claude Code plugin zip, Cursor plugin zip) from dist/<key>.
 
 ### `gdocsmith status`
 
@@ -491,8 +491,8 @@ MCP server and bundle tools.
 
 #### Subcommands
 
-- `bundle` — Pack dist MCP artifacts (`.mcpb`, Claude Code plugin zip) from dist/<key>.
+- `bundle` — Pack dist MCP artifacts (`.mcpb`, Claude Code plugin zip, Cursor plugin zip) from dist/<key>.
 
 ##### `gdocsmith status mcp bundle`
 
-Pack dist MCP artifacts (`.mcpb`, Claude Code plugin zip) from dist/<key>.
+Pack dist MCP artifacts (`.mcpb`, Claude Code plugin zip, Cursor plugin zip) from dist/<key>.

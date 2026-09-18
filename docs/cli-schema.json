@@ -4,8 +4,8 @@
   "commands": [
     {
       "key": "run",
-      "description": "Execute an ordered Google Docs workflow from JSON (`steps` with `kind`).",
-      "notes": "• Pipe stdin or pass one JSON document. Knobs: `dryRun`, `force`, `quiet` on the document.\n• Each step requires `kind` (e.g. docOpen|docClose|docCreate|docCopy|query|markdownInsert|replaceSection|…).\n• File-touching steps require `doc:` (raw id or open alias). `docCreate` binds `as`; `docCopy` uses `copyFrom`. There is no run-level documentId.\n• Raw IDs only: extract between `/document/d/` and `/edit`. Full URLs are rejected.\n• Surgical targeting: copy heading-scoped ids from `kind: query` into `nodeAt`, `nodeAfter`, or `nodeBefore` (e.g. `h.arch.9a1b`). NEVER compute startIndex/endIndex or write raw batchUpdate scripts.\n• In-place updates: prefer `replaceSection`, `replaceMarkdown`, or `replace` over deleting and re-inserting content (no demolish-and-rebuild). Use `replace` or `replaceMarkdown` for heading titles; `replaceSection` on an H1 replaces all subsections under it.\n• Real headings only (`TITLE`, `HEADING_1`–`HEADING_3`). No bullet glyphs in surgical text; use run-in bold (`**Label**: value`).\n• Bindings: `docOpen` sets document aliases. Every `run` call is stateless; aliases do not persist across multiple `run` invocations. `dump: true` on docOpen/docCreate/docCopy dumps doc/tab metadata into `dumped[as]`. `query` with `as:` writes matches into `dumped[as]` (`output: markdown` or `nodes`). Query aliases cannot be used as mutation anchors.\n• Cross-doc transfers: use `kind: sectionCopy` with `fromDoc:` and `fromSection:` to transfer sections server-side without streaming markdown, or query source with `output: markdown` and write with `replaceSection`. Anchors must always belong to the target `doc:`.\n• Symbolic links: use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown; gdocsmith automatically resolves them to native Docs deep links (`?tab=...#heading=...`).\n• Prefer one `run` per phase until step kinds are proven; then batch related steps. Chip/table writes use `kind: surgical`.\n• Dry run: `dryRun: true` includes a unified git diff in the JSON `diff` field without writing.",
+      "description": "Declarative Google Docs workflow engine for queries, dry-run diff previews, and document updates.",
+      "notes": "• Pipe stdin or pass one JSON document. Knobs: `dryRun`, `force`, `quiet` on the document.\n• Each step requires `kind` (e.g. docOpen|docClose|docCreate|tabCreate|query|markdownInsert|replaceSection|…).\n• File-touching steps require `doc:` (raw id or open alias). `docCreate` binds `as` (optional `fromDoc:` to clone). There is no run-level documentId.\n• Raw IDs only: extract between `/document/d/` and `/edit`. Full URLs are rejected.\n• Surgical targeting: copy heading-scoped ids from `kind: query` into `nodeAt`, `nodeAfter`, or `nodeBefore` (e.g. `h.arch.9a1b`). NEVER compute startIndex/endIndex or write raw batchUpdate scripts.\n• In-place updates: prefer `replaceSection`, `replaceMarkdown`, or `replace` over deleting and re-inserting content (no demolish-and-rebuild). Use `replace` or `replaceMarkdown` for heading titles; `replaceSection` on an H1 replaces all subsections under it.\n• Real headings only (`TITLE`, `HEADING_1`–`HEADING_3`). No bullet glyphs in surgical text; use run-in bold (`**Label**: value`).\n• Bindings: `docOpen`, `docCreate`, and `tabCreate` set aliases. Every `run` call is stateless; aliases do not persist across multiple `run` invocations. `dump: true` on docOpen/docCreate/tabCreate dumps metadata into `dumped[as]`. `query` with `as:` writes matches into `dumped[as]` (`output: markdown` or `nodes`). Query aliases cannot be used as mutation anchors.\n• Cross-doc transfers: use `kind: sectionCopy` with `fromDoc:` and `fromSection:` to transfer sections server-side without streaming markdown, or query source with `output: markdown` and write with `replaceSection`. Anchors must always belong to the target `doc:`.\n• Symbolic links: use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown; gdocsmith automatically resolves them to native Docs deep links (`?tab=...#heading=...`).\n• Prefer one `run` per phase until step kinds are proven; then batch related steps. Chip/table writes use `kind: surgical`.\n• Dry run: optional `dryRun: true` returns a unified git diff without writing. Run mutations directly without requiring dry-run first; use dryRun only when you need to inspect an expected diff.",
       "inputSchema": {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
@@ -20,7 +20,7 @@
           },
           "pageSetup": {
             "$ref": "#/definitions/PageSetup",
-            "description": "Document paper size and margins (applied once on live writes)."
+            "description": "Document paper size, margins, and layout mode (applied once on live writes)."
           },
           "quiet": {
             "type": "boolean",
@@ -43,29 +43,48 @@
                 "type": "object",
                 "properties": {
                   "bottom": {
-                    "type": "number"
+                    "type": "number",
+                    "description": "Bottom margin in points."
                   },
                   "left": {
-                    "type": "number"
+                    "type": "number",
+                    "description": "Left margin in points."
                   },
                   "right": {
-                    "type": "number"
+                    "type": "number",
+                    "description": "Right margin in points."
                   },
                   "top": {
-                    "type": "number"
+                    "type": "number",
+                    "description": "Top margin in points."
                   }
                 },
-                "additionalProperties": false
+                "additionalProperties": false,
+                "description": "Page margin dimensions in points."
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "PAGES",
+                  "PAGELESS"
+                ],
+                "description": "Document layout mode (PAGES or PAGELESS)."
               },
               "orientation": {
                 "type": "string",
                 "enum": [
                   "LANDSCAPE",
                   "PORTRAIT"
-                ]
+                ],
+                "description": "Page orientation for paged documents."
               },
               "pageHeight": {
-                "type": "number"
+                "type": "number",
+                "description": "Custom page height in points."
+              },
+              "pageless": {
+                "type": "boolean",
+                "description": "Whether the document is in pageless mode (convenience alias for mode: PAGELESS)."
               },
               "pageSize": {
                 "type": "string",
@@ -77,66 +96,445 @@
                   "A4",
                   "A5",
                   "CUSTOM"
-                ]
+                ],
+                "description": "Standard paper size preset."
               },
               "pageWidth": {
-                "type": "number"
+                "type": "number",
+                "description": "Custom page width in points."
               }
             },
             "additionalProperties": false,
-            "description": "Document page setup geometry and margins."
+            "description": "Document page setup geometry, layout mode, and margins."
           },
           "GdocsmithStepInput": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/StepDocCreate"
+              },
+              {
+                "$ref": "#/definitions/StepDocLifecycle"
+              },
+              {
+                "$ref": "#/definitions/StepDocOpen"
+              },
+              {
+                "$ref": "#/definitions/StepDocRename"
+              },
+              {
+                "$ref": "#/definitions/StepMarkdownInsert"
+              },
+              {
+                "$ref": "#/definitions/StepPageSetup"
+              },
+              {
+                "$ref": "#/definitions/StepPermission"
+              },
+              {
+                "$ref": "#/definitions/StepQuery"
+              },
+              {
+                "$ref": "#/definitions/StepRemove"
+              },
+              {
+                "$ref": "#/definitions/StepReplace"
+              },
+              {
+                "$ref": "#/definitions/StepReplaceMarkdown"
+              },
+              {
+                "$ref": "#/definitions/StepReplaceSection"
+              },
+              {
+                "$ref": "#/definitions/StepSectionCopy"
+              },
+              {
+                "$ref": "#/definitions/StepSurgical"
+              },
+              {
+                "$ref": "#/definitions/StepTabCreate"
+              },
+              {
+                "$ref": "#/definitions/StepTabModify"
+              },
+              {
+                "$ref": "#/definitions/StepTabRename"
+              },
+              {
+                "$ref": "#/definitions/StepTextReplace"
+              }
+            ],
+            "description": "One workflow step (discriminated union on `kind`)."
+          },
+          "StepDocCreate": {
             "type": "object",
             "properties": {
-              "alignment": {
-                "$ref": "#/definitions/ParagraphAlignment",
-                "description": "Paragraph or table-cell alignment (START / CENTER / END / JUSTIFIED)."
-              },
-              "allTabs": {
-                "type": "boolean",
-                "description": "Replace all occurrences across all tabs in textReplace."
-              },
-              "afterTab": {
-                "type": "string",
-                "description": "Insert or move this tab immediately after the specified tab title or ID."
-              },
               "as": {
                 "type": "string",
-                "description": "On open/query: binds a doc or output alias."
+                "description": "Target alias to bind this document to in the runtime session."
               },
-              "beforeTab": {
+              "doc": {
                 "type": "string",
-                "description": "Insert or move this tab immediately before the specified tab title or ID."
+                "description": "Target document ID or alias. Required on every step that reads or writes a file (`docCreate` binds `as` instead)."
               },
-              "bullet": {
-                "$ref": "#/definitions/BulletProps",
-                "description": "Convert this paragraph (and siblings sharing listId) to a Docs bullet preset."
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
               },
-              "cloneNode": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "$ref": "#/definitions/CloneNodeRef"
-                  }
+              "fromDoc": {
+                "type": "string",
+                "description": "Optional source document ID or alias to copy from (creates blank document if omitted)."
+              },
+              "kind": {
+                "type": "string",
+                "const": "docCreate",
+                "description": "Workflow step kind."
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "PAGES",
+                  "PAGELESS"
                 ],
-                "description": "Clone an existing node with style/bullet fidelity (heading-scoped id or ref)."
+                "description": "Document layout mode: \"PAGES\" or \"PAGELESS\"."
               },
-              "cloneNodes": {
-                "type": "array",
-                "items": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "$ref": "#/definitions/CloneNodeRef"
-                    }
-                  ]
-                },
-                "description": "Batch cloning of existing nodes."
+              "pageSetup": {
+                "$ref": "#/definitions/PageSetup",
+                "description": "Document page setup geometry, layout mode, and margins."
+              },
+              "pageless": {
+                "type": "boolean",
+                "description": "Whether the document is in pageless mode (convenience alias for mode: \"PAGELESS\")."
+              },
+              "title": {
+                "type": "string",
+                "description": "Document title."
+              }
+            },
+            "required": [
+              "as",
+              "kind",
+              "title"
+            ],
+            "additionalProperties": false,
+            "description": "Document creation or cloning step (`kind: \"docCreate\"`)."
+          },
+          "StepDocLifecycle": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "Target alias to bind this step's output to in the runtime session."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "docClose",
+                  "docDelete",
+                  "docTrash"
+                ],
+                "description": "Workflow step kind."
+              },
+              "permanent": {
+                "type": "boolean",
+                "description": "Permanently delete document from Drive (docDelete)."
+              }
+            },
+            "required": [
+              "doc",
+              "kind"
+            ],
+            "additionalProperties": false,
+            "description": "Document lifecycle step (`kind: \"docClose\" | \"docDelete\" | \"docTrash\"`)."
+          },
+          "StepDocOpen": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "Target alias to bind this document to in the runtime session."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Document ID to load into the session."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
+              },
+              "kind": {
+                "type": "string",
+                "const": "docOpen",
+                "description": "Workflow step kind."
+              }
+            },
+            "required": [
+              "as",
+              "doc",
+              "kind"
+            ],
+            "additionalProperties": false,
+            "description": "Open an existing document step (`kind: \"docOpen\"`)."
+          },
+          "StepDocRename": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "Target alias to bind this step's output to in the runtime session."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
+              },
+              "kind": {
+                "type": "string",
+                "const": "docRename",
+                "description": "Workflow step kind."
+              },
+              "title": {
+                "type": "string",
+                "description": "New title for the document."
+              }
+            },
+            "required": [
+              "doc",
+              "kind",
+              "title"
+            ],
+            "additionalProperties": false,
+            "description": "Rename an open document step (`kind: \"docRename\"`)."
+          },
+          "StepMarkdownInsert": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "Anchor alias or binding for newly created elements."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
+              },
+              "file": {
+                "type": "string",
+                "description": "Local markdown or text file path to read and insert (or '-' for stdin)."
+              },
+              "h1IsTitle": {
+                "type": "boolean",
+                "description": "Treat top-level # as Title instead of HEADING_1."
+              },
+              "kind": {
+                "type": "string",
+                "const": "markdownInsert",
+                "description": "Workflow step kind."
+              },
+              "markdown": {
+                "type": "string",
+                "description": "Canonical markdown content to render and insert."
+              },
+              "markdownStyles": {
+                "type": "object",
+                "additionalProperties": {},
+                "description": "Named `::styleName[]::` directive styles (`{ alert: { color: \"#f00\" } }`). Distinct from native `style`."
+              },
+              "nodeAfter": {
+                "type": "string",
+                "description": "Anchor node to insert after (heading-scoped id from query)."
+              },
+              "nodeAt": {
+                "type": "string",
+                "description": "Anchor node to insert at (heading-scoped id from query)."
+              },
+              "nodeBefore": {
+                "type": "string",
+                "description": "Anchor node to insert before (heading-scoped id from query)."
+              },
+              "tab": {
+                "type": "string",
+                "description": "Target tab ID or title."
+              },
+              "text": {
+                "type": "string",
+                "description": "Plain text content (fallback alias for canonical markdown:)."
+              }
+            },
+            "required": [
+              "doc",
+              "kind"
+            ],
+            "additionalProperties": false,
+            "description": "Insert rendered markdown step (`kind: \"markdownInsert\"`)."
+          },
+          "StepPageSetup": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "Target alias to bind this step's output to in the runtime session."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
+              },
+              "kind": {
+                "type": "string",
+                "const": "pageSetup",
+                "description": "Workflow step kind."
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "PAGES",
+                  "PAGELESS"
+                ],
+                "description": "Document layout mode: \"PAGES\" or \"PAGELESS\"."
+              },
+              "pageSetup": {
+                "$ref": "#/definitions/PageSetup",
+                "description": "Document page setup geometry, layout mode, and margins."
+              },
+              "pageless": {
+                "type": "boolean",
+                "description": "Whether the document is in pageless mode (convenience alias for mode: \"PAGELESS\")."
+              },
+              "tab": {
+                "type": "string",
+                "description": "Target tab ID or title."
+              }
+            },
+            "required": [
+              "doc",
+              "kind"
+            ],
+            "additionalProperties": false,
+            "description": "Document page geometry / layout mode step (`kind: \"pageSetup\"`)."
+          },
+          "StepPermission": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "Target alias to bind this step's output to in the runtime session."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
+              },
+              "domain": {
+                "type": "string",
+                "description": "Domain name for domain-level file permissions (docPermissionAdd)."
+              },
+              "email": {
+                "type": "string",
+                "description": "Email address of grantee for docPermissionAdd or docPermissionRemove."
+              },
+              "emailMessage": {
+                "type": "string",
+                "description": "Notification email message body for docPermissionAdd."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "docPermissionAdd",
+                  "docPermissionList",
+                  "docPermissionRemove"
+                ],
+                "description": "Workflow step kind."
+              },
+              "moveToNewOwnersRoot": {
+                "type": "boolean",
+                "description": "Whether to move the file to the new owner's root folder when transferring ownership (docPermissionAdd)."
+              },
+              "permissionId": {
+                "type": "string",
+                "description": "Specific permission ID to revoke in docPermissionRemove."
+              },
+              "role": {
+                "$ref": "#/definitions/DrivePermissionRole",
+                "description": "Access level role for docPermissionAdd (commenter / fileOrganizer / organizer / owner / reader / writer)."
+              },
+              "scope": {
+                "$ref": "#/definitions/DrivePermissionScope",
+                "description": "Grantee access scope for docPermissionAdd or docPermissionRemove (anyone / domain / group / internal / user)."
+              },
+              "sendNotificationEmail": {
+                "type": "boolean",
+                "description": "Whether to send an email notification to grantees on docPermissionAdd."
+              },
+              "transferOwnership": {
+                "type": "boolean",
+                "description": "Whether to transfer file ownership to the grantee on docPermissionAdd."
+              }
+            },
+            "required": [
+              "doc",
+              "kind"
+            ],
+            "additionalProperties": false,
+            "description": "Document permission step (`kind: \"docPermissionAdd\" | \"docPermissionList\" | \"docPermissionRemove\"`)."
+          },
+          "DrivePermissionRole": {
+            "type": "string",
+            "enum": [
+              "commenter",
+              "fileOrganizer",
+              "organizer",
+              "owner",
+              "reader",
+              "writer"
+            ],
+            "description": "Role assigned to a Drive file permission."
+          },
+          "DrivePermissionScope": {
+            "type": "string",
+            "enum": [
+              "anyone",
+              "domain",
+              "group",
+              "internal",
+              "user"
+            ],
+            "description": "Grantee access scope for a Drive file permission."
+          },
+          "StepQuery": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "On query: binds an output alias in `dumped[as]`."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
               },
               "cols": {
                 "type": "array",
@@ -149,407 +547,28 @@
                 "type": "string",
                 "description": "Text substring filter for query."
               },
-              "copyFrom": {
-                "type": "string",
-                "description": "Source doc ID or alias for docCopy."
-              },
-              "copyFromDoc": {
-                "type": "string",
-                "description": "Source doc ID or alias for tabCopy / tabDuplicate (defaults to doc)."
-              },
-              "copyFromTab": {
-                "type": "string",
-                "description": "Source tab ID or title for tabCopy / tabDuplicate / tabAdd."
-              },
-              "dangerousClear": {
-                "type": "boolean",
-                "description": "Clear the tab/doc before mutations."
-              },
-              "dangerousRemoveSection": {
-                "type": "boolean",
-                "description": "Remove the heading and its following section."
-              },
-              "deleteTableColumn": {
-                "anyOf": [
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "object",
-                    "properties": {
-                      "col": {
-                        "type": "number"
-                      }
-                    },
-                    "additionalProperties": false
-                  }
-                ],
-                "description": "Delete a table column."
-              },
-              "deleteTableRow": {
-                "anyOf": [
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "object",
-                    "properties": {
-                      "row": {
-                        "type": "number"
-                      }
-                    },
-                    "additionalProperties": false
-                  }
-                ],
-                "description": "Delete a table row."
-              },
-              "doc": {
-                "type": "string",
-                "description": "Target document ID or alias. Required on every step that reads or writes a file (`docCreate` binds `as` instead; `docCopy` uses `copyFrom`)."
-              },
-              "domain": {
-                "type": "string",
-                "description": "Domain name for domain-level file permissions (docPermissionAdd)."
-              },
-              "dump": {
-                "type": "boolean",
-                "description": "Dump document or tab metadata into `dumped[as]`."
-              },
-              "duplicateTableRow": {
-                "anyOf": [
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "object",
-                    "properties": {
-                      "insertBelow": {
-                        "type": "boolean"
-                      },
-                      "row": {
-                        "type": "number"
-                      }
-                    },
-                    "additionalProperties": false
-                  }
-                ],
-                "description": "Duplicate a table row."
-              },
-              "element": {
-                "type": "object",
-                "additionalProperties": {},
-                "description": "Detached element spec to insert."
-              },
-              "elements": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": {}
-                },
-                "description": "Detached element specs to insert in order."
-              },
-              "email": {
-                "type": "string",
-                "description": "Email address of grantee for docPermissionAdd or docPermissionRemove (alias for emailAddress)."
-              },
-              "emailAddress": {
-                "type": "string",
-                "description": "Email address of grantee for docPermissionAdd or docPermissionRemove."
-              },
-              "emailMessage": {
-                "type": "string",
-                "description": "Notification email message body for docPermissionAdd."
-              },
-              "file": {
-                "type": "string",
-                "description": "Local markdown/text path."
-              },
-              "find": {
-                "type": "string",
-                "description": "String to find for textReplace."
-              },
               "fontColors": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
-                "description": "Scope query to foreground font colors (supports semantic colors like \"red\", hex like \"#ea4335\", and exclusions like \"!#000000\" or \"!default\")."
-              },
-              "force": {
-                "type": "boolean",
-                "description": "Force destructive mutation even if targeting a fragile node."
-              },
-              "fromDoc": {
-                "type": "string",
-                "description": "Source document ID or alias for sectionCopy (defaults to doc)."
-              },
-              "fromSection": {
-                "type": "string",
-                "description": "Source heading title, slug, or heading ID to copy from for sectionCopy."
-              },
-              "fromTab": {
-                "type": "string",
-                "description": "Source tab ID or title for sectionCopy (defaults to source doc active tab)."
+                "description": "Scope query to foreground font colors."
               },
               "full": {
                 "type": "boolean",
                 "description": "Keep every node in query dumps (no heading-only truncation; include table cells)."
-              },
-              "h1IsTitle": {
-                "type": "boolean",
-                "description": "Treat top-level # as Title instead of HEADING_1."
               },
               "headingLevels": {
                 "type": "array",
                 "items": {
                   "type": "number"
                 },
-                "description": "Scope query to outline heading levels (0 = TITLE, 1 = HEADING_1, 2 = HEADING_2, etc.)."
-              },
-              "includeHeading": {
-                "type": "boolean",
-                "description": "Whether to include the source section heading in sectionCopy (default true)."
-              },
-              "index": {
-                "type": "number",
-                "description": "Position index for tabAdd."
-              },
-              "innerText": {
-                "type": "string",
-                "description": "In-place paragraph text."
-              },
-              "insertAdjacentElement": {
-                "type": "object",
-                "properties": {
-                  "cloneNode": {
-                    "anyOf": [
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "$ref": "#/definitions/CloneNodeRef"
-                      }
-                    ]
-                  },
-                  "cloneNodes": {
-                    "type": "array",
-                    "items": {
-                      "anyOf": [
-                        {
-                          "type": "number"
-                        },
-                        {
-                          "type": "string"
-                        },
-                        {
-                          "$ref": "#/definitions/CloneNodeRef"
-                        }
-                      ]
-                    }
-                  },
-                  "element": {
-                    "type": "object",
-                    "additionalProperties": {}
-                  },
-                  "elements": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "additionalProperties": {}
-                    }
-                  },
-                  "position": {
-                    "$ref": "#/definitions/InsertPosition"
-                  }
-                },
-                "additionalProperties": false,
-                "description": "Nested insertAdjacentElement payload."
-              },
-              "insertDate": {
-                "type": "object",
-                "properties": {
-                  "dateFormat": {
-                    "type": "string"
-                  },
-                  "displayText": {
-                    "type": "string"
-                  },
-                  "timestamp": {
-                    "type": "string"
-                  }
-                },
-                "additionalProperties": false,
-                "description": "Insert a native date chip."
-              },
-              "insertFootnote": {
-                "type": "object",
-                "properties": {
-                  "text": {
-                    "type": "string"
-                  }
-                },
-                "additionalProperties": false,
-                "description": "Insert a footnote reference."
-              },
-              "insertImage": {
-                "type": "object",
-                "properties": {
-                  "heightPt": {
-                    "type": "number"
-                  },
-                  "uri": {
-                    "type": "string"
-                  },
-                  "widthPt": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "uri"
-                ],
-                "additionalProperties": false,
-                "description": "Insert a public HTTPS inline image."
-              },
-              "insertMarkdown": {
-                "type": [
-                  "string",
-                  "boolean"
-                ],
-                "description": "Insert rendered markdown at the anchor (surgical; prefer kind: markdownInsert)."
-              },
-              "insertPerson": {
-                "type": "object",
-                "properties": {
-                  "email": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "email"
-                ],
-                "additionalProperties": false,
-                "description": "Insert a person mention chip."
-              },
-              "insertRichLink": {
-                "type": "object",
-                "properties": {
-                  "mimeType": {
-                    "type": "string"
-                  },
-                  "title": {
-                    "type": "string"
-                  },
-                  "uri": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "uri"
-                ],
-                "additionalProperties": false,
-                "description": "Insert a rich link chip."
-              },
-              "insertSectionBreak": {
-                "anyOf": [
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "object",
-                    "properties": {
-                      "sectionType": {
-                        "type": "string",
-                        "enum": [
-                          "CONTINUOUS",
-                          "NEXT_PAGE"
-                        ]
-                      }
-                    },
-                    "additionalProperties": false
-                  }
-                ],
-                "description": "Insert a section break."
-              },
-              "insertTableColumn": {
-                "anyOf": [
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "object",
-                    "properties": {
-                      "col": {
-                        "type": "number"
-                      },
-                      "insertRight": {
-                        "type": "boolean"
-                      }
-                    },
-                    "additionalProperties": false
-                  }
-                ],
-                "description": "Insert a table column."
-              },
-              "insertTableRow": {
-                "anyOf": [
-                  {
-                    "type": "boolean"
-                  },
-                  {
-                    "type": "object",
-                    "properties": {
-                      "cells": {
-                        "type": "array",
-                        "items": {
-                          "type": "string"
-                        }
-                      },
-                      "insertBelow": {
-                        "type": "boolean"
-                      },
-                      "row": {
-                        "type": "number"
-                      }
-                    },
-                    "additionalProperties": false
-                  }
-                ],
-                "description": "Insert a table row."
+                "description": "Scope query to outline heading levels (0 = TITLE, 1 = HEADING_1, etc.)."
               },
               "kind": {
-                "anyOf": [
-                  {
-                    "$ref": "#/definitions/WorkflowStepKind"
-                  },
-                  {
-                    "type": "string"
-                  }
-                ],
-                "description": "Workflow step kind."
-              },
-              "markdown": {
                 "type": "string",
-                "description": "Markdown text string."
-              },
-              "markdownStyles": {
-                "type": "object",
-                "additionalProperties": {},
-                "description": "Named `::styleName[]::` directive styles (`{ alert: { color: \"#f00\" } }`). Distinct from native `style`."
-              },
-              "matchCase": {
-                "type": "boolean",
-                "description": "Match case in textReplace (default true)."
-              },
-              "moveToNewOwnersRoot": {
-                "type": "boolean",
-                "description": "Whether to move the file to the new owner's root folder when transferring ownership (docPermissionAdd)."
-              },
-              "namedStyleType": {
-                "$ref": "#/definitions/NamedStyle",
-                "description": "Change namedStyleType on an existing paragraph."
+                "const": "query",
+                "description": "Workflow step kind."
               },
               "nestingLevels": {
                 "type": "array",
@@ -557,18 +576,6 @@
                   "type": "number"
                 },
                 "description": "Scope query to bullet nesting levels (0 = root bullet, 1 = sub-bullet, etc.)."
-              },
-              "nodeAfter": {
-                "type": "string",
-                "description": "Anchor node to insert after (heading-scoped id from query)."
-              },
-              "nodeAt": {
-                "type": "string",
-                "description": "Heading-scoped id from query (e.g. h.arch.9a1b)."
-              },
-              "nodeBefore": {
-                "type": "string",
-                "description": "Anchor node to insert before (heading-scoped id from query)."
               },
               "nodeKinds": {
                 "type": "array",
@@ -579,53 +586,11 @@
               },
               "nodeUnder": {
                 "type": "string",
-                "description": "Heading or scope for query/replace."
-              },
-              "noop": {
-                "type": "boolean",
-                "description": "Internal flag indicating step was optimized into another step (e.g. hoisted into creation)."
+                "description": "Heading or scope node ID for query."
               },
               "output": {
                 "$ref": "#/definitions/QueryOutputFormat",
-                "description": "Query serialization format (default nodes)."
-              },
-              "permanent": {
-                "type": "boolean",
-                "description": "Permanently delete document (docDelete)."
-              },
-              "permissionId": {
-                "type": "string",
-                "description": "Specific permission ID to revoke in docPermissionRemove."
-              },
-              "position": {
-                "$ref": "#/definitions/InsertPosition",
-                "description": "Sibling insert position."
-              },
-              "remove": {
-                "type": "boolean",
-                "description": "Delete this node."
-              },
-              "replace": {
-                "type": "string",
-                "description": "In-place text for `kind: replace` / `innerText`, or replacement string for `textReplace`."
-              },
-              "replaceMarkdown": {
-                "type": [
-                  "string",
-                  "boolean"
-                ],
-                "description": "Replace one node with markdown."
-              },
-              "replaceSection": {
-                "type": [
-                  "string",
-                  "boolean"
-                ],
-                "description": "Diff-replace a heading section with markdown."
-              },
-              "role": {
-                "$ref": "#/definitions/DrivePermissionRole",
-                "description": "Access level role for docPermissionAdd (commenter / fileOrganizer / organizer / owner / reader / writer)."
+                "description": "Query serialization format (nodes, markdown, outline, or headings)."
               },
               "rows": {
                 "type": "array",
@@ -634,28 +599,9 @@
                 },
                 "description": "Scope query to table row indices (0-based)."
               },
-              "runs": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/definitions/InlineRunInput"
-                },
-                "description": "Explicit styled text runs for inline formatting."
-              },
               "sameList": {
                 "type": "boolean",
                 "description": "When targeting a bullet list item with nodeUnder, scopes to contiguous bullet items sharing listId."
-              },
-              "scope": {
-                "$ref": "#/definitions/DrivePermissionScope",
-                "description": "Grantee access scope for docPermissionAdd or docPermissionRemove (anyone / domain / group / internal / user)."
-              },
-              "sendNotificationEmail": {
-                "type": "boolean",
-                "description": "Whether to send an email notification to grantees on docPermissionAdd."
-              },
-              "style": {
-                "$ref": "#/definitions/StylePatch",
-                "description": "Native style fields."
               },
               "stylesOnly": {
                 "type": "boolean",
@@ -665,192 +611,18 @@
                 "type": "string",
                 "description": "Target tab ID or title."
               },
-              "tableAlignment": {
-                "$ref": "#/definitions/ParagraphAlignment",
-                "description": "Refused at apply time — Docs REST API has no table page alignment."
-              },
-              "tableStyle": {
-                "$ref": "#/definitions/StylePatch",
-                "description": "Table styling (pinnedHeaderRows, preventOverflow, columnWidth, etc.)."
-              },
-              "text": {
-                "type": "string",
-                "description": "Text content for markdownInsert / replace."
-              },
-              "title": {
-                "type": "string",
-                "description": "Title for docCreate / docCopy / tabAdd / tabCopy / tabDuplicate / docRename / tabRename."
-              },
-              "transferOwnership": {
-                "type": "boolean",
-                "description": "Whether to transfer file ownership to the grantee on docPermissionAdd."
-              },
               "unsafeOnly": {
                 "type": "boolean",
                 "description": "Scope query to fragile nodes only."
               }
             },
+            "required": [
+              "as",
+              "doc",
+              "kind"
+            ],
             "additionalProperties": false,
-            "description": "One workflow step; discriminator is `kind`."
-          },
-          "ParagraphAlignment": {
-            "type": "string",
-            "enum": [
-              "START",
-              "CENTER",
-              "END",
-              "JUSTIFIED"
-            ],
-            "description": "Docs paragraph alignment (updateParagraphStyle.alignment)."
-          },
-          "BulletProps": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "nestingLevel": {
-                    "type": "number",
-                    "description": "Nesting level index (0-based)."
-                  },
-                  "preset": {
-                    "$ref": "#/definitions/BulletPreset",
-                    "description": "Bullet glyph preset."
-                  }
-                },
-                "additionalProperties": false
-              },
-              {
-                "type": "boolean"
-              }
-            ],
-            "description": "Agent-supplied bullet on a NORMAL_TEXT paragraph."
-          },
-          "BulletPreset": {
-            "type": "string",
-            "enum": [
-              "BULLET_DISC_CIRCLE_SQUARE",
-              "BULLET_DIAMONDX_ARROW3D_SQUARE",
-              "BULLET_CHECKBOX",
-              "BULLET_ARROW_DIAMOND_DISC",
-              "BULLET_STAR_CIRCLE_SQUARE",
-              "BULLET_ARROW3D_CIRCLE_SQUARE",
-              "BULLET_LEFTTRIANGLE_DIAMOND_DISC",
-              "BULLET_DIAMONDX_HOLLOWDIAMOND_SQUARE",
-              "BULLET_DIAMOND_CIRCLE_SQUARE",
-              "NUMBERED_DECIMAL_ALPHA_ROMAN",
-              "NUMBERED_DECIMAL_ALPHA_ROMAN_PARENS",
-              "NUMBERED_DECIMAL_NESTED",
-              "NUMBERED_UPPERALPHA_ALPHA_ROMAN",
-              "NUMBERED_UPPERROMAN_UPPERALPHA_DECIMAL",
-              "NUMBERED_ZERODECIMAL_ALPHA_ROMAN"
-            ],
-            "description": "Docs createParagraphBullets presets."
-          },
-          "CloneNodeRef": {
-            "type": "object",
-            "properties": {
-              "fromDoc": {
-                "type": "string",
-                "description": "Optional document ID to clone from."
-              },
-              "fromNode": {
-                "type": [
-                  "number",
-                  "string"
-                ],
-                "description": "Alias for nodeId."
-              },
-              "fromTab": {
-                "type": "string",
-                "description": "Optional tab ID to clone from."
-              },
-              "innerText": {
-                "type": "string",
-                "description": "Replacement text content."
-              },
-              "nodeId": {
-                "type": [
-                  "number",
-                  "string"
-                ],
-                "description": "Scoped ID or tape index of the node to clone."
-              }
-            },
-            "additionalProperties": false,
-            "description": "Reference pointing to an existing node to clone."
-          },
-          "InsertPosition": {
-            "anyOf": [
-              {
-                "$ref": "#/definitions/SiblingPosition"
-              },
-              {
-                "type": "string",
-                "const": "afterbegin"
-              },
-              {
-                "type": "string",
-                "const": "beforeend"
-              }
-            ],
-            "description": "Sibling and parent insert positions."
-          },
-          "SiblingPosition": {
-            "type": "string",
-            "enum": [
-              "afterend",
-              "beforebegin"
-            ],
-            "description": "Sibling insert positions (HTML insertAdjacentElement names)."
-          },
-          "WorkflowStepKind": {
-            "type": "string",
-            "enum": [
-              "dangerousRemoveSection",
-              "docClose",
-              "docCopy",
-              "docCreate",
-              "docDelete",
-              "docOpen",
-              "docPermissionAdd",
-              "docPermissionList",
-              "docPermissionRemove",
-              "docRename",
-              "docTrash",
-              "innerText",
-              "markdownInsert",
-              "query",
-              "remove",
-              "replace",
-              "replaceMarkdown",
-              "replaceSection",
-              "sectionCopy",
-              "surgical",
-              "tabAdd",
-              "tabCopy",
-              "tabDelete",
-              "tabDuplicate",
-              "tabMove",
-              "tabRename",
-              "tabReorder",
-              "textReplace"
-            ],
-            "description": "Canonical workflow step kinds handled by the apply script engine."
-          },
-          "NamedStyle": {
-            "type": "string",
-            "enum": [
-              "NORMAL_TEXT",
-              "TITLE",
-              "SUBTITLE",
-              "HEADING_1",
-              "HEADING_2",
-              "HEADING_3",
-              "HEADING_4",
-              "HEADING_5",
-              "HEADING_6"
-            ],
-            "description": "Docs named paragraph styles, including TITLE and SUBTITLE."
+            "description": "Document inspection / query step (`kind: \"query\"`)."
           },
           "NodeKind": {
             "type": "string",
@@ -866,23 +638,160 @@
           "QueryOutputFormat": {
             "type": "string",
             "enum": [
+              "headings",
               "markdown",
               "nodes",
               "outline"
             ],
-            "description": "Serializer for `kind: query` matches written to `dumped`."
+            "description": "Serializer for `kind: query` matches written to `dumped` (\"headings\" is an alias for \"outline\")."
           },
-          "DrivePermissionRole": {
+          "StepRemove": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "Target alias to bind this step's output to in the runtime session."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
+              },
+              "dangerousRemoveSection": {
+                "type": "boolean",
+                "description": "Remove entire section below heading."
+              },
+              "force": {
+                "type": "boolean",
+                "description": "Force destructive deletion even if targeting a fragile node."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "dangerousRemoveSection",
+                  "remove"
+                ],
+                "description": "Workflow step kind."
+              },
+              "nodeAt": {
+                "type": "string",
+                "description": "Heading-scoped id from query to delete (e.g. h.arch.9a1b)."
+              },
+              "remove": {
+                "type": "boolean",
+                "description": "Delete this node flag."
+              },
+              "tab": {
+                "type": "string",
+                "description": "Target tab ID or title."
+              }
+            },
+            "required": [
+              "doc",
+              "kind",
+              "nodeAt"
+            ],
+            "additionalProperties": false,
+            "description": "Node or section removal step (`kind: \"remove\" | \"dangerousRemoveSection\"`)."
+          },
+          "StepReplace": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "Target alias to bind this step's output to in the runtime session."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
+              },
+              "alignment": {
+                "$ref": "#/definitions/ParagraphAlignment",
+                "description": "Paragraph or table-cell alignment (START / CENTER / END / JUSTIFIED)."
+              },
+              "innerText": {
+                "type": "string",
+                "description": "In-place text for a targeted node."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "innerText",
+                  "replace"
+                ],
+                "description": "Workflow step kind."
+              },
+              "namedStyleType": {
+                "$ref": "#/definitions/NamedStyle",
+                "description": "Change namedStyleType on an existing paragraph."
+              },
+              "nodeAt": {
+                "type": "string",
+                "description": "Heading-scoped id from query to replace (e.g. h.arch.9a1b)."
+              },
+              "replace": {
+                "type": "string",
+                "description": "Canonical replacement text."
+              },
+              "runs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/InlineRunInput"
+                },
+                "description": "Explicit styled text runs for inline formatting."
+              },
+              "style": {
+                "$ref": "#/definitions/StylePatch",
+                "description": "Native style fields."
+              },
+              "tab": {
+                "type": "string",
+                "description": "Target tab ID or title."
+              },
+              "text": {
+                "type": "string",
+                "description": "Plain text content (fallback alias for canonical replace:)."
+              }
+            },
+            "required": [
+              "doc",
+              "kind",
+              "nodeAt"
+            ],
+            "additionalProperties": false,
+            "description": "In-place text replacement step (`kind: \"replace\" | \"innerText\"`)."
+          },
+          "ParagraphAlignment": {
             "type": "string",
             "enum": [
-              "commenter",
-              "fileOrganizer",
-              "organizer",
-              "owner",
-              "reader",
-              "writer"
+              "START",
+              "CENTER",
+              "END",
+              "JUSTIFIED"
             ],
-            "description": "Role assigned to a Drive file permission."
+            "description": "Docs paragraph alignment (updateParagraphStyle.alignment)."
+          },
+          "NamedStyle": {
+            "type": "string",
+            "enum": [
+              "NORMAL_TEXT",
+              "TITLE",
+              "SUBTITLE",
+              "HEADING_1",
+              "HEADING_2",
+              "HEADING_3",
+              "HEADING_4",
+              "HEADING_5",
+              "HEADING_6"
+            ],
+            "description": "Docs named paragraph styles, including TITLE and SUBTITLE."
           },
           "InlineRunInput": {
             "type": "object",
@@ -929,17 +838,6 @@
             },
             "additionalProperties": false,
             "description": "Input specification for an inline styled run."
-          },
-          "DrivePermissionScope": {
-            "type": "string",
-            "enum": [
-              "anyone",
-              "domain",
-              "group",
-              "internal",
-              "user"
-            ],
-            "description": "Grantee access scope for a Drive file permission."
           },
           "StylePatch": {
             "type": "object",
@@ -1064,6 +962,814 @@
               "BOTTOM"
             ],
             "description": "Vertical alignment inside a table cell (updateTableCellStyle.contentAlignment)."
+          },
+          "StepReplaceMarkdown": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "Anchor alias or binding for newly created elements."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
+              },
+              "file": {
+                "type": "string",
+                "description": "Local markdown or text file path to read (or '-' for stdin)."
+              },
+              "kind": {
+                "type": "string",
+                "const": "replaceMarkdown",
+                "description": "Workflow step kind."
+              },
+              "markdown": {
+                "type": "string",
+                "description": "Markdown content for replacing one node."
+              },
+              "markdownStyles": {
+                "type": "object",
+                "additionalProperties": {},
+                "description": "Named `::styleName[]::` directive styles (`{ alert: { color: \"#f00\" } }`). Distinct from native `style`."
+              },
+              "nodeAt": {
+                "type": "string",
+                "description": "Heading-scoped id from query to replace (e.g. h.arch.9a1b)."
+              },
+              "replaceMarkdown": {
+                "type": [
+                  "string",
+                  "boolean"
+                ],
+                "description": "Markdown content or boolean flag when file: is specified."
+              },
+              "tab": {
+                "type": "string",
+                "description": "Target tab ID or title."
+              },
+              "text": {
+                "type": "string",
+                "description": "Plain text content (fallback alias for canonical markdown:)."
+              }
+            },
+            "required": [
+              "doc",
+              "kind",
+              "nodeAt"
+            ],
+            "additionalProperties": false,
+            "description": "Single-node markdown replacement step (`kind: \"replaceMarkdown\"`)."
+          },
+          "StepReplaceSection": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "Anchor alias or binding for newly created elements."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
+              },
+              "file": {
+                "type": "string",
+                "description": "Local markdown or text file path to read (or '-' for stdin)."
+              },
+              "force": {
+                "type": "boolean",
+                "description": "Force destructive mutation even if deleting child subsections under top-level headings."
+              },
+              "kind": {
+                "type": "string",
+                "const": "replaceSection",
+                "description": "Workflow step kind."
+              },
+              "markdown": {
+                "type": "string",
+                "description": "Markdown content for diff-replacing a heading section."
+              },
+              "markdownStyles": {
+                "type": "object",
+                "additionalProperties": {},
+                "description": "Named `::styleName[]::` directive styles (`{ alert: { color: \"#f00\" } }`). Distinct from native `style`."
+              },
+              "nodeAfter": {
+                "type": "string",
+                "description": "Anchor node to insert after when inserting adjacent rather than replacing."
+              },
+              "nodeAt": {
+                "type": "string",
+                "description": "Target heading node ID from query (e.g. h.arch.9a1b) to diff-replace."
+              },
+              "nodeBefore": {
+                "type": "string",
+                "description": "Anchor node to insert before when inserting adjacent rather than replacing."
+              },
+              "replaceSection": {
+                "type": [
+                  "string",
+                  "boolean"
+                ],
+                "description": "Markdown content or boolean flag when file: is specified."
+              },
+              "tab": {
+                "type": "string",
+                "description": "Target tab ID or title."
+              },
+              "text": {
+                "type": "string",
+                "description": "Plain text content (fallback alias for canonical markdown:)."
+              }
+            },
+            "required": [
+              "doc",
+              "kind"
+            ],
+            "additionalProperties": false,
+            "description": "Section-level auto-diffing replacement step (`kind: \"replaceSection\"`)."
+          },
+          "StepSectionCopy": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "Anchor alias or binding for newly created elements."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
+              },
+              "fromDoc": {
+                "type": "string",
+                "description": "Source document ID or alias (defaults to target doc)."
+              },
+              "fromSection": {
+                "type": "string",
+                "description": "Source heading title, slug, or heading ID to copy from."
+              },
+              "fromTab": {
+                "type": "string",
+                "description": "Source tab ID or title (defaults to source doc active tab)."
+              },
+              "includeHeading": {
+                "type": "boolean",
+                "description": "Whether to include the source section heading in copy (default true)."
+              },
+              "kind": {
+                "type": "string",
+                "const": "sectionCopy",
+                "description": "Workflow step kind."
+              },
+              "nodeAfter": {
+                "type": "string",
+                "description": "Anchor node to insert after (heading-scoped id from query)."
+              },
+              "nodeAt": {
+                "type": "string",
+                "description": "Anchor node to insert at (heading-scoped id from query)."
+              },
+              "nodeBefore": {
+                "type": "string",
+                "description": "Anchor node to insert before (heading-scoped id from query)."
+              },
+              "tab": {
+                "type": "string",
+                "description": "Target tab ID or title."
+              }
+            },
+            "required": [
+              "doc",
+              "fromSection",
+              "kind"
+            ],
+            "additionalProperties": false,
+            "description": "Server-side section transfer step across documents or tabs (`kind: \"sectionCopy\"`)."
+          },
+          "StepSurgical": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "Anchor alias or binding for newly created elements."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
+              },
+              "alignment": {
+                "$ref": "#/definitions/ParagraphAlignment",
+                "description": "Paragraph or table-cell alignment (START / CENTER / END / JUSTIFIED)."
+              },
+              "bullet": {
+                "$ref": "#/definitions/BulletProps",
+                "description": "Convert this paragraph (and siblings sharing listId) to a Docs bullet preset."
+              },
+              "cloneNode": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/definitions/CloneNodeRef"
+                  }
+                ],
+                "description": "Clone an existing node with style/bullet fidelity (heading-scoped id or ref)."
+              },
+              "cloneNodes": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "$ref": "#/definitions/CloneNodeRef"
+                    }
+                  ]
+                },
+                "description": "Batch cloning of existing nodes."
+              },
+              "dangerousClear": {
+                "type": "boolean",
+                "description": "Clear the tab/doc before mutations."
+              },
+              "deleteTableColumn": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "col": {
+                        "type": "number"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ],
+                "description": "Delete a table column."
+              },
+              "deleteTableRow": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "row": {
+                        "type": "number"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ],
+                "description": "Delete a table row."
+              },
+              "duplicateTableRow": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "insertBelow": {
+                        "type": "boolean"
+                      },
+                      "row": {
+                        "type": "number"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ],
+                "description": "Duplicate a table row."
+              },
+              "element": {
+                "type": "object",
+                "additionalProperties": {},
+                "description": "Detached element spec to insert."
+              },
+              "elements": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": {}
+                },
+                "description": "Detached element specs to insert in order."
+              },
+              "force": {
+                "type": "boolean",
+                "description": "Force destructive mutation even if targeting a fragile node."
+              },
+              "fromDoc": {
+                "type": "string",
+                "description": "Source document ID or alias for cloneNode (defaults to doc)."
+              },
+              "fromTab": {
+                "type": "string",
+                "description": "Source tab ID or title for cloneNode (defaults to source doc active tab)."
+              },
+              "insertDate": {
+                "type": "object",
+                "properties": {
+                  "dateFormat": {
+                    "type": "string"
+                  },
+                  "displayText": {
+                    "type": "string"
+                  },
+                  "timestamp": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "description": "Insert a native date chip."
+              },
+              "insertFootnote": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "description": "Insert a footnote reference."
+              },
+              "insertImage": {
+                "type": "object",
+                "properties": {
+                  "heightPt": {
+                    "type": "number"
+                  },
+                  "uri": {
+                    "type": "string"
+                  },
+                  "widthPt": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "uri"
+                ],
+                "additionalProperties": false,
+                "description": "Insert a public HTTPS inline image."
+              },
+              "insertPerson": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email"
+                ],
+                "additionalProperties": false,
+                "description": "Insert a person mention chip."
+              },
+              "insertRichLink": {
+                "type": "object",
+                "properties": {
+                  "mimeType": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "uri": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "uri"
+                ],
+                "additionalProperties": false,
+                "description": "Insert a rich link chip."
+              },
+              "insertSectionBreak": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "sectionType": {
+                        "type": "string",
+                        "enum": [
+                          "CONTINUOUS",
+                          "NEXT_PAGE"
+                        ]
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ],
+                "description": "Insert a section break."
+              },
+              "insertTableColumn": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "col": {
+                        "type": "number"
+                      },
+                      "insertRight": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ],
+                "description": "Insert a table column."
+              },
+              "insertTableRow": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "cells": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "insertBelow": {
+                        "type": "boolean"
+                      },
+                      "row": {
+                        "type": "number"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ],
+                "description": "Insert a table row."
+              },
+              "kind": {
+                "type": "string",
+                "const": "surgical",
+                "description": "Workflow step kind."
+              },
+              "namedStyleType": {
+                "$ref": "#/definitions/NamedStyle",
+                "description": "Change namedStyleType on an existing paragraph."
+              },
+              "nodeAfter": {
+                "type": "string",
+                "description": "Anchor node to insert after (heading-scoped id from query)."
+              },
+              "nodeAt": {
+                "type": "string",
+                "description": "Heading-scoped id from query (e.g. h.arch.9a1b)."
+              },
+              "nodeBefore": {
+                "type": "string",
+                "description": "Anchor node to insert before (heading-scoped id from query)."
+              },
+              "runs": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/InlineRunInput"
+                },
+                "description": "Explicit styled text runs for inline formatting."
+              },
+              "style": {
+                "$ref": "#/definitions/StylePatch",
+                "description": "Native style fields."
+              },
+              "tab": {
+                "type": "string",
+                "description": "Target tab ID or title."
+              },
+              "tableStyle": {
+                "$ref": "#/definitions/StylePatch",
+                "description": "Table styling (pinnedHeaderRows, preventOverflow, columnWidth, etc.)."
+              }
+            },
+            "required": [
+              "doc",
+              "kind"
+            ],
+            "additionalProperties": false,
+            "description": "Surgical DOM and tape mutation step (`kind: \"surgical\"`)."
+          },
+          "BulletProps": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "nestingLevel": {
+                    "type": "number",
+                    "description": "Nesting level index (0-based)."
+                  },
+                  "preset": {
+                    "$ref": "#/definitions/BulletPreset",
+                    "description": "Bullet glyph preset."
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "description": "Agent-supplied bullet on a NORMAL_TEXT paragraph."
+          },
+          "BulletPreset": {
+            "type": "string",
+            "enum": [
+              "BULLET_DISC_CIRCLE_SQUARE",
+              "BULLET_DIAMONDX_ARROW3D_SQUARE",
+              "BULLET_CHECKBOX",
+              "BULLET_ARROW_DIAMOND_DISC",
+              "BULLET_STAR_CIRCLE_SQUARE",
+              "BULLET_ARROW3D_CIRCLE_SQUARE",
+              "BULLET_LEFTTRIANGLE_DIAMOND_DISC",
+              "BULLET_DIAMONDX_HOLLOWDIAMOND_SQUARE",
+              "BULLET_DIAMOND_CIRCLE_SQUARE",
+              "NUMBERED_DECIMAL_ALPHA_ROMAN",
+              "NUMBERED_DECIMAL_ALPHA_ROMAN_PARENS",
+              "NUMBERED_DECIMAL_NESTED",
+              "NUMBERED_UPPERALPHA_ALPHA_ROMAN",
+              "NUMBERED_UPPERROMAN_UPPERALPHA_DECIMAL",
+              "NUMBERED_ZERODECIMAL_ALPHA_ROMAN"
+            ],
+            "description": "Docs createParagraphBullets presets."
+          },
+          "CloneNodeRef": {
+            "type": "object",
+            "properties": {
+              "fromDoc": {
+                "type": "string",
+                "description": "Optional document ID to clone from."
+              },
+              "fromNode": {
+                "type": [
+                  "number",
+                  "string"
+                ],
+                "description": "Alias for nodeId."
+              },
+              "fromTab": {
+                "type": "string",
+                "description": "Optional tab ID to clone from."
+              },
+              "innerText": {
+                "type": "string",
+                "description": "Replacement text content."
+              },
+              "nodeId": {
+                "type": [
+                  "number",
+                  "string"
+                ],
+                "description": "Scoped ID or tape index of the node to clone."
+              }
+            },
+            "additionalProperties": false,
+            "description": "Reference pointing to an existing node to clone."
+          },
+          "StepTabCreate": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "Target alias to bind this tab ID to in the runtime session."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
+              },
+              "afterTab": {
+                "type": "string",
+                "description": "Insert this tab immediately after the specified tab title or ID."
+              },
+              "beforeTab": {
+                "type": "string",
+                "description": "Insert this tab immediately before the specified tab title or ID."
+              },
+              "force": {
+                "type": "boolean",
+                "description": "Force tab copy even if source contains uncloneable elements (chips/images/equations)."
+              },
+              "fromDoc": {
+                "type": "string",
+                "description": "Source document ID or alias when copying a tab across documents (defaults to doc)."
+              },
+              "fromTab": {
+                "type": "string",
+                "description": "Source tab ID or title when copying an existing tab (creates blank tab if omitted)."
+              },
+              "index": {
+                "type": "number",
+                "description": "Position index for the tab."
+              },
+              "kind": {
+                "type": "string",
+                "const": "tabCreate",
+                "description": "Workflow step kind."
+              },
+              "title": {
+                "type": "string",
+                "description": "Title for the new tab. Note: supply final title directly at creation to avoid HTTP 500 on template copies."
+              }
+            },
+            "required": [
+              "as",
+              "doc",
+              "kind",
+              "title"
+            ],
+            "additionalProperties": false,
+            "description": "Tab creation or cloning step (`kind: \"tabCreate\"`)."
+          },
+          "StepTabModify": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "Target alias to bind this step's output to in the runtime session."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
+              },
+              "afterTab": {
+                "type": "string",
+                "description": "Move this tab immediately after the specified tab title or ID."
+              },
+              "beforeTab": {
+                "type": "string",
+                "description": "Move this tab immediately before the specified tab title or ID."
+              },
+              "index": {
+                "type": "number",
+                "description": "Position index for tab move."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "tabDelete",
+                  "tabMove",
+                  "tabReorder"
+                ],
+                "description": "Workflow step kind."
+              },
+              "tab": {
+                "type": "string",
+                "description": "Target tab ID or title."
+              }
+            },
+            "required": [
+              "doc",
+              "kind",
+              "tab"
+            ],
+            "additionalProperties": false,
+            "description": "Tab modification step (`kind: \"tabDelete\" | \"tabMove\" | \"tabReorder\"`)."
+          },
+          "StepTabRename": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "Target alias to bind this step's output to in the runtime session."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
+              },
+              "kind": {
+                "type": "string",
+                "const": "tabRename",
+                "description": "Workflow step kind."
+              },
+              "tab": {
+                "type": "string",
+                "description": "Target tab ID or current title to rename."
+              },
+              "title": {
+                "type": "string",
+                "description": "New title for the tab. Note: tabRename 500s on docs lacking root 't.0' (set title directly on tabCreate)."
+              }
+            },
+            "required": [
+              "doc",
+              "kind",
+              "tab",
+              "title"
+            ],
+            "additionalProperties": false,
+            "description": "Tab renaming step (`kind: \"tabRename\"`)."
+          },
+          "StepTextReplace": {
+            "type": "object",
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "Target alias to bind this step's output to in the runtime session."
+              },
+              "doc": {
+                "type": "string",
+                "description": "Target document ID or alias."
+              },
+              "dump": {
+                "type": "boolean",
+                "description": "Dump document or tab metadata into `dumped[as]`."
+              },
+              "allTabs": {
+                "type": "boolean",
+                "description": "Replace all occurrences across all tabs."
+              },
+              "find": {
+                "type": "string",
+                "description": "String to find for replacement."
+              },
+              "kind": {
+                "type": "string",
+                "const": "textReplace",
+                "description": "Workflow step kind."
+              },
+              "matchCase": {
+                "type": "boolean",
+                "description": "Match case in textReplace (default true)."
+              },
+              "nodeAfter": {
+                "type": "string",
+                "description": "Optional anchor node to insert after."
+              },
+              "nodeAt": {
+                "type": "string",
+                "description": "Optional anchor node to replace text within."
+              },
+              "nodeBefore": {
+                "type": "string",
+                "description": "Optional anchor node to insert before."
+              },
+              "nodeUnder": {
+                "type": "string",
+                "description": "Optional heading or scope node to restrict replacement under."
+              },
+              "replace": {
+                "type": "string",
+                "description": "Canonical replacement text string."
+              },
+              "tab": {
+                "type": "string",
+                "description": "Target tab ID or title."
+              },
+              "text": {
+                "type": "string",
+                "description": "Plain text replacement (fallback alias for replace:)."
+              }
+            },
+            "required": [
+              "doc",
+              "find",
+              "kind",
+              "replace"
+            ],
+            "additionalProperties": false,
+            "description": "Plain find-and-replace text step (`kind: \"textReplace\"`)."
           }
         }
       },
@@ -1073,7 +1779,7 @@
         "properties": {
           "diff": {
             "type": "string",
-            "description": "Unified git diff of changes (populated on dryRun)."
+            "description": "Unified git diff of changes (populated on dryRun; empty string when 0 changes detected)."
           },
           "dryRun": {
             "type": "boolean",
@@ -1303,7 +2009,7 @@
           "commands": [
             {
               "key": "bundle",
-              "description": "Pack dist MCP artifacts (`.mcpb`, Claude Code plugin zip) from dist/<key>."
+              "description": "Pack dist MCP artifacts (`.mcpb`, Claude Code plugin zip, Cursor plugin zip) from dist/<key>."
             }
           ]
         }
@@ -1471,7 +2177,7 @@
           "commands": [
             {
               "key": "bundle",
-              "description": "Pack dist MCP artifacts (`.mcpb`, Claude Code plugin zip) from dist/<key>."
+              "description": "Pack dist MCP artifacts (`.mcpb`, Claude Code plugin zip, Cursor plugin zip) from dist/<key>."
             }
           ]
         }

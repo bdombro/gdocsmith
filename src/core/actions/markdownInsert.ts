@@ -10,6 +10,7 @@ import { Gdoc } from "~/core/gdoc.ts";
 import { markdownInsertExecute } from "~/core/markdown.ts";
 import { findTab, resolveTab } from "~/core/tabs.ts";
 import type { ApplyHighlightHeadingJson } from "~/core/workflowTypes.ts";
+import { pendingWritersFlush } from "./flush.ts";
 import { simulatedNodesOf, simulatedNodesSet } from "./simulated.ts";
 import type { WorkflowStepHandler } from "./types.ts";
 
@@ -18,12 +19,12 @@ export const markdownInsertStep: WorkflowStepHandler = async (runtime, stepIndex
   const targetDoc = runtime.openDocResolve(step.doc);
   const tabHint = runtime.aliasResolve(step.tab);
 
-  let markdown = step.text ?? step.markdown;
+  let markdown = step.markdown ?? step.text;
   if (!markdown && step.file) {
     markdown = step.file === "-" ? readFileSync(0, "utf8") : readFileSync(step.file, "utf8");
   }
   if (!markdown) {
-    throw new Error(`steps[${stepIndex}] markdownInsert requires text: or file:`);
+    throw new Error(`steps[${stepIndex}] markdownInsert requires markdown:, text:, or file:`);
   }
 
   const rawAnchor = step.nodeAt ?? step.nodeAfter ?? step.nodeBefore;
@@ -37,6 +38,7 @@ export const markdownInsertStep: WorkflowStepHandler = async (runtime, stepIndex
     : { tabId: undefined, title: targetDoc.title };
 
   if (!runtime.dryRun) {
+    await pendingWritersFlush(runtime, targetDoc.alias);
     await markdownInsertExecute({
       anchorId,
       client: runtime.client,

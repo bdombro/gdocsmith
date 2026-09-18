@@ -1,6 +1,11 @@
 /* OAuth token provider for Google APIs using gws auth credentials. */
 
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { skillConfigLoad, skillConfigSave } from "./config.ts";
+
+/** Promisified child process runner. */
+const execFileAsync = promisify(execFile);
 
 /**
  * Cached access token record with expiration time.
@@ -100,18 +105,13 @@ export const refreshAccessToken = accessTokenRefresh;
  * Extracts OAuth credentials by invoking `gws auth export --unmasked`.
  */
 export async function gwsCredentialsGet(): Promise<GwsCredentials> {
-  const proc = Bun.spawn(["gws", "auth", "export", "--unmasked"], {
-    stderr: "pipe",
-    stdout: "pipe",
-  });
-  const [code, stderr, stdout] = await Promise.all([
-    proc.exited,
-    new Response(proc.stderr).text(),
-    new Response(proc.stdout).text(),
-  ]);
-
-  if (code !== 0) {
-    throw new Error(`Failed to export credentials from gws (exit code ${code}): ${stderr || stdout}`);
+  let stdout: string;
+  try {
+    const res = await execFileAsync("gws", ["auth", "export", "--unmasked"]);
+    stdout = res.stdout;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to export credentials from gws: ${msg}`);
   }
 
   try {

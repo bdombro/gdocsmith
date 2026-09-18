@@ -50,6 +50,8 @@ export type CreateParagraphProps = {
   namedStyleType: NamedStyle;
   /** Styled inline text runs. */
   runs?: InlineRunInput[];
+  /** Native chips and images to insert at offsets inside this paragraph. */
+  specials?: ParagraphInlineSpecial[];
   /** Custom style patch. */
   style?: StylePatch;
   /** Paragraph plain text content. */
@@ -62,6 +64,8 @@ export type CreateParagraphProps = {
  * Props for createElement("table", …).
  */
 export type CreateTableProps = {
+  /** Per-cell inline specials aligned with `rows`. */
+  cellSpecials?: Array<Array<ParagraphInlineSpecial[] | undefined>>;
   /** 2D matrix of cell text strings. */
   rows: string[][];
   /** Warning messages. */
@@ -144,6 +148,55 @@ export type PageBreakSpec = {
 };
 
 /**
+ * Native inline chip or image inserted at a character offset inside a paragraph or table cell.
+ */
+export type ParagraphInlineSpecial =
+  | {
+      /** Date format pattern. */
+      dateFormat?: string;
+      /** Formatted display text. */
+      displayText?: string;
+      /** Structural kind identifier. */
+      kind: "date";
+      /** UTF-16 offset in the paragraph/cell text. */
+      offset: number;
+      /** ISO timestamp. */
+      timestamp: string;
+    }
+  | {
+      /** Display height in points. */
+      heightPt?: number;
+      /** Structural kind identifier. */
+      kind: "inlineImage";
+      /** UTF-16 offset in the paragraph/cell text. */
+      offset: number;
+      /** Public HTTPS image URI. */
+      uri: string;
+      /** Display width in points. */
+      widthPt?: number;
+    }
+  | {
+      /** Person email. */
+      email: string;
+      /** Structural kind identifier. */
+      kind: "person";
+      /** UTF-16 offset in the paragraph/cell text. */
+      offset: number;
+    }
+  | {
+      /** Structural kind identifier. */
+      kind: "richLink";
+      /** Target MIME type. */
+      mimeType?: string;
+      /** UTF-16 offset in the paragraph/cell text. */
+      offset: number;
+      /** Display title. */
+      title?: string;
+      /** Target URI. */
+      uri: string;
+    };
+
+/**
  * Detached paragraph spec returned by createElement.
  */
 export type ParagraphSpec = {
@@ -164,6 +217,8 @@ export type ParagraphSpec = {
   namedStyleType: NamedStyle;
   /** Styled inline text runs. */
   runs?: InlineRunInput[];
+  /** Native chips and images to insert at offsets inside this paragraph. */
+  specials?: ParagraphInlineSpecial[];
   /** Custom style patch. */
   style?: StylePatch;
   /** Paragraph text content. */
@@ -219,6 +274,8 @@ export type TableSpec = {
   kind: "table";
   /** Table rows container. */
   table: {
+    /** Per-cell inline specials aligned with `rows` (optional). */
+    cellSpecials?: Array<Array<ParagraphInlineSpecial[] | undefined>>;
     /** Matrix of string cell contents. */
     rows: string[][];
   };
@@ -435,6 +492,7 @@ export function elementCreate(
       kind: "table",
       table: { rows: rows.map((row) => row.map(String)) },
     };
+    if (tp.cellSpecials?.length) spec.table.cellSpecials = tp.cellSpecials;
     if (tp.warnings?.length) spec.warnings = tp.warnings;
     return spec;
   }
@@ -453,6 +511,7 @@ export function elementCreate(
     text: trailingNewlineStrip(p.text ?? ""),
   };
   if (p.runs?.length) spec.runs = p.runs;
+  if (p.specials?.length) spec.specials = p.specials;
   if (p.alignment) spec.alignment = p.alignment;
   if (p.warnings?.length) spec.warnings = p.warnings;
   if (p.style && Object.keys(p.style).length) spec.style = p.style;

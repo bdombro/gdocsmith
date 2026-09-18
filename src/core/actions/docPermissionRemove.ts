@@ -14,14 +14,14 @@ export const docPermissionRemoveStep: WorkflowStepHandler = async (
 ) => {
   const targetDoc = runtime.openDocResolve(step.doc);
   const permissionId = step.permissionId;
-  const emailAddress = step.emailAddress ?? step.email;
+  const email = step.email;
   const domain = step.domain;
   const rawScope = step.scope;
   const scope = rawScope === "internal" ? "domain" : rawScope;
 
-  if (!permissionId && !emailAddress && !domain && scope !== "anyone" && scope !== "domain") {
+  if (!permissionId && !email && !domain && scope !== "anyone" && scope !== "domain") {
     throw new Error(
-      `steps[${stepIndex}] docPermissionRemove requires permissionId, emailAddress (or email), domain, or scope ("anyone" | "domain" | "internal")`,
+      `steps[${stepIndex}] docPermissionRemove requires permissionId, email, domain, or scope ("anyone" | "domain" | "internal")`,
     );
   }
 
@@ -29,7 +29,7 @@ export const docPermissionRemoveStep: WorkflowStepHandler = async (
     if (targetDoc.permissions) {
       targetDoc.permissions = targetDoc.permissions.filter((p) => {
         if (permissionId && p.id === permissionId) return false;
-        if (emailAddress && p.emailAddress?.toLowerCase() === emailAddress.toLowerCase()) return false;
+        if (email && p.emailAddress?.toLowerCase() === email.toLowerCase()) return false;
         if (domain && p.domain?.toLowerCase() === domain.toLowerCase()) return false;
         if (scope === "anyone" && p.type === "anyone") return false;
         if (scope === "domain" && p.type === "domain") return false;
@@ -40,12 +40,10 @@ export const docPermissionRemoveStep: WorkflowStepHandler = async (
     let targetPermissionId = permissionId;
     if (!targetPermissionId) {
       const perms = await gwsDrive.listPermissions(targetDoc.docId);
-      if (emailAddress) {
-        const match = perms.find((p) => p.emailAddress?.toLowerCase() === emailAddress.toLowerCase());
+      if (email) {
+        const match = perms.find((p) => p.emailAddress?.toLowerCase() === email.toLowerCase());
         if (!match) {
-          throw new Error(
-            `steps[${stepIndex}] docPermissionRemove: no permission found matching email "${emailAddress}"`,
-          );
+          throw new Error(`steps[${stepIndex}] docPermissionRemove: no permission found matching email "${email}"`);
         }
         targetPermissionId = match.id;
       } else if (domain || scope === "domain") {

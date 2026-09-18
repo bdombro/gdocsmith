@@ -14,7 +14,7 @@ import {
 } from "./apply.ts";
 import { createElement } from "./element.ts";
 import { FAKE_BULLET_MSG } from "./guards.ts";
-import { TABLE_INSERT_MIX_MSG } from "./ops.ts";
+import { applyOps, TABLE_INSERT_MIX_MSG } from "./ops.ts";
 import type { DocNode } from "./types.ts";
 import { DomWriter } from "./write.ts";
 
@@ -71,6 +71,51 @@ function namedStyleRequests(requests: object[]): Array<{
       },
     ];
   });
+}
+
+/** Docs Range on a compiled batchUpdate request. */
+type DocsRange = { endIndex: number; startIndex: number };
+
+/**
+ * Asserts every compiled style/bullet range stays strictly below the running
+ * segment end — the Google Docs contract that last-paragraph trailing newlines
+ * violate if endIndex is left unclipped.
+ */
+function assertStyleRangesInsideSegment(originalNodes: DocNode[], requests: object[]) {
+  let segmentEnd = 1;
+  for (const n of originalNodes) {
+    if (n.end > segmentEnd) segmentEnd = n.end;
+  }
+  for (const request of requests) {
+    if ("insertText" in request) {
+      const text = (request as { insertText: { text?: string } }).insertText.text;
+      if (typeof text === "string") segmentEnd += text.length;
+    } else if ("insertPageBreak" in request || "insertSectionBreak" in request) {
+      segmentEnd += 1;
+    } else if ("deleteContentRange" in request) {
+      const range = (request as { deleteContentRange: { range: DocsRange } }).deleteContentRange.range;
+      segmentEnd -= range.endIndex - range.startIndex;
+    }
+    const range = styleRangeOf(request);
+    if (range) expect(range.endIndex).toBeLessThan(segmentEnd);
+  }
+}
+
+/** Style or bullet range on a compiled request, if present. */
+function styleRangeOf(request: object): DocsRange | undefined {
+  if ("updateParagraphStyle" in request) {
+    return (request as { updateParagraphStyle: { range: DocsRange } }).updateParagraphStyle.range;
+  }
+  if ("updateTextStyle" in request) {
+    return (request as { updateTextStyle: { range: DocsRange } }).updateTextStyle.range;
+  }
+  if ("createParagraphBullets" in request) {
+    return (request as { createParagraphBullets: { range: DocsRange } }).createParagraphBullets.range;
+  }
+  if ("deleteParagraphBullets" in request) {
+    return (request as { deleteParagraphBullets: { range: DocsRange } }).deleteParagraphBullets.range;
+  }
+  return undefined;
 }
 
 describe("DomWriter apply", () => {
@@ -191,14 +236,48 @@ describe("DomWriter apply", () => {
     expect(bullets).toHaveLength(1);
     expect(bullets[0]?.createParagraphBullets.bulletPreset).toBe("BULLET_DISC_CIRCLE_SQUARE");
     expect(bullets[0]?.createParagraphBullets.range).toEqual({
-      endIndex: 19,
+      endIndex: 18,
       startIndex: 8,
     });
+    assertStyleRangesInsideSegment([h], requests);
 
     const inserts = requests.filter((r) => r && typeof r === "object" && "insertText" in r) as Array<{
       insertText: { text: string };
     }>;
     expect(inserts.some((r) => r.insertText.text === "Alpha\nBeta")).toBe(true);
+  });
+
+  test("replaceSection of the last heading clips list style ranges below the segment end", () => {
+    const nodes: DocNode[] = [
+      {
+        end: 14,
+        headingId: "h.sub",
+        kind: "paragraph",
+        namedStyleType: "HEADING_2",
+        start: 1,
+        tapeIndex: 1,
+        text: "Sub-Projects",
+      },
+      {
+        end: 26,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 14,
+        tapeIndex: 2,
+        text: "Placeholder",
+      },
+    ];
+    const writer = new DomWriter(nodes);
+    applyOps(writer, [
+      {
+        at: "Sub-Projects",
+        replaceSection:
+          "## Sub-Projects\n\n1. First child\n   - Depends on: None\n2. Second child\n   - Depends on: First child",
+      },
+    ]);
+    const { requests } = compileDom(writer);
+    expect(requests.length).toBeGreaterThan(0);
+    assertStyleRangesInsideSegment(nodes, requests);
   });
 
   test("hyphen-prefix refuse", () => {
@@ -364,7 +443,7 @@ describe("DomWriter apply", () => {
     }>;
     expect(deletes).toHaveLength(1);
     expect(deletes[0]?.deleteParagraphBullets.range).toEqual({
-      endIndex: 26,
+      endIndex: 25,
       startIndex: 20,
     });
   });
@@ -627,7 +706,7 @@ describe("DomWriter apply", () => {
         updateParagraphStyle: {
           fields: "namedStyleType",
           paragraphStyle: { namedStyleType: "HEADING_2" },
-          range: { endIndex: 8, startIndex: 1 },
+          range: { endIndex: 7, startIndex: 1 },
         },
       },
     ]);
@@ -687,10 +766,11 @@ describe("DomWriter apply", () => {
         updateParagraphStyle: {
           fields: "alignment",
           paragraphStyle: { alignment: "CENTER" },
-          range: { endIndex: 8, startIndex: 1 },
+          range: { endIndex: 7, startIndex: 1 },
         },
       },
     ]);
+    assertStyleRangesInsideSegment([h], requests);
   });
 
   test("cell innerText and alignment target the cell paragraph, not the table bounds", () => {
@@ -800,6 +880,25 @@ describe("DomWriter apply", () => {
     expect(requests.some((r) => r && typeof r === "object" && "insertDate" in r)).toBe(true);
   });
 
+  test("paragraph specials emit in-paragraph insertPerson at text offset", () => {
+    const h = heading2();
+    const writer = new DomWriter([h]);
+    writer.insertAdjacentElement(
+      h,
+      "afterend",
+      createElement("paragraph", {
+        namedStyleType: "NORMAL_TEXT",
+        specials: [{ email: "user@example.com", kind: "person", offset: 5 }],
+        text: "Lead ",
+      }),
+    );
+    const { requests } = compileDom(writer);
+    const person = requests.find((r) => r && typeof r === "object" && "insertPerson" in r) as {
+      insertPerson?: { location?: { index?: number } };
+    };
+    expect(person?.insertPerson?.location?.index).toBe(13);
+  });
+
   test("footnote insert emits createFootnote", () => {
     const h = heading2();
     const writer = new DomWriter([h]);
@@ -873,9 +972,53 @@ describe("DomWriter apply", () => {
     ).toBe(true);
   });
 
-  test("buildDocumentStyleRequest rejects pageless mode", () => {
-    expect(() => buildDocumentStyleRequest({ pageless: true } as any)).toThrow("Pageless mode cannot be set via API");
-    expect(() => buildDocumentStyleRequest({ mode: "PAGELESS" } as any)).toThrow("Pageless mode cannot be set via API");
+  test("buildDocumentStyleRequest builds updateDocumentStyle with pageless or pages mode", () => {
+    const pagelessReq = buildDocumentStyleRequest({ pageless: true });
+    expect(pagelessReq).toEqual({
+      updateDocumentStyle: {
+        documentStyle: {
+          documentFormat: {
+            documentMode: "PAGELESS",
+          },
+        },
+        fields: "documentFormat.documentMode",
+      },
+    });
+
+    const pagesReq = buildDocumentStyleRequest({ mode: "PAGES" }, "t.123");
+    expect(pagesReq).toEqual({
+      updateDocumentStyle: {
+        documentStyle: {
+          documentFormat: {
+            documentMode: "PAGES",
+          },
+        },
+        fields: "documentFormat.documentMode",
+        tabId: "t.123",
+      },
+    });
+  });
+
+  test("buildDocumentStyleRequest throws descriptive error on invalid document mode", () => {
+    expect(() => buildDocumentStyleRequest({ mode: "INVALID" as any })).toThrow(/Invalid document mode/);
+  });
+
+  test("buildDocumentStyleRequest supports combining layout mode and margins", () => {
+    const combined = buildDocumentStyleRequest({
+      margins: { top: 36 },
+      mode: "PAGELESS",
+    });
+    expect(combined).toEqual({
+      updateDocumentStyle: {
+        documentStyle: {
+          documentFormat: {
+            documentMode: "PAGELESS",
+          },
+          marginTop: { magnitude: 36, unit: "PT" },
+        },
+        fields: "documentFormat.documentMode,marginTop",
+      },
+    });
   });
 
   test("style patch emits spacing, shading, and columnCount", () => {
@@ -1104,7 +1247,7 @@ describe("DomWriter apply", () => {
             paragraphStyle: {
               indentStart: { magnitude: 36, unit: "PT" },
             },
-            range: { endIndex: 40, startIndex: 20 },
+            range: { endIndex: 39, startIndex: 20 },
           },
         },
       ]),
@@ -1196,7 +1339,7 @@ describe("DomWriter apply", () => {
       {
         createParagraphBullets: {
           bulletPreset: "NUMBERED_DECIMAL_ALPHA_ROMAN",
-          range: { endIndex: 20, startIndex: 1 },
+          range: { endIndex: 19, startIndex: 1 },
         },
       },
     ]);

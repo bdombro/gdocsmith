@@ -1,6 +1,7 @@
 /* Unit tests for symbolic link resolution. */
 
 import { describe, expect, test } from "bun:test";
+import type { DocNode } from "~/core/dom/types.ts";
 import { InlineMarkup } from "~/core/inline.ts";
 import type { GoogleDoc } from "~/core/types.ts";
 import { createSymbolicLinkResolver, resolveSymbolicLink } from "./linkResolver.ts";
@@ -153,5 +154,25 @@ describe("symbolicLinkResolve", () => {
     );
     expect(elements[1]?.kind === "paragraph" && elements[1].text).toContain("`[Overview](tab:Main#Overview)`");
     expect(elements[2]?.kind === "paragraph" && elements[2].text).toBe("[Overview](tab:Main#Overview)");
+  });
+
+  test("resolves symbolic links to newly created headings lacking backend headingId", () => {
+    const simulatedNodes: DocNode[] = [
+      {
+        end: 32,
+        kind: "paragraph" as const,
+        namedStyleType: "HEADING_2" as const,
+        start: 1,
+        tapeIndex: 4,
+        text: "Appendix C: Automation Modeling",
+      },
+    ];
+    const resolved = resolveSymbolicLink("tab:Appendices#Appendix C: Automation Modeling", {
+      doc: {
+        tabs: [{ tabProperties: { tabId: "t.app", title: "Appendices" } }],
+      },
+      simulatedTabs: new Map([["t.app", simulatedNodes]]),
+    });
+    expect(resolved).toBe("?tab=t.app#heading=h.heading_4");
   });
 });

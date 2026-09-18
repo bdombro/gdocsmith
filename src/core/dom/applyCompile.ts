@@ -3,7 +3,7 @@
 import { InlineMarkup, type InlineRunInput, type TextRun } from "~/core/inline.ts";
 import { RequestBuilder } from "~/core/requests.ts";
 import type { ApplySummary, GoogleDoc } from "~/core/types.ts";
-import type { ParagraphSpec } from "./element.ts";
+import type { ParagraphInlineSpecial, ParagraphSpec } from "./element.ts";
 import { assertWritable } from "./guards.ts";
 import { TABLE_INSERT_MIX_MSG } from "./ops.ts";
 import { HANGING_INDENT_PT, hasIndent, omitIndent, type StylePatch } from "./style.ts";
@@ -118,6 +118,8 @@ export type CompiledDomWrite = {
   }>;
   summary: ApplySummary;
   tableInserts: Array<{
+    /** Per-cell inline specials aligned with `rows`. */
+    cellSpecials?: Array<Array<ParagraphInlineSpecial[] | undefined>>;
     insertIndex: number;
     rows: string[][];
     segmentId?: string;
@@ -150,6 +152,7 @@ type CompiledOp =
     }
   | {
       afterId: number;
+      cellSpecials?: Array<Array<ParagraphInlineSpecial[] | undefined>>;
       mutationIndexes: number[];
       newId: number;
       position: "afterend" | "beforebegin";
@@ -327,9 +330,17 @@ export function domCompile(
   let deleteChars = 0;
   let insertChars = 0;
   let tables = 0;
+  /** Exclusive end of this tape; Docs rejects style ranges that are not strictly below it. */
+  let segmentEnd = 1;
+  for (const n of writer.originalNodes()) {
+    if (n.end > segmentEnd) segmentEnd = n.end;
+  }
 
   const push = (reqs: object[], mutationIndexes: number[]) => {
     for (const r of reqs) {
+      segmentEnd += requestContentDelta(r);
+      const range = requestStyleRange(r);
+      if (range && !clipStyleRangeToSegment(range, segmentEnd)) continue;
       requestOrigins.push({ mutationIndexes });
       requests.push(r);
     }
@@ -526,6 +537,7 @@ export function domCompile(
       );
       tables += 1;
       tableInserts.push({
+        ...(op.cellSpecials ? { cellSpecials: op.cellSpecials } : {}),
         insertIndex: writeAt,
         rows: op.rows,
         ...(seg ? { segmentId: seg } : {}),
@@ -914,13 +926,39 @@ export function domCompile(
       }
     }
 
-    const delta = 1 + parsed.bodies.join("\n").length;
+    const specialCount = op.specs.reduce((n, s) => n + (s.specials?.length ?? 0), 0);
+    if (specialCount > 0) {
+      let specialOffset = 0;
+      const specialStarts: Array<{ index: number; specials?: ParagraphInlineSpecial[] }> = [];
+      for (let i = 0; i < op.specs.length; i++) {
+        const spec = op.specs[i]!;
+        const tabs = allBullets && !peerJoin && spec.bullet ? spec.bullet.nestingLevel : 0;
+        specialStarts.push({ index: writeAt + specialOffset + tabs, specials: spec.specials });
+        specialOffset += parsed.plains[i]?.length + 1;
+      }
+      for (let i = specialStarts.length - 1; i >= 0; i--) {
+        const item = specialStarts[i]!;
+        push(
+          RequestBuilder.insertInlineSpecials({
+            index: item.index,
+            segmentId: seg,
+            specials: item.specials,
+            tabId: tab,
+          }),
+          op.mutationIndexes,
+        );
+      }
+      insertChars += specialCount;
+    }
+
+    const delta = 1 + parsed.bodies.join("\n").length + specialCount;
     let cursor = writeAt;
     for (let i = 0; i < op.specs.length; i++) {
       const spec = op.specs[i]!;
       const id = op.ids[i]!;
       const start = cursor;
-      const end = start + parsed.bodies[i]?.length + 1;
+      const nSpecials = spec.specials?.length ?? 0;
+      const end = start + parsed.bodies[i]?.length + 1 + nSpecials;
       live.set(id, {
         ...(spec.alignment ? { alignment: spec.alignment } : {}),
         ...(spec.bullet
@@ -1074,6 +1112,7 @@ function coalesce(mutations: DomMutation[]): CompiledOp[] {
     if (m.spec.kind === "table") {
       out.push({
         afterId: m.anchorId,
+        ...(m.spec.table.cellSpecials ? { cellSpecials: m.spec.table.cellSpecials } : {}),
         mutationIndexes: [m.opIndex ?? i],
         newId: m.newId,
         position: m.position,
@@ -1499,6 +1538,76 @@ function listNestingStyle(
       typeof first?.magnitude === "number" ? first.magnitude : Math.max(0, start.magnitude - STOCK_NESTING_HANGING_PT),
     indentStart: start.magnitude,
   };
+}
+
+/** Docs Range on a batchUpdate request. */
+type DocsRange = {
+  /** Exclusive end index. */
+  endIndex: number;
+  /** Inclusive start index. */
+  startIndex: number;
+};
+
+/**
+ * Clips a style/bullet range so endIndex stays strictly below the segment end.
+ * Docs rejects `updateParagraphStyle` / bullet ranges whose endIndex is the last
+ * newline of the tab (`Index N must be less than the end index of the referenced segment`).
+ * Returns false when the clipped range is empty and the request should be dropped.
+ */
+function clipStyleRangeToSegment(
+  /** Range to clip in place. */
+  range: DocsRange,
+  /** Exclusive segment end after prior content mutations in this compile. */
+  segmentEnd: number,
+): boolean {
+  const maxEnd = segmentEnd - 1;
+  if (range.endIndex > maxEnd) range.endIndex = maxEnd;
+  return range.endIndex > range.startIndex;
+}
+
+/** Character-length delta a content-mutating request applies to the segment. */
+function requestContentDelta(
+  /** Compiled Docs batchUpdate request. */
+  request: object,
+): number {
+  if ("insertText" in request) {
+    const text = (request as { insertText: { text?: string } }).insertText.text;
+    return typeof text === "string" ? text.length : 0;
+  }
+  if ("insertPageBreak" in request || "insertSectionBreak" in request) return 1;
+  if (
+    "insertPerson" in request ||
+    "insertDate" in request ||
+    "insertRichLink" in request ||
+    "insertInlineImage" in request
+  ) {
+    return 1;
+  }
+  if ("deleteContentRange" in request) {
+    const range = (request as { deleteContentRange: { range: DocsRange } }).deleteContentRange.range;
+    return -(range.endIndex - range.startIndex);
+  }
+  return 0;
+}
+
+/** Paragraph/text style or bullet range, if this request has one. */
+function requestStyleRange(
+  /** Compiled Docs batchUpdate request. */
+  request: object,
+): DocsRange | undefined {
+  if ("updateParagraphStyle" in request) {
+    return (request as { updateParagraphStyle: { range: DocsRange } }).updateParagraphStyle.range;
+  }
+  if ("updateTextStyle" in request) {
+    return (request as { updateTextStyle: { range: DocsRange } }).updateTextStyle.range;
+  }
+  if ("createParagraphBullets" in request) {
+    return (request as { createParagraphBullets: { range: DocsRange } }).createParagraphBullets.range;
+  }
+  if ("deleteParagraphBullets" in request) {
+    return (request as { deleteParagraphBullets: { range: DocsRange } }).deleteParagraphBullets.range;
+  }
+  return undefined;
 }
 
 /** Expand createParagraphBullets onto a neighboring existing list. */

@@ -112,7 +112,7 @@ export function symbolicLinkResolve(
 
     const nodes = tabNodesExtract(ctx, tabId);
     const hit = headingByTitleOrSlugFind(nodes, headingHint) ?? nodeAtFind(nodes, headingHint);
-    if (!hit?.headingId) {
+    if (!hit) {
       const known = nodes
         .filter((n) => isHeading(n))
         .map((h) => `"${(h.text ?? "").trim()}"`)
@@ -123,7 +123,8 @@ export function symbolicLinkResolve(
       );
     }
 
-    return `?tab=${tabId}#heading=${hit.headingId}`;
+    const headingId = nodeHeadingIdResolve(hit);
+    return headingId ? `?tab=${tabId}#heading=${headingId}` : `?tab=${tabId}`;
   }
 
   if (href.startsWith("#")) {
@@ -139,13 +140,15 @@ export function symbolicLinkResolve(
     if (ctx?.currentTabId) {
       const activeNodes = tabNodesExtract(ctx, ctx.currentTabId);
       const hit = headingByTitleOrSlugFind(activeNodes, headingHint) ?? nodeAtFind(activeNodes, headingHint);
-      if (hit?.headingId) {
-        return `?tab=${ctx.currentTabId}#heading=${hit.headingId}`;
+      if (hit) {
+        const headingId = nodeHeadingIdResolve(hit);
+        return headingId ? `?tab=${ctx.currentTabId}#heading=${headingId}` : `?tab=${ctx.currentTabId}`;
       }
     } else if (ctx?.nodes?.length) {
       const hit = headingByTitleOrSlugFind(ctx.nodes, headingHint) ?? nodeAtFind(ctx.nodes, headingHint);
-      if (hit?.headingId) {
-        return `#heading=${hit.headingId}`;
+      if (hit) {
+        const headingId = nodeHeadingIdResolve(hit);
+        return headingId ? `#heading=${headingId}` : href;
       }
     }
 
@@ -154,8 +157,9 @@ export function symbolicLinkResolve(
         if (tab.tabId === ctx.currentTabId) continue;
         const nodes = tabNodesExtract(ctx, tab.tabId);
         const hit = headingByTitleOrSlugFind(nodes, headingHint) ?? nodeAtFind(nodes, headingHint);
-        if (hit?.headingId) {
-          return `?tab=${tab.tabId}#heading=${hit.headingId}`;
+        if (hit) {
+          const headingId = nodeHeadingIdResolve(hit);
+          return headingId ? `?tab=${tab.tabId}#heading=${headingId}` : `?tab=${tab.tabId}`;
         }
       }
     }
@@ -197,4 +201,19 @@ function tabNodesExtract(
     return ctx.nodes;
   }
   return [];
+}
+
+/**
+ * Resolves a heading identifier for deep linking, falling back to scoped IDs or tape index when not yet assigned by Google Docs.
+ */
+function nodeHeadingIdResolve(
+  /** Heading document node. */
+  node: DocNode,
+): string | undefined {
+  if (node.headingId) return node.headingId;
+  if (node.scopedId) {
+    const prefix = node.scopedId.split(".")[0];
+    if (prefix && prefix !== "_preamble") return prefix;
+  }
+  return typeof node.tapeIndex === "number" ? `h.heading_${node.tapeIndex}` : undefined;
 }

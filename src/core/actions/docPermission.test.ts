@@ -6,7 +6,7 @@ import { applyScriptExecute } from "~/core/applyScript.ts";
 import type { DrivePermission } from "~/core/gws.ts";
 
 describe("docPermission workflow steps", () => {
-  test("docPermissionAdd rejects missing emailAddress when scope is user or group", async () => {
+  test("docPermissionAdd rejects missing email when scope is user or group", async () => {
     const doc: GdocsmithDocument = {
       dryRun: true,
       steps: [
@@ -15,7 +15,7 @@ describe("docPermission workflow steps", () => {
       ],
     };
 
-    await expect(applyScriptExecute(doc)).rejects.toThrow(/requires emailAddress/);
+    await expect(applyScriptExecute(doc)).rejects.toThrow(/requires email/);
   });
 
   test("docPermissionAdd auto-resolves domain when scope is internal or domain in dryRun", async () => {
@@ -61,9 +61,7 @@ describe("docPermission workflow steps", () => {
       ],
     };
 
-    await expect(applyScriptExecute(doc)).rejects.toThrow(
-      /requires permissionId, emailAddress \(or email\), domain, or scope/,
-    );
+    await expect(applyScriptExecute(doc)).rejects.toThrow(/requires permissionId, email, domain, or scope/);
   });
 
   test("simulates permission lifecycle in dry-run (add, list, remove)", async () => {

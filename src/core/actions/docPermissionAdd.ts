@@ -14,15 +14,15 @@ export const docPermissionAddStep: WorkflowStepHandler = async (
   step,
 ) => {
   const targetDoc = runtime.openDocResolve(step.doc);
-  const emailAddress = step.emailAddress ?? step.email;
+  const email = step.email;
   let domain = step.domain;
   const rawScope = step.scope;
   const scope: DrivePermissionScope =
-    rawScope === "internal" ? "domain" : (rawScope ?? (emailAddress ? "user" : domain ? "domain" : "anyone"));
+    rawScope === "internal" ? "domain" : (rawScope ?? (email ? "user" : domain ? "domain" : "anyone"));
   const role: DrivePermissionRole = step.role ?? "reader";
 
-  if ((scope === "user" || scope === "group") && !emailAddress) {
-    throw new Error(`steps[${stepIndex}] docPermissionAdd requires emailAddress (or email) when scope is "${scope}"`);
+  if ((scope === "user" || scope === "group") && !email) {
+    throw new Error(`steps[${stepIndex}] docPermissionAdd requires email when scope is "${scope}"`);
   }
   if (scope === "domain" && !domain) {
     if (runtime.dryRun || targetDoc.isVirtual) {
@@ -39,9 +39,9 @@ export const docPermissionAddStep: WorkflowStepHandler = async (
 
   if (runtime.dryRun || targetDoc.isVirtual) {
     permission = {
-      displayName: emailAddress ?? domain ?? "Anyone with link",
+      displayName: email ?? domain ?? "Anyone with link",
       domain,
-      emailAddress,
+      emailAddress: email,
       id: `simulated:perm:${stepIndex}`,
       role,
       type: scope,
@@ -62,7 +62,7 @@ export const docPermissionAddStep: WorkflowStepHandler = async (
       targetDoc.docId,
       {
         domain,
-        emailAddress,
+        emailAddress: email,
         role,
         type: scope,
       },

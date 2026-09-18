@@ -10,16 +10,30 @@ import type { AppliedOpPlanPreview, PageSetup } from "./ops.ts";
 import { pt } from "./style.ts";
 import type { DomWriter } from "./write.ts";
 
-/** Constructs an updateDocumentStyle batchUpdate request for page geometry and margins. */
-export function documentStyleRequestBuilder(pageSetup: PageSetup, tabId?: string): object {
-  const setup = pageSetup as PageSetup & { mode?: string; pageless?: boolean };
-  if (setup.pageless !== undefined || setup.mode === "PAGELESS") {
-    throw new Error(
-      "Pageless mode cannot be set via API: Google Docs REST API does not support toggling pageless mode (web UI only).",
-    );
-  }
+/** Constructs an updateDocumentStyle batchUpdate request for page geometry, layout mode, and margins. */
+export function documentStyleRequestBuilder(
+  /** Page setup geometry, layout mode, and margins. */
+  pageSetup: PageSetup,
+  /** Optional target tab identifier. */
+  tabId?: string,
+): object {
+  const mode =
+    pageSetup.mode ?? (pageSetup.pageless !== undefined ? (pageSetup.pageless ? "PAGELESS" : "PAGES") : undefined);
+
   const documentStyle: Record<string, unknown> = {};
   const fields: string[] = [];
+
+  if (mode) {
+    const normalizedMode = mode.toUpperCase();
+    if (normalizedMode !== "PAGES" && normalizedMode !== "PAGELESS") {
+      throw new Error(`Invalid document mode "${mode}". Expected "PAGES" or "PAGELESS".`);
+    }
+    documentStyle.documentFormat = {
+      documentMode: normalizedMode,
+    };
+    fields.push("documentFormat.documentMode");
+  }
+
   if (pageSetup.margins) {
     if (pageSetup.margins.top != null) {
       documentStyle.marginTop = pt(pageSetup.margins.top);
@@ -38,6 +52,7 @@ export function documentStyleRequestBuilder(pageSetup: PageSetup, tabId?: string
       fields.push("marginRight");
     }
   }
+
   if (pageSetup.orientation || pageSetup.pageSize || pageSetup.pageWidth != null || pageSetup.pageHeight != null) {
     let w = pageSetup.pageWidth ?? (pageSetup.orientation === "LANDSCAPE" ? 792 : 612);
     let h = pageSetup.pageHeight ?? (pageSetup.orientation === "LANDSCAPE" ? 612 : 792);
@@ -57,6 +72,11 @@ export function documentStyleRequestBuilder(pageSetup: PageSetup, tabId?: string
     };
     fields.push("pageSize");
   }
+
+  if (!fields.length) {
+    return {};
+  }
+
   return RequestBuilder.updateDocumentStyle({
     documentStyle,
     fields: fields.join(","),
@@ -87,9 +107,11 @@ export async function domApply(
   );
   if (opts.pageSetup) {
     const styleReq = buildDocumentStyleRequest(opts.pageSetup, writers[0]?.tabId);
-    compiled.requests.unshift(styleReq);
-    compiled.requestOrigins.unshift({ mutationIndexes: [] });
-    compiled.summary.requestCount = compiled.requests.length;
+    if ("updateDocumentStyle" in styleReq) {
+      compiled.requests.unshift(styleReq);
+      compiled.requestOrigins.unshift({ mutationIndexes: [] });
+      compiled.summary.requestCount = compiled.requests.length;
+    }
   }
   if (opts.dryRun || !compiled.requests.length) return compiled;
 
@@ -115,6 +137,7 @@ export async function domApply(
         tableEl,
         table.segmentId,
         table.tabId,
+        table.cellSpecials,
       );
       if (fill.length) {
         await client.batchUpdate(documentId, fill);

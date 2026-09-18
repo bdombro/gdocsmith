@@ -3,6 +3,7 @@
 import { Gdoc } from "~/core/gdoc.ts";
 import { RequestBuilder } from "~/core/requests.ts";
 import { findTab, flattenTabs, resolveTab } from "~/core/tabs.ts";
+import { pendingWritersFlush } from "./flush.ts";
 import type { WorkflowStepHandler } from "./types.ts";
 
 /** Renames a tab by id or title hint on an open document. */
@@ -10,6 +11,10 @@ export const tabRenameStep: WorkflowStepHandler = async (runtime, stepIndex, ste
   if (step.noop) {
     runtime.stepsExecuted++;
     return;
+  }
+
+  if (step.doc) {
+    await pendingWritersFlush(runtime, step.doc);
   }
 
   const targetDoc = runtime.openDocResolve(step.doc);
@@ -45,11 +50,11 @@ export const tabRenameStep: WorkflowStepHandler = async (runtime, stepIndex, ste
       if (!hasRootTab && errMsg.includes("500")) {
         throw new Error(
           `Google Docs API failed to rename tab with HTTP 500 Internal error.\n` +
-            `This is a known Google Docs API upstream bug when documents lack a root "t.0" tab (common in documents copied from multi-tab templates).\n` +
-            `To avoid this, specify the desired final title directly during tab creation:\n` +
-            `  { kind: "tabDuplicate", copyFromTab: "${resolved.tabId}", title: "${title}" }\n` +
+            `This is a known upstream Google Docs API bug when documents lack a root "t.0" tab (common in documents copied from multi-tab templates).\n` +
+            `Existing tabs must be renamed in the Google Docs web UI. For newly added tabs, specify the final title directly during creation:\n` +
+            `  { kind: "tabCreate", doc: "${targetDoc.alias}", as: "my_tab", fromTab: "${resolved.tabId}", title: "${title}" }\n` +
             `or\n` +
-            `  { kind: "tabAdd", title: "${title}" }`,
+            `  { kind: "tabCreate", doc: "${targetDoc.alias}", as: "my_tab", title: "${title}" }`,
         );
       }
       throw err;

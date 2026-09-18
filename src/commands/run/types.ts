@@ -11,7 +11,7 @@ export interface GdocsmithDocument {
   dryRun?: boolean;
   /** Skip guards. Only if the user asked. */
   force?: boolean;
-  /** Document paper size and margins (applied once on live writes). */
+  /** Document paper size, margins, and layout mode (applied once on live writes). */
   pageSetup?: PageSetup;
   /** Minimal output. */
   quiet?: boolean;
@@ -22,7 +22,7 @@ export interface GdocsmithDocument {
 /** JSON stdout for `gdocsmith run`. */
 /** @sg */
 export type GdocsmithJsonOutput = {
-  /** Unified git diff of changes (populated on dryRun). */
+  /** Unified git diff of changes (populated on dryRun; empty string when 0 changes detected). */
   diff?: string;
   /** True when `dryRun: true` previewed without writing. */
   dryRun?: boolean;

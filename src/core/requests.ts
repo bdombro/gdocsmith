@@ -1,5 +1,6 @@
 /* Pure builders for Google Docs batchUpdate request objects (no API calls). */
 
+import type { ParagraphInlineSpecial } from "./dom/element.ts";
 import { hangingFirstLine, optionalColor, pt, type StylePatch } from "./dom/style.ts";
 import { InlineMarkup, type TextRun } from "./inline.ts";
 import type { DocElement } from "./types.ts";
@@ -8,17 +9,25 @@ import type { DocElement } from "./types.ts";
 export class RequestBuilder {
   /** Fills table cells after insertTable; inserts run highest index first. */
   static buildTableFill(
+    /** Whether the first row is a header (bold). */
     header: boolean,
+    /** Matrix of cell text strings. */
     rows: string[][],
+    /** Live table element from documents.get. */
     tableEl: DocElement,
+    /** Header/footer segment id. */
     segmentId?: string,
+    /** Target tab id. */
     tabId?: string,
+    /** Per-cell inline specials aligned with `rows`. */
+    cellSpecials?: Array<Array<ParagraphInlineSpecial[] | undefined>>,
   ): object[] {
     const inserts: Array<{
       boldRow: boolean;
       idx: number;
       line: string;
       runs: TextRun[];
+      specials?: ParagraphInlineSpecial[];
     }> = [];
 
     const tableRows = tableEl.table?.tableRows ?? [];
@@ -26,35 +35,43 @@ export class RequestBuilder {
       const cells = tableRows[r]?.tableCells ?? [];
       for (let c = 0; c < rows[r]?.length; c++) {
         const cellText = rows[r]?.[c] ?? "";
-        if (!cellText) continue;
+        const specials = cellSpecials?.[r]?.[c];
+        if (!cellText && !specials?.length) continue;
         const idx = RequestBuilder.#cellInsertIndex(cells[c] ?? {});
+        if (!cellText) {
+          inserts.push({ boldRow: false, idx, line: "", runs: [], specials });
+          continue;
+        }
         const { runs, text: plain } = InlineMarkup.parse(cellText);
         const line = plain.endsWith("\n") ? plain : `${plain}\n`;
-        inserts.push({ boldRow: header && r === 0, idx, line, runs });
+        inserts.push({ boldRow: header && r === 0, idx, line, runs, specials });
       }
     }
 
     inserts.sort((a, b) => b.idx - a.idx);
 
     const requests: object[] = [];
-    for (const { boldRow, idx, line, runs } of inserts) {
-      requests.push({
-        insertText: { location: loc(idx, segmentId, tabId), text: line },
-      });
-      const textEnd = idx + Math.max(0, line.length - (line.endsWith("\n") ? 1 : 0));
-      if (textEnd > idx) {
-        requests.push(RequestBuilder.clearInlineStyles(idx, textEnd, segmentId, tabId));
-      }
-      requests.push(...RequestBuilder.#textStyleRequests(idx, runs, segmentId, tabId));
-      if (boldRow) {
+    for (const { boldRow, idx, line, runs, specials } of inserts) {
+      if (line) {
         requests.push({
-          updateTextStyle: {
-            fields: "bold",
-            range: rng(idx, idx + line.length - 1, segmentId, tabId),
-            textStyle: { bold: true },
-          },
+          insertText: { location: loc(idx, segmentId, tabId), text: line },
         });
+        const textEnd = idx + Math.max(0, line.length - (line.endsWith("\n") ? 1 : 0));
+        if (textEnd > idx) {
+          requests.push(RequestBuilder.clearInlineStyles(idx, textEnd, segmentId, tabId));
+        }
+        requests.push(...RequestBuilder.#textStyleRequests(idx, runs, segmentId, tabId));
+        if (boldRow) {
+          requests.push({
+            updateTextStyle: {
+              fields: "bold",
+              range: rng(idx, idx + line.length - 1, segmentId, tabId),
+              textStyle: { bold: true },
+            },
+          });
+        }
       }
+      requests.push(...RequestBuilder.insertInlineSpecials({ index: idx, segmentId, specials, tabId }));
     }
     return requests;
   }
@@ -920,6 +937,73 @@ export class RequestBuilder {
         uri: opts.uri,
       },
     };
+  }
+
+  /** Inserts chips and public images at in-paragraph indexes, highest offset first. */
+  static insertInlineSpecials(
+    /** Insertion options. */
+    opts: {
+      /** Character index of the start of the paragraph or cell text. */
+      index: number;
+      /** Header/footer segment id. */
+      segmentId?: string;
+      /** Specials whose offsets are relative to `index`. */
+      specials?: ParagraphInlineSpecial[];
+      /** Target tab id. */
+      tabId?: string;
+    },
+  ): object[] {
+    const specials = opts.specials;
+    if (!specials?.length) return [];
+    const ordered = [...specials].sort((a, b) => b.offset - a.offset);
+    const reqs: object[] = [];
+    for (const special of ordered) {
+      const at = opts.index + special.offset;
+      if (special.kind === "person") {
+        reqs.push(
+          RequestBuilder.insertPerson({
+            email: special.email,
+            index: at,
+            segmentId: opts.segmentId,
+            tabId: opts.tabId,
+          }),
+        );
+      } else if (special.kind === "date") {
+        reqs.push(
+          RequestBuilder.insertDate({
+            dateFormat: special.dateFormat,
+            displayText: special.displayText,
+            index: at,
+            segmentId: opts.segmentId,
+            tabId: opts.tabId,
+            timestamp: special.timestamp,
+          }),
+        );
+      } else if (special.kind === "richLink") {
+        reqs.push(
+          RequestBuilder.insertRichLink({
+            index: at,
+            mimeType: special.mimeType,
+            segmentId: opts.segmentId,
+            tabId: opts.tabId,
+            title: special.title,
+            uri: special.uri,
+          }),
+        );
+      } else {
+        reqs.push(
+          RequestBuilder.insertInlineImage({
+            heightPt: special.heightPt,
+            index: at,
+            segmentId: opts.segmentId,
+            tabId: opts.tabId,
+            uri: special.uri,
+            widthPt: special.widthPt,
+          }),
+        );
+      }
+    }
+    return reqs;
   }
 }
 

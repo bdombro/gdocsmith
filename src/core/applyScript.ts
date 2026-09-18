@@ -1,7 +1,8 @@
 /* Run workflow script steps with alias bindings, dry-run diffs, and surgical DOM apply. */
 
 import type { GdocsmithDocument } from "~/commands/run/types.ts";
-import type { ApplyHighlightDocJson, GdocsmithStepInput } from "~/core/workflowTypes.ts";
+import type { ApplyHighlightDocJson, GdocsmithStepInputInternal, StepTabCreate } from "~/core/workflowTypes.ts";
+import { pendingWritersFlush } from "./actions/flush.ts";
 import { type ApplyScriptRuntime, type OpenDocContext, stepRun } from "./actions/index.ts";
 import { simulatedNodesOf } from "./actions/simulated.ts";
 import { exportDocumentToMarkdown } from "./dom/export.ts";
@@ -60,7 +61,7 @@ export async function applyScriptExecute(
 
   function openDocResolve(rawDocRef?: string): OpenDocContext {
     if (rawDocRef == null || String(rawDocRef).trim() === "") {
-      throw new Error("Specify doc: <alias> (open it first with kind: docOpen, docCreate, or docCopy)");
+      throw new Error("Specify doc: <alias> (open it first with kind: docOpen or docCreate)");
     }
     const str = String(rawDocRef).trim();
     const openDoc = openDocs.get(str);
@@ -93,8 +94,8 @@ export async function applyScriptExecute(
       if (step.kind === "docOpen" && step.doc) {
         const id = Gdoc.idParse(step.doc.trim());
         if (!id.startsWith("virtual:")) rawIdsToLoad.add(id);
-      } else if (step.kind === "docCopy" && step.copyFrom) {
-        const id = Gdoc.idParse(step.copyFrom.trim());
+      } else if (step.kind === "docCreate" && step.fromDoc) {
+        const id = Gdoc.idParse(step.fromDoc.trim());
         if (!id.startsWith("virtual:")) rawIdsToLoad.add(id);
       }
     }
@@ -132,6 +133,8 @@ export async function applyScriptExecute(
   for (let i = 0; i < steps.length; i++) {
     await stepRun(runtime, i, steps[i]!);
   }
+
+  await pendingWritersFlush(runtime);
 
   if (!dryRun && doc.pageSetup) {
     const ctx =
@@ -195,7 +198,7 @@ export async function applyScriptExecute(
   const highlights = Array.from(createdHighlights.values());
 
   return {
-    diff: fullDiff || undefined,
+    diff: dryRun ? fullDiff : fullDiff || undefined,
     dumped,
     highlights,
     ok: true,
@@ -215,14 +218,12 @@ export async function applyScriptExecute(
  */
 function workflowStepsOptimize(
   /** Workflow script steps to optimize. */
-  steps: GdocsmithStepInput[],
-): GdocsmithStepInput[] {
-  const createdTabs = new Map<string, GdocsmithStepInput>();
+  steps: GdocsmithStepInputInternal[],
+): GdocsmithStepInputInternal[] {
+  const createdTabs = new Map<string, StepTabCreate & { noop?: boolean }>();
 
   for (const step of steps) {
-    const isTabCreate = step.kind === "tabAdd" || step.kind === "tabCopy" || step.kind === "tabDuplicate";
-
-    if (isTabCreate && step.title) {
+    if (step.kind === "tabCreate" && step.title) {
       const docKey = step.doc?.trim() ?? "";
       createdTabs.set(`${docKey}:${step.title.trim().toLowerCase()}`, step);
       if (step.as) {
@@ -231,8 +232,7 @@ function workflowStepsOptimize(
       continue;
     }
 
-    const isTabMove = step.kind === "tabMove" || step.kind === "tabReorder";
-    if (isTabMove && step.tab) {
+    if (step.kind === "tabMove" || step.kind === "tabReorder") {
       const docKey = step.doc?.trim() ?? "";
       const creator = createdTabs.get(`${docKey}:${step.tab.trim().toLowerCase()}`);
       if (creator && creator.afterTab == null && creator.beforeTab == null && creator.index == null) {
@@ -244,8 +244,7 @@ function workflowStepsOptimize(
       continue;
     }
 
-    const isTabRename = step.kind === "tabRename";
-    if (isTabRename && step.tab && step.title) {
+    if (step.kind === "tabRename") {
       const docKey = step.doc?.trim() ?? "";
       const creator = createdTabs.get(`${docKey}:${step.tab.trim().toLowerCase()}`);
       if (creator) {
@@ -260,8 +259,9 @@ function workflowStepsOptimize(
           createdTabs.set(`${docKey}:${newTitle.trim().toLowerCase()}`, creator);
           for (const s of steps) {
             if (s === step) break;
-            if ((s.doc?.trim() ?? "") === docKey && s.tab?.trim().toLowerCase() === oldTitleLower) {
-              s.tab = newTitle;
+            const sTab = (s as { tab?: string }).tab;
+            if ((s.doc?.trim() ?? "") === docKey && sTab?.trim().toLowerCase() === oldTitleLower) {
+              (s as { tab?: string }).tab = newTitle;
             }
           }
         }

@@ -5,7 +5,7 @@
     "": {
       "name": "gdocsmith",
       "dependencies": {
-        "argsbarg": "^7.0.10",
+        "argsbarg": "^7.1.0",
         "marked": "^18.0.13",
       },
       "devDependencies": {
@@ -42,7 +42,7 @@
 
     "@types/node": ["@types/node@22.20.3", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-DZmzkmwHzXrLPAXPyKNDzlIwMMUZCVacoD25ywdy5YTKGbOx/2ld+Q38Im2zJ0vBuZP5Prd3VZutKZyXwkOS8A=="],
 
-    "argsbarg": ["argsbarg@7.0.11", "", { "dependencies": { "@cfworker/json-schema": "^4", "ts-json-schema-generator": "^2.3.0" }, "bin": { "argsbarg": "bin/argsbarg" } }, "sha512-P/IjR/OfF7FcdHnjXtXF66sdehHusyr+HZ0WDnh248Vv4JuFGkPImcANBpbdEKMiQnd95dPq3jDbsM4G2xYSaQ=="],
+    "argsbarg": ["argsbarg@7.1.0", "", { "dependencies": { "@cfworker/json-schema": "^4", "ts-json-schema-generator": "^2.3.0" }, "bin": { "argsbarg": "bin/argsbarg" } }, "sha512-Ml03GtAKhHzFPIdVecqLMwxqXd/XFSyiJAIkmFeKSQl2uqbSm189ZA44Sv1qAKLVz/xFt8L9mQocvlpvJh98ig=="],
 
     "balanced-match": ["balanced-match@4.0.4", "", {}, "sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA=="],
 

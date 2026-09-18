@@ -1,5 +1,6 @@
 /* Workflow step: open — load a document and bind an alias. */
 
+import { pageSetupExtract } from "~/core/dom/ops.ts";
 import { Gdoc } from "~/core/gdoc.ts";
 import { DriveRevisions } from "~/core/revisions.ts";
 import { flattenTabs } from "~/core/tabs.ts";
@@ -81,11 +82,18 @@ export const openStep: WorkflowStepHandler = async (runtime, stepIndex, step) =>
     alias: as,
     id: docId,
     kind: "doc",
-    tabs: tabsToCheck.map((t) => ({
-      id: t.tabId,
-      kind: "tab",
-      title: t.title,
-    })),
+    pageSetup: pageSetupExtract(gdoc.data.documentStyle ?? gdoc.data.tabs?.[0]?.documentTab?.documentStyle),
+    tabs: tabsToCheck.map((t) => {
+      const tabSetup = pageSetupExtract(
+        t.tabId && gdoc.data.tabs?.length ? gdoc.withTab(t.tabId).data.documentStyle : gdoc.data.documentStyle,
+      );
+      return {
+        id: t.tabId,
+        kind: "tab",
+        ...(tabSetup ? { pageSetup: tabSetup } : {}),
+        title: t.title,
+      };
+    }),
     title,
   };
   runtime.openDocs.set(as, openContext);
@@ -97,11 +105,13 @@ export const openStep: WorkflowStepHandler = async (runtime, stepIndex, step) =>
   }
   runtime.activeDocAlias = as;
 
-  for (const t of tabsToCheck) {
-    const key = `${as}/${t.tabId}`;
-    if (!runtime.initialMarkdownStates.has(key)) {
-      const md = await runtime.tabMarkdownCapture(openContext, t.tabId);
-      runtime.initialMarkdownStates.set(key, md);
+  if (runtime.dryRun) {
+    for (const t of tabsToCheck) {
+      const key = `${as}/${t.tabId}`;
+      if (!runtime.initialMarkdownStates.has(key)) {
+        const md = await runtime.tabMarkdownCapture(openContext, t.tabId);
+        runtime.initialMarkdownStates.set(key, md);
+      }
     }
   }
   runtime.stepsExecuted++;

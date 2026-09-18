@@ -1,7 +1,22 @@
 /* Direct Google Docs and Drive REST API client using gws OAuth tokens. */
 
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { getValidAccessToken } from "./auth.ts";
 import type { GoogleDoc } from "./types.ts";
+
+/** Promisified child process runner. */
+const execFileAsync = promisify(execFile);
+
+/**
+ * Pauses execution for the specified milliseconds.
+ */
+function sleep(
+  /** Duration in milliseconds. */
+  ms: number,
+): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export const GOOGLE_DOC_MIMETYPE = "application/vnd.google-apps.document";
 const DOCS_BASE_URL = "https://docs.googleapis.com/v1";
@@ -252,7 +267,7 @@ export class GwsClientImpl implements DocsClient {
         lastErr = err;
         const msg = err instanceof Error ? err.message : String(err);
         if (attempt < 2 && /HTTP request failed|ECONNRESET|ETIMEDOUT|socket hang up|fetch failed/i.test(msg)) {
-          await Bun.sleep(2000 * (attempt + 1));
+          await sleep(2000 * (attempt + 1));
           continue;
         }
         throw new Error(formatGwsError(msg, documentId));
@@ -264,17 +279,13 @@ export class GwsClientImpl implements DocsClient {
 
   /** Runs an arbitrary gws command and returns stdout or throws on failure. */
   async run(args: string[]): Promise<string> {
-    const proc = Bun.spawn(["gws", ...args], {
-      stderr: "pipe",
-      stdout: "pipe",
-    });
-    const [code, stderr, stdout] = await Promise.all([
-      proc.exited,
-      new Response(proc.stderr).text(),
-      new Response(proc.stdout).text(),
-    ]);
-    if (code !== 0) throw new Error(stderr || stdout || `gws exited ${code}`);
-    return stdout;
+    try {
+      const res = await execFileAsync("gws", args);
+      return res.stdout;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`gws failed: ${msg}`);
+    }
   }
 }
 

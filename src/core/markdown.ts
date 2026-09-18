@@ -141,11 +141,6 @@ export async function elementsInsertExecute(params: ExecuteElementsInsertParams)
 
     for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
       const chunk = chunks[cIdx]!;
-      if (cIdx > 0) {
-        freshDoc = await Gdoc.load(params.documentId, client);
-        gdoc = tabId ? freshDoc.withTab(tabId) : freshDoc;
-        parsedDoc = parseDocument(gdoc);
-      }
 
       const writer = new DomWriter(parsedDoc.nodes, {
         force: params.force,
@@ -167,13 +162,13 @@ export async function elementsInsertExecute(params: ExecuteElementsInsertParams)
       chunksApplied++;
 
       if (cIdx < chunks.length - 1) {
-        const reloadedDoc = await Gdoc.load(params.documentId, client);
-        const reloadedGdoc = tabId ? reloadedDoc.withTab(tabId) : reloadedDoc;
-        const reloadedParsed = parseDocument(reloadedGdoc);
+        freshDoc = await Gdoc.load(params.documentId, client);
+        gdoc = tabId ? freshDoc.withTab(tabId) : freshDoc;
+        parsedDoc = parseDocument(gdoc);
 
         const lastSpec = chunk.kind === "table" ? chunk.spec : chunk.specs[chunk.specs.length - 1]!;
 
-        const matchingNode = reloadedParsed.nodes.find((n) => {
+        const matchingNode = parsedDoc.nodes.find((n) => {
           if (lastSpec.kind === "table" && n.kind === "table") {
             return true;
           }
@@ -186,7 +181,7 @@ export async function elementsInsertExecute(params: ExecuteElementsInsertParams)
         if (matchingNode) {
           currentAnchorId = matchingNode.tapeIndex;
         } else {
-          currentAnchorId = reloadedParsed.nodes[reloadedParsed.nodes.length - 1]?.tapeIndex;
+          currentAnchorId = parsedDoc.nodes[parsedDoc.nodes.length - 1]?.tapeIndex;
         }
       }
     }

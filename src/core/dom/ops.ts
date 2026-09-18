@@ -14,6 +14,7 @@ import {
   createElement,
   type ElementSpec,
   type InsertPosition,
+  type ParagraphInlineSpecial,
   type ParagraphSpec,
   stripTrailingNewline,
 } from "./element.ts";
@@ -187,17 +188,30 @@ export type TabDomOp = {
   tabTitle?: string;
 };
 
-/** Document page setup geometry and margins. */
+/** Document page setup geometry, layout mode, and margins. */
 export type PageSetup = {
+  /** Page margin dimensions in points. */
   margins?: {
+    /** Bottom margin in points. */
     bottom?: number;
+    /** Left margin in points. */
     left?: number;
+    /** Right margin in points. */
     right?: number;
+    /** Top margin in points. */
     top?: number;
   };
+  /** Document layout mode (PAGES or PAGELESS). */
+  mode?: "PAGES" | "PAGELESS";
+  /** Page orientation for paged documents. */
   orientation?: "LANDSCAPE" | "PORTRAIT";
+  /** Custom page height in points. */
   pageHeight?: number;
+  /** Whether the document is in pageless mode (convenience alias for mode: PAGELESS). */
+  pageless?: boolean;
+  /** Standard paper size preset. */
   pageSize?: "LETTER" | "LEGAL" | "TABLOID" | "A3" | "A4" | "A5" | "CUSTOM";
+  /** Custom page width in points. */
   pageWidth?: number;
 };
 
@@ -413,8 +427,11 @@ export function liveDump(opts: {
   return dump;
 }
 
-/** Extracts high-level page geometry and margins from GoogleDoc.documentStyle. */
-export function pageSetupExtract(docStyle?: GoogleDoc["documentStyle"]): PageSetup | undefined {
+/** Extracts high-level page geometry, layout mode, and margins from GoogleDoc.documentStyle. */
+export function pageSetupExtract(
+  /** Raw documentStyle object from a Google Doc or tab. */
+  docStyle?: GoogleDoc["documentStyle"],
+): PageSetup | undefined {
   if (!docStyle) return undefined;
   const top = docStyle.marginTop?.magnitude;
   const bottom = docStyle.marginBottom?.magnitude;
@@ -422,25 +439,31 @@ export function pageSetupExtract(docStyle?: GoogleDoc["documentStyle"]): PageSet
   const right = docStyle.marginRight?.magnitude;
   const w = docStyle.pageSize?.width?.magnitude;
   const h = docStyle.pageSize?.height?.magnitude;
+  const mode = docStyle.documentFormat?.documentMode;
 
   const hasMargins = top != null || bottom != null || left != null || right != null;
+  const hasMode = mode != null;
   const hasSize = w != null || h != null;
-  if (!hasMargins && !hasSize) return undefined;
+  if (!hasMargins && !hasMode && !hasSize) return undefined;
 
   const pageSetup: PageSetup = {};
   if (hasMargins) {
     pageSetup.margins = {
-      ...(top != null ? { top } : {}),
       ...(bottom != null ? { bottom } : {}),
       ...(left != null ? { left } : {}),
       ...(right != null ? { right } : {}),
+      ...(top != null ? { top } : {}),
     };
   }
+  if (hasMode) {
+    pageSetup.mode = mode;
+  }
   if (hasSize) {
-    pageSetup.pageWidth = w;
-    pageSetup.pageHeight = h;
     if (w != null && h != null) {
       pageSetup.orientation = w > h ? "LANDSCAPE" : "PORTRAIT";
+    }
+    pageSetup.pageHeight = h;
+    if (w != null && h != null) {
       if ((w === 612 && h === 792) || (w === 792 && h === 612)) {
         pageSetup.pageSize = "LETTER";
       } else if ((w === 612 && h === 1008) || (w === 1008 && h === 612)) {
@@ -453,6 +476,10 @@ export function pageSetupExtract(docStyle?: GoogleDoc["documentStyle"]): PageSet
         pageSetup.pageSize = "CUSTOM";
       }
     }
+    pageSetup.pageWidth = w;
+  }
+  if (hasMode) {
+    pageSetup.pageless = mode === "PAGELESS";
   }
   return pageSetup;
 }
@@ -585,15 +612,25 @@ export const parseDomOps = domOpsParse;
  * taken before each mutation.
  */
 export function tapeMutationsApply(
+  /** DOM writer accumulating mutation requests. */
   writer: DomWriter,
+  /** Array of tape mutations to apply in order. */
   ops: TapeMutation[],
+  /** Base index offset for op numbering. */
   baseIndex = 0,
-  opts: { clearedNodes?: DocNode[]; force?: boolean } = {},
+  /** Execution options including chained anchor state and force override. */
+  opts: {
+    afterendTails?: Map<number, DocNode>;
+    clearedNodes?: DocNode[];
+    force?: boolean;
+    namedAnchors?: Map<string, DocNode>;
+    rootAnchors?: Map<number, number>;
+  } = {},
 ): AppliedOpPlan[] {
   const plan: AppliedOpPlan[] = [];
-  const afterendTails = new Map<number, DocNode>();
-  const rootAnchors = new Map<number, number>();
-  const namedAnchors = new Map<string, DocNode>();
+  const afterendTails = opts.afterendTails ?? new Map<number, DocNode>();
+  const rootAnchors = opts.rootAnchors ?? new Map<number, number>();
+  const namedAnchors = opts.namedAnchors ?? new Map<string, DocNode>();
   const deletedNodes: DocNode[] = [...(opts.clearedNodes ?? [])];
   const wipedScopeNodes: DocNode[] = [...(opts.clearedNodes ?? [])];
   const insertedNodes: Array<Record<string, unknown>> = [];
@@ -1057,6 +1094,7 @@ export function tapeMutationsApply(
       }
 
       const targetLevel = STYLE_TO_LEVEL[target.namedStyleType as NamedStyle] ?? 1;
+
       const incomingStartsWithHeading =
         incomingSpecs.length > 0 &&
         incomingSpecs[0]?.kind === "paragraph" &&
@@ -1527,7 +1565,11 @@ function diffAndApplyMarkdown(
 
       if (oldNode.kind === "paragraph" && newSpec.kind === "paragraph" && !bulletChanged) {
         const handle = writer.wrap(oldNode);
-        handle.innerText = paraSpec!.text;
+        if (paraSpec?.runs?.length) {
+          writer.setInnerText(oldNode, paraSpec.text, undefined, undefined, { runs: paraSpec.runs });
+        } else {
+          handle.innerText = paraSpec!.text;
+        }
         handle.namedStyleType = paraSpec!.namedStyleType;
         if (paraSpec!.alignment) handle.alignment = paraSpec!.alignment;
         if (paraSpec!.style) writer.setStyle(oldNode, paraSpec!.style);
@@ -1544,8 +1586,7 @@ function diffAndApplyMarkdown(
       for (let k = shared; k < q; k++) {
         const newSpec = newSlice[k]!;
         const insertAnchor = lastAnchorNode ?? anchorTarget;
-        const pos: InsertPosition = lastAnchorNode ? "afterend" : "beforebegin";
-        const inserted = writer.insertAdjacentElement(insertAnchor, pos, newSpec);
+        const inserted = writer.insertAdjacentElement(insertAnchor, "afterend", newSpec);
         lastAnchorNode = inserted;
       }
     } else if (p > q) {
@@ -2174,7 +2215,21 @@ export function elementFromJson(raw: Record<string, unknown>, force = false): El
       throw new Error('table element requires rows: { "kind": "table", "rows": [["cell"]] }');
     }
     const warnings = Array.isArray(raw.warnings) ? (raw.warnings as string[]) : undefined;
-    return createElement("table", { rows: rows as string[][], warnings }, { force });
+    const nestedTable = raw.table as { cellSpecials?: Array<Array<ParagraphInlineSpecial[] | undefined>> } | undefined;
+    const cellSpecials = Array.isArray(nestedTable?.cellSpecials)
+      ? nestedTable.cellSpecials
+      : Array.isArray(raw.cellSpecials)
+        ? (raw.cellSpecials as Array<Array<ParagraphInlineSpecial[] | undefined>>)
+        : undefined;
+    return createElement(
+      "table",
+      {
+        ...(cellSpecials ? { cellSpecials } : {}),
+        rows: rows as string[][],
+        warnings,
+      },
+      { force },
+    );
   }
   const props: CreateParagraphProps = {
     namedStyleType: raw.namedStyleType as NamedStyle,
@@ -2199,6 +2254,9 @@ export function elementFromJson(raw: Record<string, unknown>, force = false): El
   }
   if (Array.isArray(raw.runs)) {
     props.runs = raw.runs as CreateParagraphProps["runs"];
+  }
+  if (Array.isArray(raw.specials)) {
+    props.specials = raw.specials as ParagraphInlineSpecial[];
   }
   return createElement((kind ?? "paragraph") as "paragraph", props, { force });
 }

@@ -91,20 +91,20 @@ gdocsmith mcp
 
 ## Exposed tools
 
-- `gdocsmith run` — run — Execute an ordered Google Docs workflow from JSON (`steps` with `kind`).
+- `gdocsmith run` — run — Declarative Google Docs workflow engine for queries, dry-run diff previews, and document updates.
 
 • Pipe stdin or pass one JSON document. Knobs: `dryRun`, `force`, `quiet` on the document.
-• Each step requires `kind` (e.g. docOpen|docClose|docCreate|docCopy|query|markdownInsert|replaceSection|…).
-• File-touching steps require `doc:` (raw id or open alias). `docCreate` binds `as`; `docCopy` uses `copyFrom`. There is no run-level documentId.
+• Each step requires `kind` (e.g. docOpen|docClose|docCreate|tabCreate|query|markdownInsert|replaceSection|…).
+• File-touching steps require `doc:` (raw id or open alias). `docCreate` binds `as` (optional `fromDoc:` to clone). There is no run-level documentId.
 • Raw IDs only: extract between `/document/d/` and `/edit`. Full URLs are rejected.
 • Surgical targeting: copy heading-scoped ids from `kind: query` into `nodeAt`, `nodeAfter`, or `nodeBefore` (e.g. `h.arch.9a1b`). NEVER compute startIndex/endIndex or write raw batchUpdate scripts.
 • In-place updates: prefer `replaceSection`, `replaceMarkdown`, or `replace` over deleting and re-inserting content (no demolish-and-rebuild). Use `replace` or `replaceMarkdown` for heading titles; `replaceSection` on an H1 replaces all subsections under it.
 • Real headings only (`TITLE`, `HEADING_1`–`HEADING_3`). No bullet glyphs in surgical text; use run-in bold (`**Label**: value`).
-• Bindings: `docOpen` sets document aliases. Every `run` call is stateless; aliases do not persist across multiple `run` invocations. `dump: true` on docOpen/docCreate/docCopy dumps doc/tab metadata into `dumped[as]`. `query` with `as:` writes matches into `dumped[as]` (`output: markdown` or `nodes`). Query aliases cannot be used as mutation anchors.
+• Bindings: `docOpen`, `docCreate`, and `tabCreate` set aliases. Every `run` call is stateless; aliases do not persist across multiple `run` invocations. `dump: true` on docOpen/docCreate/tabCreate dumps metadata into `dumped[as]`. `query` with `as:` writes matches into `dumped[as]` (`output: markdown` or `nodes`). Query aliases cannot be used as mutation anchors.
 • Cross-doc transfers: use `kind: sectionCopy` with `fromDoc:` and `fromSection:` to transfer sections server-side without streaming markdown, or query source with `output: markdown` and write with `replaceSection`. Anchors must always belong to the target `doc:`.
 • Symbolic links: use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown; gdocsmith automatically resolves them to native Docs deep links (`?tab=...#heading=...`).
 • Prefer one `run` per phase until step kinds are proven; then batch related steps. Chip/table writes use `kind: surgical`.
-• Dry run: `dryRun: true` includes a unified git diff in the JSON `diff` field without writing.
+• Dry run: optional `dryRun: true` returns a unified git diff without writing. Run mutations directly without requiring dry-run first; use dryRun only when you need to inspect an expected diff.
 - `gdocsmith status` — status — Show app version.
 
 ## Tool arguments

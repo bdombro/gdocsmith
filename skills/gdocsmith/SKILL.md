@@ -16,11 +16,15 @@ Declarative Google Docs authoring via the `run` MCP tool. No raw batchUpdate scr
 
 ## Core Rules
 
-1. **Explicit document opening & statelessness:** `docOpen` with `doc: <rawId>` and `as: <alias>`. Document aliases exist only within that single `run` call. Every step touching a doc must specify `doc: <alias>` (`docCreate` binds `as`, `docCopy` uses `copyFrom`).
+1. **Explicit document opening & statelessness:** `docOpen` with `doc: <rawId>` and `as: <alias>`. Document aliases exist only within that single `run` call. Every step touching a doc must specify `doc: <alias>` (`docCreate` binds `as`, with optional `fromDoc:` to clone).
 2. **Anchor scoping:** `nodeAt`, `nodeAfter`, `nodeBefore`, and `nodeUnder` ALWAYS reference headings or node IDs in the **target document** (`doc:`), never IDs from a source document.
-3. **Headings vs. sections:** Use `replace` (or `replaceMarkdown`) to rename a heading in place. NEVER use `replaceSection` on an H1 or Title—`replaceSection` replaces the *entire* outline tree under that heading! Use `replaceSection` on leaf/subsection headings (e.g. `Motivation`, `Decisions`) to diff and update section body.
-4. **Creation-time tab positioning:** Always specify tab `title` and position (`afterTab: <title|id>` or `beforeTab: <title|id>`) at creation time in `tabAdd` or `tabDuplicate`. Tab titles must be unique. Avoid post-hoc `tabMove` on cloned template docs due to Google Docs API 500 bugs.
+3. **Headings vs. sections:** Use `replace` (or `replaceMarkdown`) to rename a heading in place. By default, `replaceSection` replaces the *entire* outline tree under that heading (and guards reject deleting child subsections under top-level headings without `force: true`). Use `replaceSection` on leaf headings (headings without child subsections, like `Overview & Problem Statement`, `Motivation`, `Decisions`) to diff and update section body. To update a specific paragraph or placeholder under a heading while preserving child subsections, discover node IDs via `kind: query` and target the node with `replace` / `replaceMarkdown`, or use `textReplace`.
+4. **Creation-time tab positioning & fidelity:** Always specify tab `title`, `as`, and position (`afterTab: <title|id>` or `beforeTab: <title|id>`) at creation time in `tabCreate` (optionally with `fromTab: <title|id>` to duplicate). Tab titles must be unique. Avoid post-hoc `tabMove` or `tabRename` on cloned template docs due to Google Docs API 500 bugs. Google Docs REST API has no native tab duplication request; `tabCreate` with `fromTab` transfers AST nodes with styles, headings, bullets, tables, person/date/richLink chips, and public https images. If leftovers cannot be reconstructed (Drive-only images, equations, footnotes, unsupported chips, TOC), `tabCreate` rejects by default and instructs duplicating in the Google Docs UI (right-click tab > Duplicate); pass `force: true` on `tabCreate` to proceed with lossy conversion (placeholders / omitted footnotes).
 5. **Symbolic links:** Use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown. gdocsmith automatically compiles them to native Google Docs deep links.
+6. **Content field conventions:** Use `markdown: "..."` for markdown steps (`replaceSection`, `replaceMarkdown`, `markdownInsert`). Use `replace: "..."` (or `text: "..."`) for text steps (`replace`, `textReplace`). For querying document outlines, use `output: "outline"` or `output: "headings"`.
+7. **Execution & dry runs:** Execute mutations directly. `dryRun: true` is an optional diagnostic for previewing diffs when troubleshooting, not a required prerequisite before edits. Do not get stuck in repetitive dry-run loops. If Auto-review blocks an action, immediately retry with the standard approval flag (`requestSmartModeApproval: true` or `request_smart_mode_approval: true`).
+8. **List formatting & continuation:** Standard CommonMark nested lists (sub-items indented with 2–4 spaces under ordered or unordered items) compile cleanly into Google Docs nested list levels. In Google Docs, numbered lists continue and auto-increment automatically across nested sub-bullet runs; do not flatten lists or avoid nesting out of concern for list continuity.
+9. **Template placeholders & child fixtures:** In cloned templates, sections often have placeholder paragraphs (e.g. `*Placeholder: ...*`) alongside child fixtures (subsections with tables or chips). In 2-phase workflows, query the outline or nodes first (`kind: query`) to discover scoped node IDs, then target the specific placeholder paragraph directly with `replace` or `replaceMarkdown`, or use `textReplace` (`kind: "textReplace", doc: "...", tab: "...", find: "...", replace: "..."`). Do not use `replaceSection` on a parent heading if you want to preserve its child subsections.
 
 ## Canonical Recipes
 
@@ -40,7 +44,7 @@ Declarative Google Docs authoring via the `run` MCP tool. No raw batchUpdate scr
   "steps": [
     { "kind": "docCreate", "title": "Project Plan", "as": "plan" },
     { "kind": "markdownInsert", "doc": "plan", "markdown": "# Overview\n\nIntro copy..." },
-    { "kind": "tabAdd", "doc": "plan", "title": "Execution", "afterTab": "Main" },
+    { "kind": "tabCreate", "doc": "plan", "as": "exec", "title": "Execution", "afterTab": "Main" },
     { "kind": "markdownInsert", "doc": "plan", "tab": "Execution", "markdown": "# Execution\n\nSee [Overview](tab:Main#Overview)." }
   ]
 }
@@ -76,6 +80,32 @@ Declarative Google Docs authoring via the `run` MCP tool. No raw batchUpdate scr
     { "kind": "docPermissionAdd", "doc": "myDoc", "scope": "internal", "role": "commenter" },
     { "kind": "docPermissionAdd", "doc": "myDoc", "email": "teammate@example.com", "role": "writer" },
     { "kind": "docPermissionList", "doc": "myDoc", "as": "perms" }
+  ]
+}
+```
+
+### 6. Configure Page Geometry or Toggle Pageless Mode
+```json
+{
+  "steps": [
+    { "kind": "docOpen", "doc": "<documentId>", "as": "myDoc" },
+    { "kind": "pageSetup", "doc": "myDoc", "tab": "Spec Template", "mode": "PAGELESS" }
+  ]
+}
+```
+
+### 7. Replace Template Placeholders While Preserving Subsections
+```json
+{
+  "steps": [
+    { "kind": "docOpen", "doc": "<documentId>", "as": "myDoc" },
+    {
+      "kind": "textReplace",
+      "doc": "myDoc",
+      "tab": "Spec",
+      "find": "Placeholder: Replace with architectural specification and component breakdown.",
+      "replace": "Core architectural specification details..."
+    }
   ]
 }
 ```

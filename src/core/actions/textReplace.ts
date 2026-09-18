@@ -6,6 +6,7 @@ import { batchReplaceExecute } from "~/core/replace.ts";
 import { findTab, resolveTab, walkTabs } from "~/core/tabs.ts";
 import type { DocElement, GoogleDoc } from "~/core/types.ts";
 import { domOpFromStep } from "./domOpFromStep.ts";
+import { pendingWritersFlush } from "./flush.ts";
 import { simulatedNodesOf } from "./simulated.ts";
 import { surgicalMutationExecute } from "./surgicalMutation.ts";
 import type { SimulatedGdoc, WorkflowStepHandler } from "./types.ts";
@@ -17,6 +18,9 @@ export const textReplaceStep: WorkflowStepHandler = async (runtime, _stepIndex, 
   const hasAnchor = step.nodeAt != null || step.nodeAfter != null || step.nodeBefore != null || step.nodeUnder != null;
 
   if (step.find != null && !hasAnchor) {
+    if (step.doc) {
+      await pendingWritersFlush(runtime, step.doc);
+    }
     const replaceStr = step.replace ?? step.text ?? "";
     const tabResolution =
       targetDoc.gdoc.data.tabs?.length && tabHint ? resolveTab(targetDoc.gdoc.data, tabHint) : undefined;

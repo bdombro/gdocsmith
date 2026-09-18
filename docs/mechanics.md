@@ -43,7 +43,7 @@ Targeting nodes in `gdocsmith run` uses `kind: query`. The workflow engine filte
 
 | Query Parameter | Description |
 |---|---|
-| `doc:` | Target document alias or ID (required; open it first with `docOpen` / `docCreate` / `docCopy`). |
+| `doc:` | Target document alias or ID (required; open it first with `docOpen` / `docCreate`). |
 | `tab:` | Target tab ID or unique title. |
 | `nodeUnder:` | Scopes query to the neighborhood under a heading (matching the heading and following siblings until the next same-or-higher heading). |
 | `contains:` | Substring filter (case-insensitive) on paragraph or heading text. |
@@ -58,7 +58,7 @@ Targeting nodes in `gdocsmith run` uses `kind: query`. The workflow engine filte
 - Whole document: `kind: query` + `output: markdown` (no `tab`, no `nodeUnder`). Multi-tab docs join tabs with `---` (tab divider, not YAML). Styles and omissions are on `audit`.
 - One tab: add `tab: <tabId>`.
 - One section: add `nodeUnder: <heading-scoped id>`.
-- `dump: true` on `docOpen`/`docCreate`/`docCopy` emits doc and tab metadata into `dumped[as]`.
+- `dump: true` on `docOpen`/`docCreate`/`tabCreate` emits doc and tab metadata into `dumped[as]`.
 
 Do not attempt to pass raw character indices to write steps. Writes use heading-scoped IDs (`nodeAt: "h.arch.9a1b"`) or cell IDs (`nodeAt: "h.arch.table.0.1.3c8f"`). Mutations must target explicit scoped IDs, not query aliases.
 
@@ -88,7 +88,7 @@ Do not attempt to pass raw character indices to write steps. Writes use heading-
 
 **Headers / footers** are not the body tape and are not `gdocsmith run` kinds yet. Use the Docs UI.
 
-**Tabs** are extra body tapes. Set `tab:` on the step. Manage tabs via `kind: tabAdd`, `tabRename`, `tabDelete`.
+**Tabs** are extra body tapes. Set `tab:` on the step. Manage tabs via `kind: tabCreate`, `tabRename`, `tabDelete`.
 
 **Columns** are `sectionBreak.columnCount` (Format > Columns), not a table. Set with `{ "at": <sectionBreakId>, "style": { "columnCount": 2 } }`. Query does not invent a newspaper layout.
 
@@ -101,13 +101,13 @@ Do not attempt to pass raw character indices to write steps. Writes use heading-
 - After a **table**, `afterend` inserts at the table’s end (the next body paragraph). Do not treat a table like a paragraph (`end-1` is inside a cell).
 - Inline `` `code` `` / `**bold**` / `[label](url)` are stripped to plain text plus styles on both insert and innerText. Apply **clears inherited** bold/link/code on the replaced range first (template placeholders are often fully bold).
 - Do not `remove` the last paragraph; `innerText` it.
-- **Smart chips (`richLink`).** Query includes chip titles in `text`, markdown links in `markup`, and `chips: [{ title, uri }]`. `innerText` and `remove` destroy chips (plan warns; they still apply). Chip insert is Docs UI.
+- **Smart chips (`person`, `date`, `richLink`).** Query includes chip titles in `text` (richLink titles only), markdown links in `markup`, and `chips: [{ title, uri, kind, email?, timestamp? }]`. `innerText` and `remove` destroy chips (plan warns; they still apply). Clone/`tabCreate` recreates person (email), date (timestamp), and richLink (uri) via native insert requests; other chips fail closed.
 - **Run chrome.** Compact query dumps `style: { italic, fontSize, foregroundColor }` when those values are uniform across visible text runs and are not Docs defaults (not italic, 11pt, black). Restyle with the same fields on `style`.
 - **Lists.** Query reports `bullet: { nestingLevel, type }` where `type` is `NUMBERED`, `BULLET`, or `CHECKBOX`. To continue an existing list after a list item, pass `"bullet": true` (or `"bullet": {}`) on the inserted paragraph — it joins the existing list (preserving numbering or bullet style and inheriting `nestingLevel`). Omitting `bullet` on an insert after a list item emits `deleteParagraphBullets` so headings and prose do not inherit glyphs (plan warns). `nestingLevel` is absolute. Apply prefixes leading tabs, then `createParagraphBullets` (Google counts tabs and strips them). Indent alone does not nest. Restyle indent with `style.indentStart` / `indentFirstLine` (same as insert). Query dumps those when set. Numbered prefix = a `BulletGlyphPreset`, not typed `1.` text. `{ "at", "bullet": { "preset" } }` converts the listId run; `nestingLevel` change on an existing item is refused.
 
 **Multiple inserts:** Use `after: <id>` or `before: <id>` with `elements: [...]` (or `kind: markdownInsert` with `markdown:`) to insert several elements sequentially in natural array order. No nested `insertAdjacentElement` boilerplate and no manual chaining needed.
 
-**Clone nodes with 100% fidelity:** Pass `cloneNode: { fromDoc?, fromTab?, nodeId, innerText? }` (or intra-doc shorthand `cloneNode: h.arch.9a1b`) with `after: <id>` or `before: <id>` to copy any node from the current tab, another tab, or another doc while preserving all styles, bullets, margins, and alignments. `innerText` replaces text while retaining the source node's styling. Use `cloneNodes: [...]` for batch cloning. `nodeId` is the heading-scoped id from query.
+**Clone nodes with 100% fidelity:** Pass `cloneNode: { fromDoc?, fromTab?, nodeId, innerText? }` (or intra-doc shorthand `cloneNode: h.arch.9a1b`) with `after: <id>` or `before: <id>` to copy any node from the current tab, another tab, or another doc while preserving styles, bullets, margins, alignments, recreatable chips, and public https images. Drive-only images, footnotes, equations, and unsupported chips cannot be cloned losslessly. `innerText` replaces text while retaining the source node's styling. Use `cloneNodes: [...]` for batch cloning. `nodeId` is the heading-scoped id from query.
 
 **Replace a whole section:** Use `replaceSection: "..."` targeting the section heading (`nodeAt: "h.arch"`). It automatically diffs incoming elements against live nodes via checksum, preserves unchanged nodes (zero comment threads or suggestions lost), updates modified nodes in-place, and applies genuine additions/removals. Accepts inline markdown, file path string, or `file: "path.md"`. Never manually delete-then-insert.
 
@@ -347,14 +347,15 @@ If `nodeAfter` or `nodeBefore` is specified instead of `nodeAt`, the section is 
 ## Tab operations and API quirks
 
 ### Google Docs API 500 on template-copied docs
-Documents created via Drive template copy (`docCopy` from an existing multi-tab document) often lack a root `t.0` tab. In these documents, calling `updateDocumentTabProperties` (which powers `tabRename` and `tabMove`) can fail with an upstream Google Docs API `HTTP 500 Internal error`.
+Documents created via Drive template copy (`docCreate` with `fromDoc:` from an existing multi-tab document) often lack a root `t.0` tab. In these documents, calling `updateDocumentTabProperties` (which powers `tabRename` and `tabMove`) can fail with an upstream Google Docs API `HTTP 500 Internal error`.
 
 **Rule**: Specify the final `title` and relative position (`index`, `afterTab`, or `beforeTab`) directly at tab creation time:
 ```yaml
 # Recommended: title and positioning during creation
-- kind: tabDuplicate
+- kind: tabCreate
   doc: myDoc
-  copyFromTab: "Template Tab"
+  as: specTab
+  fromTab: "Template Tab"
   title: "New Feature Spec"
   afterTab: "Overview"
 ```
@@ -363,7 +364,7 @@ Documents created via Drive template copy (`docCopy` from an existing multi-tab 
 Google Docs requires tab titles to be unique across a document. `gdocsmith` validates title uniqueness upfront before submitting batch updates to prevent 400 Bad Request errors.
 
 ### Relative tab positioning
-Tabs can be positioned relative to existing tabs using `afterTab:` or `beforeTab:` in `tabAdd`, `tabCopy`, `tabDuplicate`, and `tabMove`:
+Tabs can be positioned relative to existing tabs using `afterTab:` or `beforeTab:` in `tabCreate` and `tabMove`:
 - `afterTab: "Overview"` — inserts or moves the tab immediately after the specified tab.
 - `beforeTab: "Appendices"` — inserts or moves the tab immediately before the specified tab.
 

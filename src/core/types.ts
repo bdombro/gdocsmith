@@ -37,8 +37,10 @@ export type DocElement = {
       dateElement?: {
         /** Associated date parameters. */
         dateElementProperties?: {
-          /** ISO date string. */
-          date?: string;
+          /** Calendar date as an ISO string or year/month/day object. */
+          date?: string | { day?: number; month?: number; year?: number };
+          /** Date format pattern. */
+          dateFormat?: string;
           /** Display text label. */
           displayText?: string;
         };

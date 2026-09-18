@@ -14,10 +14,11 @@ export function domOpFromStep(
   aliasResolve: (val?: string) => string | undefined,
 ): TapeMutation {
   const mutation: TapeMutation = {};
+  const s = step as unknown as Record<string, unknown>;
 
   for (const key of TAPE_MUTATION_KEYS) {
     if (ANCHOR_KEYS.has(key)) continue;
-    const raw = step[key as keyof GdocsmithStepInput];
+    const raw = s[key];
     if (raw === undefined) continue;
     if (key === "cloneNode") {
       mutation.cloneNode = cloneRefResolve(raw, aliasResolve);
@@ -38,42 +39,49 @@ export function domOpFromStep(
   }
 
   if (mutation.at === undefined) {
-    const rawAt = step.nodeAt;
+    const rawAt = s.nodeAt;
     if (rawAt !== undefined) {
       const resolved = typeof rawAt === "string" ? aliasResolve(rawAt) : rawAt;
       if (resolved !== undefined) mutation.at = resolved as never;
     }
   }
-  if (mutation.after === undefined && step.nodeAfter !== undefined) {
-    const resolved = typeof step.nodeAfter === "string" ? aliasResolve(step.nodeAfter) : step.nodeAfter;
+  if (mutation.after === undefined && s.nodeAfter !== undefined) {
+    const resolved = typeof s.nodeAfter === "string" ? aliasResolve(s.nodeAfter as string) : s.nodeAfter;
     if (resolved !== undefined) mutation.after = resolved as never;
   }
-  if (mutation.before === undefined && step.nodeBefore !== undefined) {
-    const resolved = typeof step.nodeBefore === "string" ? aliasResolve(step.nodeBefore) : step.nodeBefore;
+  if (mutation.before === undefined && s.nodeBefore !== undefined) {
+    const resolved = typeof s.nodeBefore === "string" ? aliasResolve(s.nodeBefore as string) : s.nodeBefore;
     if (resolved !== undefined) mutation.before = resolved as never;
   }
 
   if (mutation.at === undefined) {
-    const under = aliasResolve(step.nodeUnder);
+    const under = aliasResolve(s.nodeUnder as string | undefined);
     if (under !== undefined) mutation.at = under;
   }
 
   const kind = stepKindRead(step);
-  if (kind === "replaceMarkdown" || (step.replaceMarkdown && typeof step.replaceMarkdown !== "string")) {
-    mutation.replaceMarkdown =
-      typeof step.replaceMarkdown === "string" ? step.replaceMarkdown : (step.markdown ?? step.text);
-  } else if (kind === "replaceSection" || (step.replaceSection && typeof step.replaceSection !== "string")) {
-    mutation.replaceSection =
-      typeof step.replaceSection === "string" ? step.replaceSection : (step.markdown ?? step.text);
+  const replaceMarkdownVal = s.replaceMarkdown;
+  const replaceSectionVal = s.replaceSection;
+  const insertMarkdownVal = s.insertMarkdown;
+  const markdownVal = s.markdown as string | undefined;
+  const textVal = s.text as string | undefined;
+  const replaceVal = s.replace as string | undefined;
+  const innerTextVal = s.innerText as string | undefined;
+
+  if (kind === "replaceMarkdown" || (replaceMarkdownVal && typeof replaceMarkdownVal !== "string")) {
+    mutation.replaceMarkdown = typeof replaceMarkdownVal === "string" ? replaceMarkdownVal : (markdownVal ?? textVal);
+  } else if (kind === "replaceSection" || (replaceSectionVal && typeof replaceSectionVal !== "string")) {
+    mutation.replaceSection = typeof replaceSectionVal === "string" ? replaceSectionVal : (markdownVal ?? textVal);
   } else if (kind === "markdownInsert") {
-    mutation.insertMarkdown =
-      typeof step.insertMarkdown === "string" ? step.insertMarkdown : (step.markdown ?? step.text);
-  } else if (kind === "replace" || step.find != null) {
-    mutation.replace = step.replace ?? step.text ?? step.innerText;
-  } else if (step.replace !== undefined && mutation.replace === undefined) {
-    mutation.replace = step.replace;
-  } else if (step.markdown !== undefined && mutation.insertMarkdown === undefined) {
-    mutation.insertMarkdown = step.markdown;
+    mutation.insertMarkdown = typeof insertMarkdownVal === "string" ? insertMarkdownVal : (markdownVal ?? textVal);
+  } else if (kind === "replace" || s.find != null) {
+    mutation.replace = replaceVal ?? textVal ?? innerTextVal;
+  } else if (kind === "innerText") {
+    mutation.innerText = innerTextVal ?? textVal;
+  } else if (replaceVal !== undefined && mutation.replace === undefined) {
+    mutation.replace = replaceVal;
+  } else if (markdownVal !== undefined && mutation.insertMarkdown === undefined) {
+    mutation.insertMarkdown = markdownVal;
   }
 
   return mutation;

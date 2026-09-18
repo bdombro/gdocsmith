@@ -490,15 +490,19 @@ function parseBullet(paragraph: NonNullable<DocElement["paragraph"]>, data: Goog
 
 function parseChips(paragraph: NonNullable<DocElement["paragraph"]>): InlineChip[] {
   const chips: InlineChip[] = [];
-  for (const el of paragraph.elements ?? []) {
+  const elements = paragraph.elements ?? [];
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i]!;
     const start = el.startIndex ?? 0;
     const end = el.endIndex ?? start + 1;
+    const textOffset = Paragraph.text({ elements: elements.slice(0, i) }, false).length;
     if (el.richLink?.richLinkProperties) {
       const props = el.richLink.richLinkProperties;
       const chip: InlineChip = {
         end,
         kind: "richLink",
         start,
+        textOffset,
         title: props.title ?? "",
         uri: props.uri ?? "",
       };
@@ -507,42 +511,81 @@ function parseChips(paragraph: NonNullable<DocElement["paragraph"]>): InlineChip
       chips.push(chip);
     } else if (el.person?.personProperties) {
       const props = el.person.personProperties;
-      chips.push({
+      const chip: InlineChip = {
         end,
         kind: "person",
         personId: el.person.personId,
         start,
+        textOffset,
         title: props.name || props.email || "Person",
         uri: props.email ? `mailto:${props.email}` : "",
-      });
+      };
+      if (props.email) chip.email = props.email;
+      chips.push(chip);
     } else if (el.dateElement?.dateElementProperties) {
       const props = el.dateElement.dateElementProperties;
-      chips.push({
+      const chip: InlineChip = {
         dateId: el.dateElement.dateId,
         end,
         kind: "date",
         start,
+        textOffset,
         title: props.displayText || "Date",
         uri: "",
-      });
+      };
+      if (props.dateFormat) chip.dateFormat = props.dateFormat;
+      const timestamp = dateTimestampFromProps(props);
+      if (timestamp) chip.timestamp = timestamp;
+      chips.push(chip);
     }
   }
   return chips;
 }
 
+/** Builds an ISO date timestamp from Docs date chip properties. */
+function dateTimestampFromProps(
+  /** Date chip properties from documents.get. */
+  props: { date?: string | { day?: number; month?: number; year?: number }; dateFormat?: string; displayText?: string },
+): string | undefined {
+  const raw = props.date;
+  if (typeof raw === "string" && raw.trim()) {
+    const ms = Date.parse(raw);
+    return Number.isNaN(ms) ? raw : new Date(ms).toISOString();
+  }
+  if (raw && typeof raw === "object") {
+    const year = raw.year;
+    const month = raw.month;
+    const day = raw.day;
+    if (typeof year === "number" && typeof month === "number" && typeof day === "number") {
+      return new Date(Date.UTC(year, month - 1, day)).toISOString();
+    }
+  }
+  return undefined;
+}
+
 function parseImages(paragraph: NonNullable<DocElement["paragraph"]>, data: GoogleDoc): InlineImage[] {
   const images: InlineImage[] = [];
-  for (const el of paragraph.elements ?? []) {
+  const elements = paragraph.elements ?? [];
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i]!;
     const objectId = el.inlineObjectElement?.inlineObjectId;
     if (!objectId) continue;
     const start = el.startIndex ?? 0;
     const end = el.endIndex ?? start + 1;
-    const size = data.inlineObjects?.[objectId]?.inlineObjectProperties?.embeddedObject?.size;
-    const image: InlineImage = { end, objectId, start };
+    const embedded = data.inlineObjects?.[objectId]?.inlineObjectProperties?.embeddedObject;
+    const size = embedded?.size;
+    const image: InlineImage = {
+      end,
+      objectId,
+      start,
+      textOffset: Paragraph.text({ elements: elements.slice(0, i) }, false).length,
+    };
     const widthPt = size?.width?.magnitude;
     const heightPt = size?.height?.magnitude;
     if (typeof widthPt === "number") image.widthPt = widthPt;
     if (typeof heightPt === "number") image.heightPt = heightPt;
+    const sourceUri = embedded?.imageProperties?.sourceUri;
+    if (sourceUri) image.sourceUri = sourceUri;
     images.push(image);
   }
   return images;

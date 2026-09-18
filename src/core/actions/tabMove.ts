@@ -4,6 +4,7 @@ import { Gdoc } from "~/core/gdoc.ts";
 import { RequestBuilder } from "~/core/requests.ts";
 import { flattenTabs, resolveRelativeTabIndex, resolveTab } from "~/core/tabs.ts";
 import type { DocTab } from "~/core/types.ts";
+import { pendingWritersFlush } from "./flush.ts";
 import type { WorkflowStepHandler } from "./types.ts";
 
 /** Moves/reorders a document tab to a target index. */
@@ -18,6 +19,10 @@ export const tabMoveStep: WorkflowStepHandler = async (
   if (step.noop) {
     runtime.stepsExecuted++;
     return;
+  }
+
+  if (step.doc) {
+    await pendingWritersFlush(runtime, step.doc);
   }
 
   const targetDoc = runtime.openDocResolve(step.doc);
@@ -66,9 +71,9 @@ export const tabMoveStep: WorkflowStepHandler = async (
           `Google Docs API failed to move tab with HTTP 500 Internal error.\n` +
             `This is a known Google Docs API upstream bug when documents lack a root "t.0" tab (common in documents copied from multi-tab templates).\n` +
             `To position tabs without relying on tabMove, specify index: <n> directly during tab creation:\n` +
-            `  { kind: "tabDuplicate", copyFromTab: "${resolved.tabId}", title: "${resolved.title}", index: ${targetIndex} }\n` +
+            `  { kind: "tabCreate", doc: "${targetDoc.alias}", as: "my_tab", fromTab: "${resolved.tabId}", title: "${resolved.title}", index: ${targetIndex} }\n` +
             `or\n` +
-            `  { kind: "tabAdd", title: "${resolved.title}", index: ${targetIndex} }`,
+            `  { kind: "tabCreate", doc: "${targetDoc.alias}", as: "my_tab", title: "${resolved.title}", index: ${targetIndex} }`,
         );
       }
       throw err;

@@ -38,7 +38,7 @@ Workflows run in three simple steps:
 
 1. **Inspect**: Query headings, bullet trees, table rows/cols, or text colors (`query`). Matches return stable IDs (e.g. `h.arch.9a1b`, cell `h.arch.table.0.1.3c8f`).
 2. **Mutate**: Target verified IDs with surgical edits or Markdown insertions (`nodeAt`, `nodeAfter`, `nodeBefore`, `nodeUnder`).
-3. **Batch**: Chain creation (`docCreate`), tabs (`tabAdd`), and insertions in one pass using aliases (`as: "spec"` → `doc: "spec"`).
+3. **Batch**: Chain creation (`docCreate`), tabs (`tabCreate`), and insertions in one pass using aliases (`as: "spec"` → `doc: "spec"`).
 
 ### Workflow Example
 
@@ -66,47 +66,23 @@ The query result in `dumped.componentsHeading` contains the matching node ID (`h
 
 ## Installation & Setup
 
-### 1. Install via Homebrew
+### 1. Cursor Plugin
+
+Install directly via the Cursor Marketplace, or link for local development:
 
 ```bash
-brew tap bdombro/gdocsmith git@github.com:bdombro/gdocsmith.git
-brew install gdocsmith
+git clone https://github.com/bdombro/gdocsmith.git
+cd gdocsmith
+just install-plugin-cursor
 ```
 
-### 2. Configure MCP
+The plugin automatically provides `.cursor-plugin/plugin.json`, `mcp.json`, and the bundled zero-dependency Node runner at `scripts/mcp.mjs`.
 
-#### Automatic setup
+### 2. Claude Code Plugin
 
-If your agent toolchain supports the [DotAgents](https://dotagentsprotocol.com) protocol (`~/.agents/mcp.json`):
-
-```bash
-gdocsmith configure install
-```
-
-#### Manual client setup
-
-Add `gdocsmith` to your client configuration:
-
-| Client             | Config File                                                               |
-| ------------------ | ------------------------------------------------------------------------- |
-| **Cursor**         | `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project)             |
-| **Claude Code**    | `~/.claude.json` under `mcpServers`, or project `.mcp.json`               |
-| **Claude Desktop** | `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) |
-
-Configuration entry:
-
-```json
-{
-  "mcpServers": {
-    "gdocsmith": {
-      "command": "gdocsmith",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-Restart your client (Cursor, Claude Desktop, etc.) after adding the configuration.
+`gdocsmith` includes native Claude Code plugin manifests:
+- `.claude-plugin/plugin.json`
+- `.mcp.json`
 
 ### 3. Authentication
 

@@ -1,19 +1,47 @@
 /* Shared types for run workflow step handlers. */
 
+import type { AppliedOpPlan, DomWriter } from "~/core/dom/index.ts";
+import type { DocNode } from "~/core/dom/types.ts";
 import type { Gdoc } from "~/core/gdoc.ts";
 import type { DrivePermission, GwsClient } from "~/core/gws.ts";
-import type { ApplyHighlightDocJson, GdocsmithStepInput, PageSetup } from "~/core/workflowTypes.ts";
+import type { GoogleDoc } from "~/core/types.ts";
+import type { ApplyHighlightDocJson, GdocsmithStepInputInternal, PageSetup } from "~/core/workflowTypes.ts";
 
 export type { WorkflowStepKind } from "~/core/workflowTypes.ts";
 
+/** Pending write buffer for batched mutations on a specific document tab. */
+export type PendingWriterEntry = {
+  /** Chained afterend insertions map. */
+  afterendTails: Map<number, DocNode>;
+  /** Snapshot of raw GoogleDoc data when writer session started. */
+  doc: GoogleDoc;
+  /** Named anchors map established by as: directives. */
+  namedAnchors: Map<string, DocNode>;
+  /** Recorded op execution preview plans. */
+  plans: AppliedOpPlan[];
+  /** Chained root anchor map. */
+  rootAnchors: Map<number, number>;
+  /** Active DOM writer accumulating surgical mutations. */
+  writer: DomWriter;
+};
+
 /** Context tracked for an active or open document session. */
 export type OpenDocContext = {
+  /** Document alias used in workflow steps. */
   alias: string;
+  /** Real or virtual Google Docs document identifier. */
   docId: string;
+  /** Active Gdoc instance. */
   gdoc: Gdoc;
+  /** True when document is an ephemeral virtual in-memory document. */
   isVirtual?: boolean;
+  /** Buffered in-memory DOM writers accumulating surgical mutations per tab. */
+  pendingWriters?: Map<string, PendingWriterEntry>;
+  /** Drive permissions for document. */
   permissions?: DrivePermission[];
+  /** Pinned Drive revision ID. */
   pinnedRevisionId?: string;
+  /** Document title. */
   title: string;
 };
 
@@ -49,8 +77,8 @@ export type ApplyScriptRuntime = {
 };
 
 /** One workflow step handler. */
-export type WorkflowStepHandler = (
+export type WorkflowStepHandler<TStep extends GdocsmithStepInputInternal = any> = (
   runtime: ApplyScriptRuntime,
   stepIndex: number,
-  step: GdocsmithStepInput,
+  step: TStep,
 ) => Promise<void>;

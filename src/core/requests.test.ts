@@ -40,6 +40,40 @@ describe("RequestBuilder", () => {
     expect(requests.length).toBeGreaterThan(0);
   });
 
+  test("buildTableFill inserts cell specials at cell start plus offset", () => {
+    const requests = RequestBuilder.buildTableFill(
+      false,
+      [[""]],
+      {
+        endIndex: 20,
+        startIndex: 1,
+        table: {
+          columns: 1,
+          rows: 1,
+          tableRows: [
+            {
+              tableCells: [
+                {
+                  content: [
+                    {
+                      endIndex: 8,
+                      paragraph: { elements: [{ textRun: { content: "\n" } }] },
+                      startIndex: 2,
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      undefined,
+      undefined,
+      [[[{ email: "a@x.com", kind: "person", offset: 0 }]]],
+    );
+    expect(requests.some((r) => r && typeof r === "object" && "insertPerson" in r)).toBe(true);
+  });
+
   test("deleteParagraphBullets stamps a range", () => {
     expect(RequestBuilder.deleteParagraphBullets(8, 19, "kix.h")).toEqual({
       deleteParagraphBullets: {

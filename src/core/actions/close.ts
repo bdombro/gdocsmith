@@ -1,9 +1,14 @@
 /* Workflow step: docClose — drop a document from the runtime session. */
 
+import { pendingWritersFlush } from "./flush.ts";
 import type { WorkflowStepHandler } from "./types.ts";
 
 /** Closes an open document alias without mutating the remote file. */
 export const closeStep: WorkflowStepHandler = async (runtime, _stepIndex, step) => {
+  if (step.doc) {
+    await pendingWritersFlush(runtime, step.doc);
+  }
+
   const targetDoc = runtime.openDocResolve(step.doc);
   runtime.openDocs.delete(targetDoc.alias);
   runtime.docIdToAlias.delete(targetDoc.docId);

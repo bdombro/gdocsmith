@@ -2,7 +2,8 @@
 
 import { Gdoc } from "~/core/gdoc.ts";
 import { resolveApplyTab } from "~/core/tabs.ts";
-import type { ElementSpec, ParagraphSpec, TableSpec } from "./element.ts";
+import type { ElementSpec, ParagraphInlineSpecial, ParagraphSpec, TableSpec } from "./element.ts";
+import { paragraphInlineClone, tableCellInlineClone } from "./inlineSpecials.ts";
 import type { DomOp } from "./ops.ts";
 import { parseDocument } from "./parse.ts";
 import { findNodeAt, missingNodeIdMsg } from "./query.ts";
@@ -138,19 +139,14 @@ export function elementSpecFromNode(
 ): ElementSpec {
   if (node.kind === "paragraph") {
     const warnings: string[] = [];
-    let text = options?.innerText ?? node.markup ?? node.text ?? "";
-    if (node.images?.length) {
-      if (!text.includes("[Image]")) {
-        text = text.trim() ? `${text} [Image]` : "[Image]";
-      }
-      warnings.push(
-        `Node ${node.tapeIndex}: ${node.images.length} image(s) replaced with [Image] placeholder because Google Docs API does not support inserting internal image URLs.`,
-      );
-    }
-    if (node.chips?.length) {
-      warnings.push(
-        `Node ${node.tapeIndex}: ${node.chips.length} smart chip(s) flattened to text/link because Google Docs API cannot create native smart chips.`,
-      );
+    const sourceText =
+      options?.innerText ??
+      (node.chips?.length || node.images?.length ? (node.text ?? "") : (node.markup ?? node.text ?? ""));
+    const plan = paragraphInlineClone({ chips: node.chips, images: node.images, text: sourceText });
+    let text = plan.text;
+    warnings.push(...plan.unclonable.map((msg) => `Node ${node.tapeIndex}: ${msg}`));
+    if (plan.unclonable.some((msg) => msg.includes("inline image")) && !text.includes("[Image]")) {
+      text = text.trim() ? `${text} [Image]` : "[Image]";
     }
     if (node.footnoteIds?.length) {
       warnings.push(
@@ -173,6 +169,7 @@ export function elementSpecFromNode(
       namedStyleType: node.namedStyleType ?? "NORMAL_TEXT",
       text,
     };
+    if (plan.specials.length > 0) spec.specials = plan.specials;
 
     if (node.alignment) spec.alignment = node.alignment;
     if (Object.keys(stylePatch).length > 0) spec.style = stylePatch;
@@ -201,31 +198,25 @@ export function elementSpecFromNode(
 
   if (node.kind === "table" && node.table) {
     const warnings: string[] = [];
-    let imageCount = 0;
-    let chipCount = 0;
-    for (const row of node.table.cells) {
-      for (const cell of row) {
-        if (cell.images?.length) imageCount += cell.images.length;
-        if (cell.chips?.length) chipCount += cell.chips.length;
-      }
-    }
-    if (imageCount > 0) {
-      warnings.push(`Node ${node.tapeIndex} table: ${imageCount} image(s) replaced with [Image] placeholder.`);
-    }
-    if (chipCount > 0) {
-      warnings.push(`Node ${node.tapeIndex} table: ${chipCount} smart chip(s) flattened.`);
-    }
-
-    const rows: string[][] = node.table.cells.map((row: TableCell[]) =>
-      row.map((cell) => {
-        const paras = cell.paragraphs && cell.paragraphs.length > 0 ? cell.paragraphs : [cell];
-        return paras.map((p) => p.markup ?? p.text ?? "").join("\n");
-      }),
-    );
+    const cellSpecials: Array<Array<ParagraphInlineSpecial[] | undefined>> = [];
+    const rows: string[][] = node.table.cells.map((row: TableCell[]) => {
+      const specialsRow: Array<ParagraphInlineSpecial[] | undefined> = [];
+      const texts = row.map((cell) => {
+        const plan = tableCellInlineClone(cell);
+        warnings.push(...plan.unclonable.map((msg) => `Node ${node.tapeIndex} table: ${msg}`));
+        specialsRow.push(plan.specials.length > 0 ? plan.specials : undefined);
+        return plan.text;
+      });
+      cellSpecials.push(specialsRow);
+      return texts;
+    });
     const spec: TableSpec = {
       kind: "table",
       table: { rows },
     };
+    if (cellSpecials.some((row) => row.some((s) => s?.length))) {
+      spec.table.cellSpecials = cellSpecials;
+    }
     if (warnings.length > 0) spec.warnings = warnings;
     return spec;
   }

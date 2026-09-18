@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "gdocsmith": {
+      "command": "node",
+      "args": ["${CURSOR_PLUGIN_ROOT}/scripts/mcp.mjs", "mcp"]
+    }
+  }
+}

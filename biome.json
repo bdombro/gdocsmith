@@ -22,6 +22,9 @@
     "indentStyle": "space",
     "lineWidth": 120
   },
+  "files": {
+    "includes": ["**", "!scripts/mcp.mjs", "!dist/**"]
+  },
   "overrides": [
     {
       "includes": ["**/*.json"]

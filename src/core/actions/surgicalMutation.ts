@@ -44,17 +44,14 @@ export async function surgicalMutationExecute(
   if (mutationHasCloneRefs(op)) {
     await pendingWritersFlush(runtime);
     await cloneNodeOpsResolve([op], {
+      client: runtime.client,
       defaultDoc: targetDoc.gdoc,
       defaultDocumentId: targetDoc.docId,
       defaultTabId: liveTab.tabId,
     });
   }
 
-  const isTableInsert = Boolean(
-    op.insertAdjacentElement &&
-      "element" in op.insertAdjacentElement &&
-      (op.insertAdjacentElement.element as { kind?: string })?.kind === "table",
-  );
+  const isTableInsert = mutationContainsTable(op);
 
   if (isTableInsert) {
     await pendingWritersFlush(runtime, targetDoc.alias);
@@ -163,8 +160,19 @@ function mutationHasCloneRefs(
   return adj.cloneNode != null || (Array.isArray(adj.cloneNodes) && adj.cloneNodes.length > 0);
 }
 
+/** True when the mutation inserts a table via element or elements specs. */
+function mutationContainsTable(
+  /** Tape mutation to inspect. */
+  mutation: TapeMutation,
+): boolean {
+  const adj = mutation.insertAdjacentElement;
+  if (!adj) return false;
+  if ((adj.element as { kind?: string } | undefined)?.kind === "table") return true;
+  return Array.isArray(adj.elements) && adj.elements.some((el) => (el as { kind?: string }).kind === "table");
+}
+
 /**
- * Folds top-level element/clone fields into insertAdjacentElement so clone
+ * Folds top-level element/elements fields into insertAdjacentElement so clone
  * resolution can run before tapeMutationsApply.
  */
 function mutationFoldClones(

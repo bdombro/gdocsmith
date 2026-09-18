@@ -39,19 +39,25 @@ export function domOpFromStep(
   }
 
   if (mutation.at === undefined) {
-    const rawAt = s.nodeAt;
+    const rawAt = s.nodeAt ?? s.at;
     if (rawAt !== undefined) {
       const resolved = typeof rawAt === "string" ? aliasResolve(rawAt) : rawAt;
       if (resolved !== undefined) mutation.at = resolved as never;
     }
   }
-  if (mutation.after === undefined && s.nodeAfter !== undefined) {
-    const resolved = typeof s.nodeAfter === "string" ? aliasResolve(s.nodeAfter as string) : s.nodeAfter;
-    if (resolved !== undefined) mutation.after = resolved as never;
+  if (mutation.after === undefined) {
+    const rawAfter = s.nodeAfter ?? s.after;
+    if (rawAfter !== undefined) {
+      const resolved = typeof rawAfter === "string" ? aliasResolve(rawAfter as string) : rawAfter;
+      if (resolved !== undefined) mutation.after = resolved as never;
+    }
   }
-  if (mutation.before === undefined && s.nodeBefore !== undefined) {
-    const resolved = typeof s.nodeBefore === "string" ? aliasResolve(s.nodeBefore as string) : s.nodeBefore;
-    if (resolved !== undefined) mutation.before = resolved as never;
+  if (mutation.before === undefined) {
+    const rawBefore = s.nodeBefore ?? s.before;
+    if (rawBefore !== undefined) {
+      const resolved = typeof rawBefore === "string" ? aliasResolve(rawBefore as string) : rawBefore;
+      if (resolved !== undefined) mutation.before = resolved as never;
+    }
   }
 
   if (mutation.at === undefined) {

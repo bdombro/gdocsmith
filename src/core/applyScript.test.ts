@@ -1457,6 +1457,61 @@ describe("applyScriptExecute", () => {
     expect(batchUpdateCalls).toBe(0);
   });
 
+  test("eager preflight does not treat declared step aliases in docCreate fromDoc as document IDs to preload", async () => {
+    let getDocumentCalls = 0;
+    const mockClient = {
+      batchUpdate: async () => "{}",
+      getDocument: async (docId: string) => {
+        getDocumentCalls++;
+        if (docId === "sourceDocId") {
+          return {
+            documentId: "sourceDocId",
+            tabs: [
+              {
+                documentTab: {
+                  body: {
+                    content: [
+                      {
+                        endIndex: 10,
+                        paragraph: { elements: [{ textRun: { content: "Source\n" } }] },
+                        startIndex: 0,
+                      },
+                    ],
+                  },
+                },
+                tabProperties: { tabId: "t.0", title: "Main" },
+              },
+            ],
+            title: "Source Doc",
+          };
+        }
+        throw new Error(`Google API error (404): Document ${docId} not found`);
+      },
+    } as unknown as import("./gws.ts").GwsClient;
+
+    const doc: GdocsmithDocument = {
+      dryRun: true,
+      steps: [
+        {
+          as: "template",
+          doc: "sourceDocId",
+          kind: "docOpen",
+        },
+        {
+          as: "cloned",
+          fromDoc: "template",
+          kind: "docCreate",
+          title: "New Cloned Doc",
+        },
+      ],
+    };
+
+    const res = await applyScriptExecute(doc, { client: mockClient });
+    expect(res.ok).toBe(true);
+    // Only "sourceDocId" should be requested, never the alias "template"
+    expect(getDocumentCalls).toBe(1);
+  });
+
   test("workflow optimizer hoists tabMove afterTab directly into tabCreate", async () => {
     const doc: GdocsmithDocument = {
       dryRun: true,
@@ -1913,5 +1968,74 @@ describe("applyScriptExecute", () => {
     expect(batchUpdateCalls).toBe(1);
     expect(batchRequests.some((r) => (r as any).insertText?.text === "First chained paragraph")).toBe(true);
     expect(batchRequests.some((r) => (r as any).insertText?.text === "Second chained paragraph")).toBe(true);
+  });
+
+  test("docCreate uses runtime.client.createDocument when provided", async () => {
+    let createCalled = false;
+    const mockClient = {
+      batchUpdate: async () => "{}",
+      createDocument: async (title: string) => {
+        createCalled = true;
+        return { documentId: "mock-created-id", title };
+      },
+      getDocument: async (docId: string) => ({
+        documentId: docId,
+        revisionId: "rev-1",
+        tabs: [
+          {
+            documentTab: {
+              body: {
+                content: [{ endIndex: 2, paragraph: { elements: [{ textRun: { content: "\n" } }] }, startIndex: 1 }],
+              },
+            },
+            tabProperties: { tabId: "t.0", title: "Main" },
+          },
+        ],
+        title: "New",
+      }),
+      run: async () => "",
+    } as unknown as import("./gws.ts").GwsClient;
+
+    const res = await applyScriptExecute(
+      {
+        steps: [{ as: "newDoc", kind: "docCreate", title: "Fresh Doc" }],
+      },
+      { client: mockClient },
+    );
+    expect(res.ok).toBe(true);
+    expect(createCalled).toBe(true);
+  });
+
+  test("textReplace with nodeAt replaces substring without wiping the paragraph", async () => {
+    const probe = await applyScriptExecute({
+      dryRun: true,
+      steps: [
+        { as: "d", kind: "docCreate", title: "Doc" },
+        { doc: "d", kind: "markdownInsert", markdown: "Hello WORLD end" },
+        { as: "nodes", doc: "d", kind: "query", output: "nodes" },
+      ],
+    });
+    const nodes = probe.dumped.nodes as Array<{ id: string; text?: string }>;
+    const bodyNode = nodes.find((n) => n.text?.includes("WORLD"));
+    expect(bodyNode).toBeDefined();
+
+    const res = await applyScriptExecute({
+      dryRun: true,
+      steps: [
+        { as: "d", kind: "docCreate", title: "Doc" },
+        { doc: "d", kind: "markdownInsert", markdown: "Hello WORLD end" },
+        {
+          doc: "d",
+          find: "WORLD",
+          kind: "textReplace",
+          nodeAt: bodyNode!.id,
+          replace: "Earth",
+        },
+        { as: "out", doc: "d", kind: "query", output: "markdown" },
+      ],
+    });
+    const out = res.dumped.out as { markdown: string };
+    expect(out.markdown).toContain("Hello Earth end");
+    expect(out.markdown).not.toContain("WORLD");
   });
 });

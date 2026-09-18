@@ -1,13 +1,15 @@
 /* Workflow step: find/replace text within a targeted node or document-wide. */
 
+import { parseDocument } from "~/core/dom/parse.ts";
+import { findNodeAt, neighborhoodFrom } from "~/core/dom/query.ts";
 import type { DocNode } from "~/core/dom/types.ts";
 import { Gdoc } from "~/core/gdoc.ts";
-import { batchReplaceExecute } from "~/core/replace.ts";
+import { batchReplaceExecute, regexReplaceExecute } from "~/core/replace.ts";
 import { findTab, resolveTab, walkTabs } from "~/core/tabs.ts";
 import type { DocElement, GoogleDoc } from "~/core/types.ts";
 import { domOpFromStep } from "./domOpFromStep.ts";
 import { pendingWritersFlush } from "./flush.ts";
-import { simulatedNodesOf } from "./simulated.ts";
+import { simulatedNodesOf, simulatedNodesSet } from "./simulated.ts";
 import { surgicalMutationExecute } from "./surgicalMutation.ts";
 import type { SimulatedGdoc, WorkflowStepHandler } from "./types.ts";
 
@@ -16,6 +18,55 @@ export const textReplaceStep: WorkflowStepHandler = async (runtime, _stepIndex, 
   const targetDoc = runtime.openDocResolve(step.doc);
   const tabHint = runtime.aliasResolve(step.tab);
   const hasAnchor = step.nodeAt != null || step.nodeAfter != null || step.nodeBefore != null || step.nodeUnder != null;
+  const scopedFindAnchor = step.nodeAt ?? step.nodeUnder;
+
+  if (step.find != null && scopedFindAnchor != null) {
+    const replaceStr = step.replace ?? step.text ?? "";
+    const tabResolution =
+      targetDoc.gdoc.data.tabs?.length && tabHint ? resolveTab(targetDoc.gdoc.data, tabHint) : undefined;
+    const targetTabId = tabResolution?.tabId;
+    const anchorResolved = runtime.aliasResolve(scopedFindAnchor);
+    if (anchorResolved == null) {
+      throw new Error(`textReplace could not resolve anchor "${scopedFindAnchor}"`);
+    }
+    const nodeOnly = step.nodeAt != null;
+
+    if (runtime.dryRun || targetDoc.docId.startsWith("virtual:")) {
+      const gdoc = targetTabId ? targetDoc.gdoc.withTab(targetTabId) : targetDoc.gdoc;
+      const simulated = simulatedNodesOf(targetDoc.gdoc, targetTabId);
+      const nodes = simulated ?? parseDocument(gdoc).nodes;
+      const targetNodes = nodeOnly
+        ? (() => {
+            const hit = findNodeAt(nodes, anchorResolved);
+            return hit ? [hit] : [];
+          })()
+        : neighborhoodFrom(nodes, anchorResolved);
+      if (targetNodes.length === 0) {
+        throw new Error(`textReplace anchor "${anchorResolved}" did not match any nodes`);
+      }
+      simulatedNodesTextReplace(targetNodes, step.find, replaceStr, step.matchCase ?? true);
+      if (simulated) {
+        simulatedNodesSet(targetDoc.gdoc, nodes, targetTabId);
+      }
+      runtime.stepsExecuted++;
+      return;
+    }
+
+    await pendingWritersFlush(runtime, targetDoc.alias);
+    await regexReplaceExecute(targetDoc.docId, {
+      at: anchorResolved,
+      client: runtime.client,
+      dryRun: false,
+      ignoreCase: !(step.matchCase ?? true),
+      nodeOnly,
+      regex: escapeRegExp(step.find),
+      replace: replaceStr,
+      tabHint: targetTabId,
+    });
+    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
+    runtime.stepsExecuted++;
+    return;
+  }
 
   if (step.find != null && !hasAnchor) {
     if (step.doc) {

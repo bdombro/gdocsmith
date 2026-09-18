@@ -1,7 +1,7 @@
 /* Two-tier in-memory and SQLite cache for Google Doc snapshots with dual TTL freshness. */
 
 import { Gdoc } from "~/core/gdoc.ts";
-import { type DocsClient, type DriveClient, gws, gwsDrive } from "~/core/gws.ts";
+import { type DocsClient, gws } from "~/core/gws.ts";
 import type { GoogleDoc } from "~/core/types.ts";
 import { SqliteDatabase } from "./sqlite.ts";
 
@@ -40,8 +40,6 @@ export interface DocCacheOptions {
 export class DocCache {
   /** SQLite database for persistent storage across process runs. */
   private db: SqliteDatabase;
-  /** Drive client used for headRevisionId validation queries. */
-  private driveClient: DriveClient;
   /** In-flight document fetch promises deduplicating concurrent network calls. */
   private inFlight: Map<string, Promise<Gdoc>> = new Map();
   /** Active in-memory document snapshots mapped by document ID. */
@@ -55,13 +53,11 @@ export class DocCache {
     /** Optional configuration overrides for SQLite db, drive client, and TTLs. */
     options: {
       db?: SqliteDatabase;
-      driveClient?: DriveClient;
       ttl1Ms?: number;
       ttl2Ms?: number;
     } = {},
   ) {
     this.db = options.db ?? new SqliteDatabase();
-    this.driveClient = options.driveClient ?? gwsDrive;
     this.ttl1Ms = options.ttl1Ms ?? DEFAULT_TTL1_MS;
     this.ttl2Ms = options.ttl2Ms ?? DEFAULT_TTL2_MS;
 
@@ -221,7 +217,7 @@ export class DocCache {
   }
 
   /**
-   * Validates cloud headRevisionId when doc is older than TTL2, refreshing if revision mismatch or check fails.
+   * Validates cloud Docs revisionId when doc is older than TTL2, refreshing if revision mismatch or check fails.
    */
   private async hardValidateOrRefresh(
     /** Google Doc document identifier. */
@@ -232,7 +228,7 @@ export class DocCache {
     entry: CachedDocEntry,
   ): Promise<Gdoc> {
     try {
-      const cloudRev = await this.driveClient.headRevisionIdGet(docId);
+      const cloudRev = await cloudRevisionIdGet(docId, client);
       if (cloudRev && cloudRev === entry.gdoc.data.revisionId) {
         const now = Date.now();
         entry.fetchedAt = now;
@@ -260,7 +256,7 @@ export class DocCache {
 
     const task = (async () => {
       try {
-        const cloudRev = await this.driveClient.headRevisionIdGet(docId);
+        const cloudRev = await cloudRevisionIdGet(docId, client);
         if (cloudRev && cloudRev === entry.gdoc.data.revisionId) {
           const now = Date.now();
           entry.fetchedAt = now;
@@ -276,6 +272,18 @@ export class DocCache {
     // Background task does not block caller
     task.catch(() => {});
   }
+}
+
+/**
+ * Resolves the current Docs revision id for cache freshness checks.
+ */
+async function cloudRevisionIdGet(
+  /** Google Doc document identifier. */
+  docId: string,
+  /** Google Docs API client. */
+  client: DocsClient,
+): Promise<string | undefined> {
+  return client.revisionIdGet?.(docId);
 }
 
 /** Global document snapshot cache instance. */

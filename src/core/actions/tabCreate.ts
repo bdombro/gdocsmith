@@ -176,7 +176,11 @@ export const tabCreateStep: WorkflowStepHandler = async (
       const req = RequestBuilder.addDocumentTab(title, { index: targetIndex });
       const resStr = await runtime.client.batchUpdate(targetDoc.docId, [req]);
       const res = JSON.parse(resStr || "{}");
-      newTabId = res.replies?.[0]?.addDocumentTab?.tabProperties?.tabId ?? newTabId;
+      const createdTabId = res.replies?.[0]?.addDocumentTab?.tabProperties?.tabId;
+      if (!createdTabId) {
+        throw new Error(`steps[${stepIndex}] tabCreate: addDocumentTab reply did not include created tabId`);
+      }
+      newTabId = createdTabId;
       targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
     } else {
       const existingTabs = targetDoc.gdoc.data.tabs?.length

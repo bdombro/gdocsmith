@@ -1,6 +1,7 @@
 /* Clone / copy node utility for insertAdjacentElement. */
 
 import { Gdoc } from "~/core/gdoc.ts";
+import type { GwsClient } from "~/core/gws.ts";
 import { resolveApplyTab } from "~/core/tabs.ts";
 import type { ElementSpec, ParagraphInlineSpecial, ParagraphSpec, TableSpec } from "./element.ts";
 import { paragraphInlineClone, tableCellInlineClone } from "./inlineSpecials.ts";
@@ -30,6 +31,8 @@ export type CloneNodeRef = {
  * Context required to resolve cross-document or cross-tab node clones.
  */
 export type CloneResolutionContext = {
+  /** Google Docs API client for loading cross-document clone sources. */
+  client?: GwsClient;
   /** Pre-loaded default document instance. */
   defaultDoc?: Gdoc;
   /** Default document ID. */
@@ -48,17 +51,17 @@ export async function cloneNodeOpsResolve(
   /** Resolution context containing active document and tab. */
   context: CloneResolutionContext,
 ): Promise<void> {
-  const docCache = new Map<string, Gdoc>();
+  const loadedByDocId = new Map<string, Gdoc>();
   if (context.defaultDoc) {
-    docCache.set(context.defaultDocumentId, context.defaultDoc);
+    loadedByDocId.set(context.defaultDocumentId, context.defaultDoc);
   }
 
   async function getDoc(docId: string): Promise<Gdoc> {
-    if (!docCache.has(docId)) {
-      const loaded = await Gdoc.load(docId);
-      docCache.set(docId, loaded);
+    if (!loadedByDocId.has(docId)) {
+      const loaded = await Gdoc.load(docId, context.client);
+      loadedByDocId.set(docId, loaded);
     }
-    return docCache.get(docId)!;
+    return loadedByDocId.get(docId)!;
   }
 
   for (let i = 0; i < ops.length; i++) {

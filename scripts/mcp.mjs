@@ -11203,6 +11203,22 @@ class GwsClientImpl {
       throw new Error(formatGwsError(msg, documentId));
     }
   }
+  async revisionIdGet(documentId) {
+    try {
+      const url = `${DOCS_BASE_URL}/documents/${encodeURIComponent(documentId)}?fields=revisionId`;
+      const res = await fetchWithRetry(url, undefined, {
+        fetcher: this.fetcher,
+        retries: 3
+      });
+      const text = await res.text();
+      if (!res.ok)
+        return;
+      const data = JSON.parse(text);
+      return data.revisionId;
+    } catch {
+      return;
+    }
+  }
   async run(args) {
     try {
       const res = await execFileAsync2("gws", args);
@@ -11217,6 +11233,7 @@ var gws = new GwsClientImpl;
 
 class DriveClient {
   fetcher;
+  cachedUserDomain;
   constructor(fetcher = fetchGoogleApi) {
     this.fetcher = fetcher;
   }
@@ -11386,6 +11403,9 @@ class DriveClient {
     }
   }
   async userDomainGet() {
+    if (this.cachedUserDomain) {
+      return this.cachedUserDomain;
+    }
     try {
       const url = `${DRIVE_BASE_URL}/about?fields=user`;
       const res = await this.fetcher(url);
@@ -11399,6 +11419,7 @@ class DriveClient {
       if (!domain || domain.toLowerCase() === "gmail.com" || domain.toLowerCase() === "googlemail.com") {
         throw new Error(`Cannot auto-detect workspace domain from personal account "${email ?? "unknown"}". Specify domain: "<domain>".`);
       }
+      this.cachedUserDomain = domain;
       return domain;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -11687,14 +11708,12 @@ var DEFAULT_SQLITE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 class DocCache {
   db;
-  driveClient;
   inFlight = new Map;
   memoryCache = new Map;
   ttl1Ms;
   ttl2Ms;
   constructor(options = {}) {
     this.db = options.db ?? new SqliteDatabase;
-    this.driveClient = options.driveClient ?? gwsDrive;
     this.ttl1Ms = options.ttl1Ms ?? DEFAULT_TTL1_MS;
     this.ttl2Ms = options.ttl2Ms ?? DEFAULT_TTL2_MS;
     try {
@@ -11797,7 +11816,7 @@ class DocCache {
   }
   async hardValidateOrRefresh(docId, client, entry) {
     try {
-      const cloudRev = await this.driveClient.headRevisionIdGet(docId);
+      const cloudRev = await cloudRevisionIdGet(docId, client);
       if (cloudRev && cloudRev === entry.gdoc.data.revisionId) {
         const now = Date.now();
         entry.fetchedAt = now;
@@ -11812,7 +11831,7 @@ class DocCache {
       return;
     const task = (async () => {
       try {
-        const cloudRev = await this.driveClient.headRevisionIdGet(docId);
+        const cloudRev = await cloudRevisionIdGet(docId, client);
         if (cloudRev && cloudRev === entry.gdoc.data.revisionId) {
           const now = Date.now();
           entry.fetchedAt = now;
@@ -11824,6 +11843,9 @@ class DocCache {
     })();
     task.catch(() => {});
   }
+}
+async function cloudRevisionIdGet(docId, client) {
+  return client.revisionIdGet?.(docId);
 }
 var docCache = new DocCache;
 
@@ -14838,7 +14860,7 @@ function chipToSpecial(chip, text) {
   const offset = chip.textOffset ?? 0;
   const kind = chip.kind ?? chipKindInfer(chip);
   if (kind === "person") {
-    const email = chip.email || emailFromMailto(chip.uri);
+    const email = chip.email ?? emailFromMailto(chip.uri);
     if (!email) {
       return { unclonable: `person chip "${chip.title || chip.uri}" has no email` };
     }
@@ -14891,16 +14913,18 @@ function imageToSpecial(image, text) {
   return { dropLen, offset, special };
 }
 function chipKindInfer(chip) {
-  if (chip.uri.startsWith("mailto:"))
+  if (chip.kind)
+    return chip.kind;
+  if (chip.email || chip.uri?.startsWith("mailto:"))
     return "person";
-  if (/^https?:\/\//i.test(chip.uri))
+  if (chip.uri && /^https?:\/\//i.test(chip.uri))
     return "richLink";
   if (chip.timestamp || chip.dateId)
     return "date";
   return;
 }
 function emailFromMailto(uri2) {
-  if (!uri2.toLowerCase().startsWith("mailto:"))
+  if (!uri2?.toLowerCase().startsWith("mailto:"))
     return;
   const email = uri2.slice("mailto:".length).trim();
   return email || undefined;
@@ -16142,16 +16166,16 @@ function normalize(s) {
 
 // src/core/dom/clone.ts
 async function cloneNodeOpsResolve(ops, context) {
-  const docCache2 = new Map;
+  const loadedByDocId = new Map;
   if (context.defaultDoc) {
-    docCache2.set(context.defaultDocumentId, context.defaultDoc);
+    loadedByDocId.set(context.defaultDocumentId, context.defaultDoc);
   }
   async function getDoc(docId) {
-    if (!docCache2.has(docId)) {
-      const loaded = await Gdoc.load(docId);
-      docCache2.set(docId, loaded);
+    if (!loadedByDocId.has(docId)) {
+      const loaded = await Gdoc.load(docId, context.client);
+      loadedByDocId.set(docId, loaded);
     }
-    return docCache2.get(docId);
+    return loadedByDocId.get(docId);
   }
   for (let i = 0;i < ops.length; i++) {
     const op = ops[i];
@@ -16631,11 +16655,17 @@ function nodeHeadingIdResolve(node) {
   if (node.headingId)
     return node.headingId;
   if (node.scopedId) {
-    const prefix = node.scopedId.split(".")[0];
-    if (prefix && prefix !== "_preamble")
-      return prefix;
+    const headingFromScoped = scopedIdHeadingExtract(node.scopedId);
+    if (headingFromScoped && headingFromScoped !== "_preamble")
+      return headingFromScoped;
   }
   return typeof node.tapeIndex === "number" ? `h.heading_${node.tapeIndex}` : undefined;
+}
+function scopedIdHeadingExtract(scopedId) {
+  const lastDot = scopedId.lastIndexOf(".");
+  if (lastDot <= 0)
+    return scopedId;
+  return scopedId.slice(0, lastDot);
 }
 
 // src/core/dom/markdownParser.ts
@@ -18081,6 +18111,7 @@ function writeAtParse(at2, namedAnchors) {
     scopedId: trimmed
   };
 }
+var parseWriteAt = writeAtParse;
 function cellId(tableId, row, col, para = 0) {
   return para ? `${tableId}.${row}.${col}.${para}` : `${tableId}.${row}.${col}`;
 }
@@ -19648,14 +19679,17 @@ async function domApply(documentId, writer, opts = {}) {
   }
   for (const table of compiled.tableInserts) {
     try {
-      const data = await client.getDocument(documentId);
-      const gdoc = table.tabId ? new Gdoc(data, documentId).withTab(table.tabId) : new Gdoc(data, documentId);
+      const loaded = await Gdoc.load(documentId, client, { forceFetch: true });
+      const data = loaded.data;
+      const gdoc = table.tabId ? loaded.withTab(table.tabId) : loaded;
       const tableEl = gdoc.findInsertedTableAt(table.insertIndex) ?? gdoc.findTableAt(table.insertIndex);
       if (!tableEl?.table)
         continue;
       const fill = RequestBuilder.buildTableFill(table.rows.length > 1, table.rows, tableEl, table.segmentId, table.tabId, table.cellSpecials);
       if (fill.length) {
-        await client.batchUpdate(documentId, fill);
+        await client.batchUpdate(documentId, fill, {
+          requiredRevisionId: data.revisionId
+        });
       }
     } catch (err) {
       throw wrapBatchUpdateError(err, { batch: "table-fill", plan: opts.plan });
@@ -19663,10 +19697,11 @@ async function domApply(documentId, writer, opts = {}) {
   }
   if (compiled.rowFills && compiled.rowFills.length > 0) {
     try {
-      const data = await client.getDocument(documentId);
+      const loaded = await Gdoc.load(documentId, client, { forceFetch: true });
+      const data = loaded.data;
       const rowFillReqs = [];
       for (const fill of compiled.rowFills) {
-        const gdoc = fill.tabId ? new Gdoc(data, documentId).withTab(fill.tabId) : new Gdoc(data, documentId);
+        const gdoc = fill.tabId ? loaded.withTab(fill.tabId) : loaded;
         const tableEl = gdoc.findTableAt(fill.tableStart);
         if (!tableEl?.table?.tableRows)
           continue;
@@ -19710,7 +19745,9 @@ async function domApply(documentId, writer, opts = {}) {
         }
       }
       if (rowFillReqs.length > 0) {
-        await client.batchUpdate(documentId, rowFillReqs);
+        await client.batchUpdate(documentId, rowFillReqs, {
+          requiredRevisionId: data.revisionId
+        });
       }
     } catch (err) {
       throw wrapBatchUpdateError(err, { batch: "table-fill", plan: opts.plan });
@@ -19769,6 +19806,8 @@ function googleRequestIndexParse(message) {
 }
 function isRevisionMismatchError(err) {
   const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes("Failed during table cell fill"))
+    return false;
   return /revision (ID )?provided.*does not match|writeControl.*revision|write control.*does not match/i.test(msg);
 }
 var parseGoogleRequestIndex = googleRequestIndexParse;
@@ -20988,7 +21027,8 @@ var docCreateStep = async (runtime, stepIndex, step) => {
   } : undefined;
   let newDocId = `virtual:${as}`;
   if (!runtime.dryRun) {
-    const res = await gws.createDocument(title);
+    const createDoc = runtime.client.createDocument?.bind(runtime.client) ?? gws.createDocument.bind(gws);
+    const res = await createDoc(title);
     newDocId = res.documentId;
     if (effectivePageSetup) {
       const styleReq = buildDocumentStyleRequest(effectivePageSetup);
@@ -21061,6 +21101,7 @@ var docDeleteStep = async (runtime, _stepIndex, step) => {
     } else {
       await gwsDrive.updateFile(targetDoc.docId, { trashed: true });
     }
+    docCache.invalidate(targetDoc.docId);
   }
   runtime.openDocs.delete(targetDoc.alias);
   runtime.stepsExecuted++;
@@ -21219,6 +21260,8 @@ var docRenameStep = async (runtime, stepIndex, step) => {
     throw new Error(`steps[${stepIndex}] docRename requires title: <string>`);
   if (!runtime.dryRun) {
     await gwsDrive.updateFile(targetDoc.docId, { name: newTitle });
+    targetDoc.gdoc.data.title = newTitle;
+    docCache.invalidate(targetDoc.docId);
   }
   targetDoc.title = newTitle;
   runtime.stepsExecuted++;
@@ -21229,6 +21272,7 @@ var docTrashStep = async (runtime, _stepIndex, step) => {
   const targetDoc = runtime.openDocResolve(step.doc);
   if (!runtime.dryRun) {
     await gwsDrive.updateFile(targetDoc.docId, { trashed: true });
+    docCache.invalidate(targetDoc.docId);
   }
   runtime.openDocs.delete(targetDoc.alias);
   runtime.stepsExecuted++;
@@ -21268,22 +21312,28 @@ function domOpFromStep(step, aliasResolve) {
     mutation[key] = raw;
   }
   if (mutation.at === undefined) {
-    const rawAt = s.nodeAt;
+    const rawAt = s.nodeAt ?? s.at;
     if (rawAt !== undefined) {
       const resolved = typeof rawAt === "string" ? aliasResolve(rawAt) : rawAt;
       if (resolved !== undefined)
         mutation.at = resolved;
     }
   }
-  if (mutation.after === undefined && s.nodeAfter !== undefined) {
-    const resolved = typeof s.nodeAfter === "string" ? aliasResolve(s.nodeAfter) : s.nodeAfter;
-    if (resolved !== undefined)
-      mutation.after = resolved;
+  if (mutation.after === undefined) {
+    const rawAfter = s.nodeAfter ?? s.after;
+    if (rawAfter !== undefined) {
+      const resolved = typeof rawAfter === "string" ? aliasResolve(rawAfter) : rawAfter;
+      if (resolved !== undefined)
+        mutation.after = resolved;
+    }
   }
-  if (mutation.before === undefined && s.nodeBefore !== undefined) {
-    const resolved = typeof s.nodeBefore === "string" ? aliasResolve(s.nodeBefore) : s.nodeBefore;
-    if (resolved !== undefined)
-      mutation.before = resolved;
+  if (mutation.before === undefined) {
+    const rawBefore = s.nodeBefore ?? s.before;
+    if (rawBefore !== undefined) {
+      const resolved = typeof rawBefore === "string" ? aliasResolve(rawBefore) : rawBefore;
+      if (resolved !== undefined)
+        mutation.before = resolved;
+    }
   }
   if (mutation.at === undefined) {
     const under = aliasResolve(s.nodeUnder);
@@ -21475,12 +21525,13 @@ async function surgicalMutationExecute(runtime, step, mutation) {
   if (mutationHasCloneRefs(op)) {
     await pendingWritersFlush(runtime);
     await cloneNodeOpsResolve([op], {
+      client: runtime.client,
       defaultDoc: targetDoc.gdoc,
       defaultDocumentId: targetDoc.docId,
       defaultTabId: liveTab.tabId
     });
   }
-  const isTableInsert = Boolean(op.insertAdjacentElement && "element" in op.insertAdjacentElement && op.insertAdjacentElement.element?.kind === "table");
+  const isTableInsert = mutationContainsTable(op);
   if (isTableInsert) {
     await pendingWritersFlush(runtime, targetDoc.alias);
   }
@@ -21567,6 +21618,14 @@ function mutationHasCloneRefs(mutation) {
   if (!adj)
     return mutation.cloneNode != null || Array.isArray(mutation.cloneNodes) && mutation.cloneNodes.length > 0;
   return adj.cloneNode != null || Array.isArray(adj.cloneNodes) && adj.cloneNodes.length > 0;
+}
+function mutationContainsTable(mutation) {
+  const adj = mutation.insertAdjacentElement;
+  if (!adj)
+    return false;
+  if (adj.element?.kind === "table")
+    return true;
+  return Array.isArray(adj.elements) && adj.elements.some((el) => el.kind === "table");
 }
 function mutationFoldClones(mutation) {
   const op = { ...mutation };
@@ -22002,47 +22061,53 @@ var openStep = async (runtime, stepIndex, step) => {
   let title = "Document";
   let pinnedRevisionId;
   if (runtime.dryRun) {
-    try {
-      gdoc = await Gdoc.load(docId, runtime.client);
+    const preloaded = runtime.preloadedDocs?.get(docId);
+    if (preloaded) {
+      gdoc = preloaded;
       title = gdoc.data.title || title;
-    } catch {
-      gdoc = new Gdoc({
-        body: {
-          content: [
-            { endIndex: 1, sectionBreak: {}, startIndex: 0 },
-            {
-              endIndex: 2,
-              paragraph: { elements: [{ textRun: { content: `
+    } else {
+      try {
+        gdoc = await Gdoc.load(docId, runtime.client);
+        title = gdoc.data.title || title;
+      } catch {
+        gdoc = new Gdoc({
+          body: {
+            content: [
+              { endIndex: 1, sectionBreak: {}, startIndex: 0 },
+              {
+                endIndex: 2,
+                paragraph: { elements: [{ textRun: { content: `
 ` } }] },
-              startIndex: 1
-            }
-          ]
-        },
-        documentId: docId,
-        revisionId: "dry-run",
-        tabs: [
-          {
-            documentTab: {
-              body: {
-                content: [
-                  { endIndex: 1, sectionBreak: {}, startIndex: 0 },
-                  {
-                    endIndex: 2,
-                    paragraph: { elements: [{ textRun: { content: `
-` } }] },
-                    startIndex: 1
-                  }
-                ]
+                startIndex: 1
               }
-            },
-            tabProperties: {
-              tabId: "t.0",
-              title
+            ]
+          },
+          documentId: docId,
+          revisionId: "dry-run",
+          tabs: [
+            {
+              documentTab: {
+                body: {
+                  content: [
+                    { endIndex: 1, sectionBreak: {}, startIndex: 0 },
+                    {
+                      endIndex: 2,
+                      paragraph: { elements: [{ textRun: { content: `
+` } }] },
+                      startIndex: 1
+                    }
+                  ]
+                }
+              },
+              tabProperties: {
+                tabId: "t.0",
+                title
+              }
             }
-          }
-        ],
-        title
-      }, docId);
+          ],
+          title
+        }, docId);
+      }
     }
   } else {
     gdoc = runtime.preloadedDocs?.get(docId) ?? await Gdoc.load(docId, runtime.client);
@@ -22550,7 +22615,11 @@ var tabCreateStep = async (runtime, stepIndex, step) => {
       const req = RequestBuilder.addDocumentTab(title, { index: targetIndex });
       const resStr = await runtime.client.batchUpdate(targetDoc.docId, [req]);
       const res = JSON.parse(resStr || "{}");
-      newTabId = res.replies?.[0]?.addDocumentTab?.tabProperties?.tabId ?? newTabId;
+      const createdTabId = res.replies?.[0]?.addDocumentTab?.tabProperties?.tabId;
+      if (!createdTabId) {
+        throw new Error(`steps[${stepIndex}] tabCreate: addDocumentTab reply did not include created tabId`);
+      }
+      newTabId = createdTabId;
       targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
     } else {
       const existingTabs = targetDoc.gdoc.data.tabs?.length ? targetDoc.gdoc.data.tabs : [
@@ -22704,14 +22773,33 @@ var tabDeleteStep = async (runtime, stepIndex, step) => {
   const tabHint = runtime.aliasResolve(step.tab);
   if (!tabHint)
     throw new Error(`steps[${stepIndex}] tabDelete requires tab: <id|title>`);
-  if (!runtime.dryRun) {
-    const resolved = resolveTab(targetDoc.gdoc.data, tabHint);
-    if (!resolved.tabId) {
-      throw new Error(`Cannot delete tab "${tabHint}": resolved tab has no tabId`);
-    }
+  const resolved = targetDoc.gdoc.data.tabs?.length ? resolveTab(targetDoc.gdoc.data, tabHint) : { tabId: undefined, title: targetDoc.title };
+  if (!resolved.tabId) {
+    throw new Error(`Cannot delete tab "${tabHint}": resolved tab has no tabId`);
+  }
+  const flatTabs = flattenTabs(targetDoc.gdoc.data.tabs);
+  const tabsRemaining = flatTabs.filter((t) => t.tabId !== resolved.tabId);
+  if (tabsRemaining.length === 0) {
+    throw new Error(`Cannot delete tab "${tabHint}": document "${targetDoc.alias}" only has one tab. Google Docs requires at least one tab.`);
+  }
+  if (!runtime.dryRun && !targetDoc.docId.startsWith("virtual:")) {
     const req = RequestBuilder.deleteTab(resolved.tabId);
     await runtime.client.batchUpdate(targetDoc.docId, [req]);
     targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
+  } else {
+    const tabs = targetDoc.gdoc.data.tabs ? [...targetDoc.gdoc.data.tabs] : [];
+    const fromIdx = tabs.findIndex((t) => t.tabProperties?.tabId === resolved.tabId);
+    if (fromIdx >= 0) {
+      tabs.splice(fromIdx, 1);
+      targetDoc.gdoc = new Gdoc({ ...targetDoc.gdoc.data, tabs }, targetDoc.docId);
+    }
+    const sim = targetDoc.gdoc;
+    sim.simulatedTabs?.delete(resolved.tabId);
+    for (const key of [...runtime.initialMarkdownStates.keys()]) {
+      if (key.startsWith(`${targetDoc.alias}/${resolved.tabId}`)) {
+        runtime.initialMarkdownStates.delete(key);
+      }
+    }
   }
   runtime.stepsExecuted++;
 };
@@ -22845,6 +22933,34 @@ var tabRenameStep = async (runtime, stepIndex, step) => {
 
 // src/core/replace.ts
 var MULTI_TAB_REPLACE_REQUIRED_MSG = "This Doc has multiple tabs. Specify --tab <id|title> to target a single tab, or --all-tabs to replace across the entire document.";
+function globalRegexCreate(pattern, ignoreCase = false) {
+  if (pattern instanceof RegExp) {
+    let flags2 = pattern.flags;
+    if (!flags2.includes("g"))
+      flags2 += "g";
+    if (ignoreCase && !flags2.includes("i"))
+      flags2 += "i";
+    return new RegExp(pattern.source, flags2);
+  }
+  const str = String(pattern);
+  const match = /^\/(.*)\/([a-z]*)$/.exec(str);
+  if (match) {
+    const rawPattern = match[1];
+    let flags2 = match[2];
+    if (!flags2.includes("g"))
+      flags2 += "g";
+    if (ignoreCase && !flags2.includes("i"))
+      flags2 += "i";
+    return new RegExp(rawPattern, flags2);
+  }
+  const flags = ignoreCase ? "gi" : "g";
+  return new RegExp(str, flags);
+}
+var createGlobalRegex = globalRegexCreate;
+function hasRegexMatch(str, regex2) {
+  const clone = new RegExp(regex2.source, regex2.flags);
+  return clone.test(str);
+}
 async function batchReplaceExecute(documentId, options) {
   const client = options.client ?? gws;
   const matchCase = options.matchCase ?? true;
@@ -22915,6 +23031,7 @@ async function batchReplaceExecute(documentId, options) {
     tabIds
   }));
   const resText = await client.batchUpdate(documentId, requests);
+  docCache.invalidate(documentId);
   let parsedRes = {};
   try {
     parsedRes = JSON.parse(resText);
@@ -22946,6 +23063,232 @@ async function batchReplaceExecute(documentId, options) {
     tabId,
     tabTitle,
     ...touchedNodeIds.length ? { touchedNodeIds } : {}
+  };
+}
+async function regexReplaceExecute(documentId, options) {
+  const client = options.client ?? gws;
+  const ignoreCase = Boolean(options.ignoreCase);
+  if (options.regex == null || options.regex === "") {
+    throw new Error("Regex pattern cannot be empty.");
+  }
+  if (options.replace == null) {
+    throw new Error("Replacement string is required.");
+  }
+  if (options.allTabs && options.at != null) {
+    throw new Error("Cannot combine --at with --all-tabs.");
+  }
+  let re;
+  try {
+    re = createGlobalRegex(options.regex, ignoreCase);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Invalid regular expression "${options.regex}": ${msg}`);
+  }
+  const freshDoc = await Gdoc.load(documentId, client);
+  const flatTabs = flattenTabs(freshDoc.data.tabs);
+  const targets = [];
+  let tabIdSummary;
+  let tabTitleSummary;
+  if (options.allTabs) {
+    if (flatTabs.length === 0) {
+      targets.push({});
+    } else {
+      for (const t of flatTabs) {
+        targets.push({ tabId: t.tabId, title: t.title });
+      }
+    }
+  } else if (options.tabHint) {
+    const resolved = resolveTab(freshDoc.data, options.tabHint);
+    targets.push({ tabId: resolved.tabId, title: resolved.title });
+    tabIdSummary = resolved.tabId;
+    tabTitleSummary = resolved.title;
+  } else {
+    if (flatTabs.length > 1) {
+      throw new Error(MULTI_TAB_REPLACE_REQUIRED_MSG);
+    }
+    if (flatTabs.length === 1) {
+      targets.push({ tabId: flatTabs[0]?.tabId, title: flatTabs[0]?.title });
+      tabIdSummary = flatTabs[0]?.tabId;
+      tabTitleSummary = flatTabs[0]?.title;
+    } else {
+      targets.push({});
+    }
+  }
+  const allMatches = [];
+  const writers = [];
+  const plans = [];
+  let totalOccurrences = 0;
+  for (const target of targets) {
+    const tabDoc = target.tabId ? freshDoc.withTab(target.tabId) : freshDoc;
+    const parsed = parseDocument(tabDoc);
+    const tabOps = [];
+    const at2 = options.at;
+    const atDest = at2 != null ? parseWriteAt(at2) : undefined;
+    if (atDest?.cell && at2 != null) {
+      const { cell, nodeId, para } = atDest;
+      const tableNode = parsed.nodes.find((n) => n.tapeIndex === nodeId);
+      if (tableNode?.kind !== "table" || !tableNode.table?.cells) {
+        throw new Error(`Table node ${nodeId} not found for cell "${options.at}".`);
+      }
+      const [r, c] = cell ?? [0, 0];
+      const tableRow = tableNode.table.cells[r];
+      const tableCell = tableRow ? tableRow[c] : undefined;
+      if (!tableCell) {
+        throw new Error(`Cell "${options.at}" not found in table ${nodeId}.`);
+      }
+      const pIdx = para ?? 0;
+      const p = tableCell.paragraphs?.[pIdx] ? tableCell.paragraphs[pIdx] : tableCell;
+      const markup = p.markup;
+      const plain = p.text ?? "";
+      const source = markup && hasRegexMatch(markup, re) ? markup : plain;
+      if (hasRegexMatch(source, re)) {
+        const matches = [...source.matchAll(new RegExp(re.source, re.flags))];
+        const count = matches.length;
+        re.lastIndex = 0;
+        const replaced = source.replace(re, options.replace);
+        const emitAt = "scopedId" in p && p.scopedId || tableCell.scopedId || at2;
+        tabOps.push({ at: emitAt, innerText: replaced });
+        allMatches.push({
+          after: replaced,
+          at: emitAt,
+          before: source,
+          occurrences: count
+        });
+        totalOccurrences += count;
+      }
+    } else {
+      let targetNodes;
+      if (options.at != null) {
+        const hit = findNodeAt(parsed.nodes, options.at);
+        if (!hit) {
+          throw new Error(missingNodeIdMsg(options.at, parsed.nodes.length));
+        }
+        if (options.nodeOnly) {
+          targetNodes = [hit];
+        } else {
+          targetNodes = neighborhoodFrom(parsed.nodes, options.at);
+        }
+      } else {
+        targetNodes = parsed.nodes;
+      }
+      for (const node of targetNodes) {
+        if (node.kind === "paragraph") {
+          const markup = node.markup;
+          const plain = node.text ?? "";
+          const source = markup && hasRegexMatch(markup, re) ? markup : plain;
+          if (hasRegexMatch(source, re)) {
+            const matches = [...source.matchAll(new RegExp(re.source, re.flags))];
+            const count = matches.length;
+            re.lastIndex = 0;
+            const replaced = source.replace(re, options.replace);
+            tabOps.push({ at: node.scopedId ?? node.tapeIndex, innerText: replaced });
+            allMatches.push({
+              after: replaced,
+              at: node.scopedId ?? node.tapeIndex,
+              before: source,
+              occurrences: count
+            });
+            totalOccurrences += count;
+          }
+        } else if (node.kind === "table" && node.table?.cells) {
+          for (let r = 0;r < node.table.cells.length; r++) {
+            const row = node.table.cells[r];
+            for (let c = 0;c < row.length; c++) {
+              const cell = row[c];
+              if (cell.paragraphs && cell.paragraphs.length > 0) {
+                for (let p = 0;p < cell.paragraphs.length; p++) {
+                  const cp = cell.paragraphs[p];
+                  const targetAt = cp.scopedId ?? cell.scopedId ?? cellId(node.tapeIndex, r, c, p);
+                  const markup = cp.markup;
+                  const plain = cp.text ?? "";
+                  const source = markup && hasRegexMatch(markup, re) ? markup : plain;
+                  if (hasRegexMatch(source, re)) {
+                    const matches = [...source.matchAll(new RegExp(re.source, re.flags))];
+                    const count = matches.length;
+                    re.lastIndex = 0;
+                    const replaced = source.replace(re, options.replace);
+                    tabOps.push({ at: targetAt, innerText: replaced });
+                    allMatches.push({
+                      after: replaced,
+                      at: targetAt,
+                      before: source,
+                      occurrences: count
+                    });
+                    totalOccurrences += count;
+                  }
+                }
+              } else {
+                const targetAt = cell.scopedId ?? cellId(node.tapeIndex, r, c, 0);
+                const markup = cell.markup;
+                const plain = cell.text ?? "";
+                const source = markup && hasRegexMatch(markup, re) ? markup : plain;
+                if (hasRegexMatch(source, re)) {
+                  const matches = [...source.matchAll(new RegExp(re.source, re.flags))];
+                  const count = matches.length;
+                  re.lastIndex = 0;
+                  const replaced = source.replace(re, options.replace);
+                  tabOps.push({ at: targetAt, innerText: replaced });
+                  allMatches.push({
+                    after: replaced,
+                    at: targetAt,
+                    before: source,
+                    occurrences: count
+                  });
+                  totalOccurrences += count;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    if (tabOps.length > 0) {
+      const writer = new DomWriter(parsed.nodes, {
+        force: options.force,
+        lists: tabDoc.data.lists,
+        tabId: target.tabId
+      });
+      const plan = applyOps(writer, tabOps);
+      writers.push(writer);
+      plans.push(...plan);
+    }
+  }
+  const touchedFromMatches = uniqueMatchIds(allMatches);
+  if (options.dryRun || totalOccurrences === 0) {
+    return {
+      allTabs: options.allTabs ? true : undefined,
+      at: options.at,
+      documentId,
+      dryRun: Boolean(options.dryRun),
+      matches: allMatches,
+      occurrencesChanged: totalOccurrences,
+      pattern: re.source,
+      replace: options.replace,
+      tabId: tabIdSummary,
+      tabTitle: tabTitleSummary,
+      ...touchedFromMatches.length ? { touchedNodeIds: touchedFromMatches } : {}
+    };
+  }
+  await DriveRevisions.pinHead(documentId, client);
+  await applyDom(documentId, writers, {
+    client,
+    doc: freshDoc.data,
+    force: options.force,
+    plan: plans
+  });
+  docCache.invalidate(documentId);
+  return {
+    allTabs: options.allTabs ? true : undefined,
+    at: options.at,
+    documentId,
+    dryRun: false,
+    matches: allMatches,
+    occurrencesChanged: totalOccurrences,
+    pattern: re.source,
+    replace: options.replace,
+    tabId: tabIdSummary,
+    tabTitle: tabTitleSummary,
+    ...touchedFromMatches.length ? { touchedNodeIds: touchedFromMatches } : {}
   };
 }
 function collectTouchedNodeIds(gdoc, target) {
@@ -23000,6 +23343,18 @@ function containsText(hay, needle, matchCase) {
   if (matchCase)
     return hay.includes(needle);
   return hay.toLowerCase().includes(needle.toLowerCase());
+}
+function uniqueMatchIds(matches) {
+  const ids = [];
+  const seen = new Set;
+  for (const m2 of matches) {
+    const key = String(m2.at);
+    if (seen.has(key))
+      continue;
+    seen.add(key);
+    ids.push(m2.at);
+  }
+  return ids;
 }
 function collectTargetTexts(gdoc, target) {
   const texts = [];
@@ -23080,6 +23435,49 @@ var textReplaceStep = async (runtime, _stepIndex, step) => {
   const targetDoc = runtime.openDocResolve(step.doc);
   const tabHint = runtime.aliasResolve(step.tab);
   const hasAnchor = step.nodeAt != null || step.nodeAfter != null || step.nodeBefore != null || step.nodeUnder != null;
+  const scopedFindAnchor = step.nodeAt ?? step.nodeUnder;
+  if (step.find != null && scopedFindAnchor != null) {
+    const replaceStr = step.replace ?? step.text ?? "";
+    const tabResolution = targetDoc.gdoc.data.tabs?.length && tabHint ? resolveTab(targetDoc.gdoc.data, tabHint) : undefined;
+    const targetTabId = tabResolution?.tabId;
+    const anchorResolved = runtime.aliasResolve(scopedFindAnchor);
+    if (anchorResolved == null) {
+      throw new Error(`textReplace could not resolve anchor "${scopedFindAnchor}"`);
+    }
+    const nodeOnly = step.nodeAt != null;
+    if (runtime.dryRun || targetDoc.docId.startsWith("virtual:")) {
+      const gdoc = targetTabId ? targetDoc.gdoc.withTab(targetTabId) : targetDoc.gdoc;
+      const simulated = simulatedNodesOf(targetDoc.gdoc, targetTabId);
+      const nodes = simulated ?? parseDocument(gdoc).nodes;
+      const targetNodes = nodeOnly ? (() => {
+        const hit = findNodeAt(nodes, anchorResolved);
+        return hit ? [hit] : [];
+      })() : neighborhoodFrom(nodes, anchorResolved);
+      if (targetNodes.length === 0) {
+        throw new Error(`textReplace anchor "${anchorResolved}" did not match any nodes`);
+      }
+      simulatedNodesTextReplace(targetNodes, step.find, replaceStr, step.matchCase ?? true);
+      if (simulated) {
+        simulatedNodesSet(targetDoc.gdoc, nodes, targetTabId);
+      }
+      runtime.stepsExecuted++;
+      return;
+    }
+    await pendingWritersFlush(runtime, targetDoc.alias);
+    await regexReplaceExecute(targetDoc.docId, {
+      at: anchorResolved,
+      client: runtime.client,
+      dryRun: false,
+      ignoreCase: !(step.matchCase ?? true),
+      nodeOnly,
+      regex: escapeRegExp(step.find),
+      replace: replaceStr,
+      tabHint: targetTabId
+    });
+    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
+    runtime.stepsExecuted++;
+    return;
+  }
   if (step.find != null && !hasAnchor) {
     if (step.doc) {
       await pendingWritersFlush(runtime, step.doc);
@@ -23287,25 +23685,38 @@ async function applyScriptExecute(doc, opts = {}) {
     return exp.markdown;
   }
   const preloadedDocs = new Map;
-  if (!dryRun) {
-    const rawIdsToLoad = new Set;
-    for (const step of steps) {
-      if (step.kind === "docOpen" && step.doc) {
-        const id = Gdoc.idParse(step.doc.trim());
-        if (!id.startsWith("virtual:"))
-          rawIdsToLoad.add(id);
-      } else if (step.kind === "docCreate" && step.fromDoc) {
-        const id = Gdoc.idParse(step.fromDoc.trim());
+  const declaredAliases = new Set;
+  for (const s of steps) {
+    if (s.as)
+      declaredAliases.add(s.as.trim());
+  }
+  const rawIdsToLoad = new Set;
+  for (const step of steps) {
+    if (step.kind === "docOpen" && step.doc) {
+      const id = Gdoc.idParse(step.doc.trim());
+      if (!id.startsWith("virtual:"))
+        rawIdsToLoad.add(id);
+    } else if (step.kind === "docCreate" && step.fromDoc) {
+      const trimmed = step.fromDoc.trim();
+      if (!declaredAliases.has(trimmed)) {
+        const id = Gdoc.idParse(trimmed);
         if (!id.startsWith("virtual:"))
           rawIdsToLoad.add(id);
       }
     }
-    if (rawIdsToLoad.size > 0) {
-      await Promise.all(Array.from(rawIdsToLoad).map(async (docId) => {
+  }
+  if (rawIdsToLoad.size > 0) {
+    await Promise.all(Array.from(rawIdsToLoad).map(async (docId) => {
+      try {
         const loaded = await Gdoc.load(docId, client);
         preloadedDocs.set(docId, loaded);
-      }));
-    }
+      } catch (err) {
+        if (dryRun) {
+          return;
+        }
+        throw err;
+      }
+    }));
   }
   const runtime = {
     activeDocAlias: undefined,

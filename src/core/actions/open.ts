@@ -19,48 +19,54 @@ export const openStep: WorkflowStepHandler = async (runtime, stepIndex, step) =>
   let pinnedRevisionId: string | undefined;
 
   if (runtime.dryRun) {
-    try {
-      gdoc = await Gdoc.load(docId, runtime.client);
+    const preloaded = runtime.preloadedDocs?.get(docId);
+    if (preloaded) {
+      gdoc = preloaded;
       title = gdoc.data.title || title;
-    } catch {
-      gdoc = new Gdoc(
-        {
-          body: {
-            content: [
-              { endIndex: 1, sectionBreak: {}, startIndex: 0 },
+    } else {
+      try {
+        gdoc = await Gdoc.load(docId, runtime.client);
+        title = gdoc.data.title || title;
+      } catch {
+        gdoc = new Gdoc(
+          {
+            body: {
+              content: [
+                { endIndex: 1, sectionBreak: {}, startIndex: 0 },
+                {
+                  endIndex: 2,
+                  paragraph: { elements: [{ textRun: { content: "\n" } }] },
+                  startIndex: 1,
+                },
+              ],
+            },
+            documentId: docId,
+            revisionId: "dry-run",
+            tabs: [
               {
-                endIndex: 2,
-                paragraph: { elements: [{ textRun: { content: "\n" } }] },
-                startIndex: 1,
-              },
-            ],
-          },
-          documentId: docId,
-          revisionId: "dry-run",
-          tabs: [
-            {
-              documentTab: {
-                body: {
-                  content: [
-                    { endIndex: 1, sectionBreak: {}, startIndex: 0 },
-                    {
-                      endIndex: 2,
-                      paragraph: { elements: [{ textRun: { content: "\n" } }] },
-                      startIndex: 1,
-                    },
-                  ],
+                documentTab: {
+                  body: {
+                    content: [
+                      { endIndex: 1, sectionBreak: {}, startIndex: 0 },
+                      {
+                        endIndex: 2,
+                        paragraph: { elements: [{ textRun: { content: "\n" } }] },
+                        startIndex: 1,
+                      },
+                    ],
+                  },
+                },
+                tabProperties: {
+                  tabId: "t.0",
+                  title,
                 },
               },
-              tabProperties: {
-                tabId: "t.0",
-                title,
-              },
-            },
-          ],
-          title,
-        },
-        docId,
-      );
+            ],
+            title,
+          },
+          docId,
+        );
+      }
     }
   } else {
     gdoc = runtime.preloadedDocs?.get(docId) ?? (await Gdoc.load(docId, runtime.client));

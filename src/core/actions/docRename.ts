@@ -1,5 +1,6 @@
 /* Workflow step: docRename — rename a document in Drive. */
 
+import { docCache } from "~/core/cache/docCache.ts";
 import { gwsDrive } from "~/core/gws.ts";
 import type { WorkflowStepHandler } from "./types.ts";
 
@@ -11,6 +12,8 @@ export const docRenameStep: WorkflowStepHandler = async (runtime, stepIndex, ste
 
   if (!runtime.dryRun) {
     await gwsDrive.updateFile(targetDoc.docId, { name: newTitle });
+    targetDoc.gdoc.data.title = newTitle;
+    docCache.invalidate(targetDoc.docId);
   }
   targetDoc.title = newTitle;
   runtime.stepsExecuted++;

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { Gdoc } from "~/core/gdoc.ts";
-import { DriveClient } from "~/core/gws.ts";
 import { DocCache } from "./docCache.ts";
 import { SqliteDatabase } from "./sqlite.ts";
 
@@ -92,17 +91,11 @@ describe("DocCache", () => {
 
   test("between TTL1 and TTL2 triggers background revalidation", async () => {
     const db = new SqliteDatabase(":memory:");
-    let headRevisionCalled = 0;
+    let revisionIdCalled = 0;
     const headRevResult = "rev-1";
-
-    const mockDrive = new DriveClient(async () => {
-      headRevisionCalled++;
-      return new Response(JSON.stringify({ headRevisionId: headRevResult }), { status: 200 });
-    });
 
     const cache = new DocCache({
       db,
-      driveClient: mockDrive,
       ttl1Ms: 10,
       ttl2Ms: 1000,
     });
@@ -113,6 +106,10 @@ describe("DocCache", () => {
       getDocument: async (docId: string) => {
         fetchCount++;
         return { documentId: docId, revisionId: "rev-1" };
+      },
+      revisionIdGet: async () => {
+        revisionIdCalled++;
+        return headRevResult;
       },
       run: async () => "",
     };
@@ -131,7 +128,7 @@ describe("DocCache", () => {
 
     // Wait for background revalidation task to finish
     await new Promise((r) => setTimeout(r, 20));
-    expect(headRevisionCalled).toBe(1);
+    expect(revisionIdCalled).toBe(1);
 
     db.close();
   });
@@ -140,13 +137,8 @@ describe("DocCache", () => {
     const db = new SqliteDatabase(":memory:");
     const currentCloudRev = "rev-2"; // changed in cloud!
 
-    const mockDrive = new DriveClient(async () => {
-      return new Response(JSON.stringify({ headRevisionId: currentCloudRev }), { status: 200 });
-    });
-
     const cache = new DocCache({
       db,
-      driveClient: mockDrive,
       ttl1Ms: 5,
       ttl2Ms: 15, // short TTL2 for testing
     });
@@ -158,6 +150,7 @@ describe("DocCache", () => {
         fetchCount++;
         return { documentId: docId, revisionId: fetchCount === 1 ? "rev-1" : "rev-2" };
       },
+      revisionIdGet: async () => currentCloudRev,
       run: async () => "",
     };
 

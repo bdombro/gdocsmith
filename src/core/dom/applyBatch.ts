@@ -132,8 +132,9 @@ export async function domApply(
 
   for (const table of compiled.tableInserts) {
     try {
-      const data = await client.getDocument(documentId);
-      const gdoc = table.tabId ? new Gdoc(data, documentId).withTab(table.tabId) : new Gdoc(data, documentId);
+      const loaded = await Gdoc.load(documentId, client, { forceFetch: true });
+      const data = loaded.data;
+      const gdoc = table.tabId ? loaded.withTab(table.tabId) : loaded;
       const tableEl = gdoc.findInsertedTableAt(table.insertIndex) ?? gdoc.findTableAt(table.insertIndex);
       if (!tableEl?.table) continue;
       const fill = RequestBuilder.buildTableFill(
@@ -145,7 +146,9 @@ export async function domApply(
         table.cellSpecials,
       );
       if (fill.length) {
-        await client.batchUpdate(documentId, fill);
+        await client.batchUpdate(documentId, fill, {
+          requiredRevisionId: data.revisionId,
+        });
       }
     } catch (err) {
       throw wrapBatchUpdateError(err, { batch: "table-fill", plan: opts.plan });
@@ -154,10 +157,11 @@ export async function domApply(
 
   if (compiled.rowFills && compiled.rowFills.length > 0) {
     try {
-      const data = await client.getDocument(documentId);
+      const loaded = await Gdoc.load(documentId, client, { forceFetch: true });
+      const data = loaded.data;
       const rowFillReqs: object[] = [];
       for (const fill of compiled.rowFills) {
-        const gdoc = fill.tabId ? new Gdoc(data, documentId).withTab(fill.tabId) : new Gdoc(data, documentId);
+        const gdoc = fill.tabId ? loaded.withTab(fill.tabId) : loaded;
         const tableEl = gdoc.findTableAt(fill.tableStart);
         if (!tableEl?.table?.tableRows) continue;
         const targetRowIdx = fill.insertBelow ? fill.rowIndex + 1 : fill.rowIndex;
@@ -194,7 +198,9 @@ export async function domApply(
         }
       }
       if (rowFillReqs.length > 0) {
-        await client.batchUpdate(documentId, rowFillReqs);
+        await client.batchUpdate(documentId, rowFillReqs, {
+          requiredRevisionId: data.revisionId,
+        });
       }
     } catch (err) {
       throw wrapBatchUpdateError(err, { batch: "table-fill", plan: opts.plan });
@@ -279,6 +285,7 @@ export function isRevisionMismatchError(
   err: unknown,
 ): boolean {
   const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes("Failed during table cell fill")) return false;
   return /revision (ID )?provided.*does not match|writeControl.*revision|write control.*does not match/i.test(msg);
 }
 

@@ -183,6 +183,8 @@ export interface DocsClient {
   createDocument?(title: string): Promise<{ documentId: string; title: string }>;
   /** Fetches document data with full tabs content. */
   getDocument(documentId: string): Promise<GoogleDoc>;
+  /** Lightweight Docs revisionId for cache freshness (no tab bodies). */
+  revisionIdGet?(documentId: string): Promise<string | undefined>;
   /** Executes an arbitrary gws CLI command. */
   run(args: string[]): Promise<string>;
 }
@@ -261,6 +263,23 @@ export class GwsClientImpl implements DocsClient {
     }
   }
 
+  /** Fetches Docs revisionId without downloading tab content (Google Docs use this, not Drive headRevisionId). */
+  async revisionIdGet(documentId: string): Promise<string | undefined> {
+    try {
+      const url = `${DOCS_BASE_URL}/documents/${encodeURIComponent(documentId)}?fields=revisionId`;
+      const res = await fetchWithRetry(url, undefined, {
+        fetcher: this.fetcher,
+        retries: 3,
+      });
+      const text = await res.text();
+      if (!res.ok) return undefined;
+      const data = JSON.parse(text) as { revisionId?: string };
+      return data.revisionId;
+    } catch {
+      return undefined;
+    }
+  }
+
   /** Runs an arbitrary gws command and returns stdout or throws on failure. */
   async run(args: string[]): Promise<string> {
     try {
@@ -279,6 +298,9 @@ export type GwsClient = DocsClient;
 
 /** Invokes direct REST API for Google Drive API access (no CLI fallback). */
 export class DriveClient {
+  /** Memoized workspace domain from the authenticated Drive user profile. */
+  private cachedUserDomain?: string;
+
   constructor(private fetcher: ApiFetcher = fetchGoogleApi) {}
 
   /** Copies a Drive file (supports all drives). */
@@ -502,6 +524,9 @@ export class DriveClient {
 
   /** Fetches the authenticated user's Google Workspace domain from Drive metadata. */
   async userDomainGet(): Promise<string> {
+    if (this.cachedUserDomain) {
+      return this.cachedUserDomain;
+    }
     try {
       const url = `${DRIVE_BASE_URL}/about?fields=user`;
       const res = await this.fetcher(url);
@@ -517,6 +542,7 @@ export class DriveClient {
           `Cannot auto-detect workspace domain from personal account "${email ?? "unknown"}". Specify domain: "<domain>".`,
         );
       }
+      this.cachedUserDomain = domain;
       return domain;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

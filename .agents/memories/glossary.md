@@ -1,34 +1,55 @@
 # Made with /thread-memory
 
 ## Meta
-updated: 2026-09-18 08:20
-scope: src/**, docs/**, skills/**, AGENTS.md, CHANGELOG.md
-counts: 9 terms
+updated: 2026-09-18 09:07
+scope: src/**, docs/**, skills/**, .agents/memories/**, AGENTS.md, CHANGELOG.md
+counts: 17 terms
 
 ## Terms
 as:
-current: Document or step result alias binding within a single workflow run, used to reference docs/tabs across sequential steps without persisting state.
+current: Document or tab alias binding within a single run call; aliases do not persist across separate MCP invocations.
+
+DocCache:
+current: Two-tier document snapshot cache in memory and SQLite at ~/.cache/gdocsmith/db.sqlite with TTL stale-while-revalidate and hard freshness checks via Docs revisionIdGet plus in-flight deduplication.
 
 DomWriter:
-current: In-memory AST and mutation accumulator in src/core/dom/write.ts that stages document modifications across workflow steps and flushes them as a single batchUpdate at execution completion.
+current: In-memory AST and mutation accumulator in src/core/dom/write.ts that stages document modifications across workflow steps and flushes as batchUpdate at pendingWritersFlush.
+
+Drive-only-images:
+current: Inline images stored in Drive that Google Docs REST insertImage cannot recreate from a public URL; tabCreate fromTab fail-closed unless force true.
 
 fail-closed:
-current: Validation strategy on tabCreate with fromTab: that blocks tabs containing elements Google Docs REST API cannot recreate (Drive-only images, equations, footnotes, unsupported smart chips, TOC) unless force: true is specified.
+current: tabCreate with fromTab rejects when uncreatable-elements remain unless force true, with first-line counts and UI Duplicate guidance.
+
+heading-scoped-id:
+current: Stable target id from kind query output (for example h.arch.9a1b or table cell h.arch.table.0.1.3c8f) used in nodeAt and related anchors instead of integer tape indexes.
 
 nodeAt:
-current: Positional anchor specifier targeting an exact heading title, scoped node ID, or outline path in the target document.
+current: Step field naming a heading-scoped id or anchor for replace, remove, or insert operations in the target doc tab.
 
 pageless:
-current: Google Docs document layout mode (mode: "PAGELESS") that renders continuous unpaginated content without printed page breaks or margins.
+current: Document layout mode mode PAGELESS or pageless true for continuous unpaginated content.
 
 replaceSection:
-current: Workflow step kind that replaces an entire heading and its outline body tree up to the next sibling or parent heading.
+current: Step kind that diff-replaces a heading and its outline body until the next sibling or parent heading.
+
+requiredRevisionId:
+current: writeControl.requiredRevisionId on batchUpdate refusing stale snapshots; flush replays mutations after refresh on conflict.
+
+revisionIdGet:
+current: Lightweight documents.get with fields=revisionId on DocsClient for DocCache freshness; Drive headRevisionId does not apply to Google Docs files.
 
 stepKind:
-current: Discriminated union key on every workflow step input (kind: ...) providing compile-time type safety and strict per-variant JSON schemas.
+current: Discriminated union key kind on every workflow step with strict per-variant MCP JSON Schema required arrays.
 
 symbolicLink:
-current: Cross-tab or intra-document markdown link format ([Label](tab:TabTitle#HeadingTitle) or [Label](#HeadingTitle)) compiled by linkResolver to native Google Docs deep links.
+current: Markdown link forms tab:Tab#Heading or #Heading compiled in linkResolver to native Google Docs deep links.
+
+t.0-root-tab:
+current: Legacy template docs sometimes lack root tab id t.0; tabRename and tabMove may HTTP 500 so set title on tabCreate.
 
 tape:
-current: Ordered body.content elements within a Google Docs tab or segment where headings and paragraphs are linear siblings.
+current: Ordered body.content siblings in a tab; headings do not wrap following paragraphs.
+
+uncreatable-elements:
+current: Tab copy blockers including Drive-only images, equations, footnotes, unsupported chips, TOC, and horizontal rules unless force true.

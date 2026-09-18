@@ -1,6 +1,8 @@
 /* Unit tests for find-and-replace execution (batch native replace and surgical regex engine). */
 
 import { describe, expect, test } from "bun:test";
+import { docCache } from "./cache/docCache.ts";
+import { Gdoc } from "./gdoc.ts";
 import type { GwsClient } from "./gws.ts";
 import {
   createGlobalRegex,
@@ -153,6 +155,45 @@ describe("executeBatchReplace", () => {
     expect(result.tabId).toBe("t.1");
     expect(result.tabTitle).toBe("First");
     expect(result.dryRun).toBe(false);
+  });
+
+  test("invalidates cached snapshot after live batch replace", async () => {
+    docCache.clear();
+    const documentId = "doc-cache-invalidate";
+    let getDocumentCalls = 0;
+    const docPayload = {
+      documentId,
+      revisionId: "rev-1",
+      tabs: [createTab("t.1", "Main", ["hello world"])],
+    };
+
+    const mockClient: GwsClient = {
+      batchUpdate: async () =>
+        JSON.stringify({
+          replies: [{ replaceAllText: { occurrencesChanged: 1 } }],
+        }),
+      getDocument: async () => {
+        getDocumentCalls++;
+        return structuredClone(docPayload);
+      },
+      run: async () => "{}",
+    };
+
+    await Gdoc.load(documentId, mockClient);
+    expect(getDocumentCalls).toBe(1);
+    await Gdoc.load(documentId, mockClient);
+    expect(getDocumentCalls).toBe(1);
+
+    await executeBatchReplace(documentId, {
+      client: mockClient,
+      matchCase: true,
+      replacements: [{ find: "hello", replace: "hi" }],
+      tabHint: "t.1",
+    });
+
+    await Gdoc.load(documentId, mockClient);
+    expect(getDocumentCalls).toBe(2);
+    docCache.clear();
   });
 
   test("executes replacement across all tabs when allTabs is true", async () => {

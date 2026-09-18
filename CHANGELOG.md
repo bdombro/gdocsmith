@@ -8,13 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Extended cache usage: table-fill paths in `applyBatch` use `Gdoc.load` with revision-locked fills; lifecycle steps invalidate cache on delete/trash/rename; live `replace` clears cache after mutations; cross-doc clone resolution forwards the runtime client; dry-run workflows preload `docOpen` targets in parallel; `DriveClient.userDomainGet` memoizes workspace domain.
 - Two-tier document snapshot caching (`DocCache`) in memory and SQLite at `~/.cache/gdocsmith/db.sqlite` with dual TTL freshness (TTL1: 10s stale-while-revalidate, TTL2: 5m hard check / memory GC) and in-flight promise deduplication.
 - Dual-runtime SQLite abstraction (`SqliteDatabase`) seamlessly bridging `bun:sqlite` in Bun and `node:sqlite` in Node without native C++ compilation or external dependencies.
 - Shared `fetchWithRetry` network utility with exponential backoff on transient network errors, HTTP 429 rate limits, and 5xx server errors.
 - Native Docs API write locking using `writeControl.requiredRevisionId` on `batchUpdate` requests to prevent stale index corruption.
 - Automatic declarative step mutation replay in `pendingWritersFlush` backing off up to ~2 minutes across revision conflicts, refreshing the cloud document and re-anchoring mutations against updated character offsets.
 - Drive `headRevisionIdGet` method on `DriveClient` for fast, lightweight cloud revision freshness verification.
-- Adopted `/thread-memory` for tracking agent thread context, decisions, and glossary in `.agents/memories/`, documented in `AGENTS.md`.
+- Adopted `/thread-memory` for tracking agent thread context, decisions, and glossary in `.agents/memories/`, documented in `AGENTS.md`; ported foundational memories from `gws-docs-edit` and backfilled 2026-09-16–18 thread files from Cursor transcripts; added `scripts/extractTranscriptMemoryHints.ts` for future ingest.
 - Refactored `GdocsmithStepInput` from a flat interface into a discriminated union on `kind`, enforcing compile-time type safety and strict per-variant `required: [...]` schemas for MCP tools and CLI input.
 - Unpacked content mutation operations into discrete discriminated step types (`StepMarkdownInsert`, `StepReplaceSection`, `StepReplaceMarkdown`, `StepReplace`, `StepTextReplace`, `StepSectionCopy`, `StepRemove`, `StepSurgical`), eliminating catch-all optional properties and giving each step kind explicit required fields.
 - Consolidated tab creation into a unified `tabCreate` step supporting blank tab creation and structured tab cloning via `fromTab:`, requiring `as:` alias binding for downstream referencing.
@@ -37,6 +38,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tabCreate` with `fromTab` / `cloneNode` now reconstructs person, date, and rich-link chips plus public https images via native insert requests. Fail-closed still blocks Drive-only images, footnotes, equations, unsupported chips, TOC, and horizontal rules unless `force: true`.
 
 ### Fixed
+- `DocCache` TTL revalidation now compares Docs API `revisionId` via `DocsClient.revisionIdGet` instead of Drive `headRevisionId` (always undefined for Google Docs), avoiding full document re-download on every stale-while-revalidate check.
+- Smart chip cloning no longer throws when `InlineChip.uri` is omitted (date chips, email-only person chips).
+- Symbolic heading links resolve full heading anchors from scoped ids (`h.heading_N`) instead of truncating to `#heading=h`.
+- `domOpFromStep` honors shorthand anchor fields `at`, `after`, and `before` alongside `nodeAt` / `nodeAfter` / `nodeBefore`.
+- `docCreate` calls `runtime.client.createDocument` when the injected client provides it.
+- `tabCreate` blank-tab live path fails closed when `addDocumentTab` omits `tabId` instead of retaining a virtual tab id.
+- `tabDelete` rejects deleting the sole remaining tab, and dry-run removes the tab from simulated document state.
+- `textReplace` with `nodeAt` or `nodeUnder` performs scoped find-and-replace (via `regexReplaceExecute`) instead of overwriting the entire node via `innerText`.
+- Surgical table inserts flush pending writers when the table spec is in an `elements` array, not only a singular `element`.
 - `status` MCP/HTTP handler now returns `{ version }` instead of only writing CLI stdout, fixing "Handler did not call ctx.respond() or return a value".
 - `tabCreate` fail-closed errors now put uncreatable-element counts (chips, images, equations, footnotes, TOC) on the first line so MCP first-line truncation still names the blockers and the UI Duplicate / `force: true` remedies.
 - Resolved paradoxical "heading not found" error in `symbolicLinkResolve` when linking to newly created or simulated headings that lack a server-generated Google Docs `headingId`, falling back to scoped IDs or tape index anchors.

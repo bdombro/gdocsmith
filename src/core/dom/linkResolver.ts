@@ -212,8 +212,20 @@ function nodeHeadingIdResolve(
 ): string | undefined {
   if (node.headingId) return node.headingId;
   if (node.scopedId) {
-    const prefix = node.scopedId.split(".")[0];
-    if (prefix && prefix !== "_preamble") return prefix;
+    const headingFromScoped = scopedIdHeadingExtract(node.scopedId);
+    if (headingFromScoped && headingFromScoped !== "_preamble") return headingFromScoped;
   }
   return typeof node.tapeIndex === "number" ? `h.heading_${node.tapeIndex}` : undefined;
+}
+
+/**
+ * Strips the trailing checksum segment from a heading scoped id (e.g. h.arch.9a1b → h.arch).
+ */
+export function scopedIdHeadingExtract(
+  /** Heading-scoped node id including checksum suffix. */
+  scopedId: string,
+): string | undefined {
+  const lastDot = scopedId.lastIndexOf(".");
+  if (lastDot <= 0) return scopedId;
+  return scopedId.slice(0, lastDot);
 }

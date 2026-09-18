@@ -88,25 +88,38 @@ export async function applyScriptExecute(
 
   const preloadedDocs = new Map<string, Gdoc>();
 
-  if (!dryRun) {
-    const rawIdsToLoad = new Set<string>();
-    for (const step of steps) {
-      if (step.kind === "docOpen" && step.doc) {
-        const id = Gdoc.idParse(step.doc.trim());
-        if (!id.startsWith("virtual:")) rawIdsToLoad.add(id);
-      } else if (step.kind === "docCreate" && step.fromDoc) {
-        const id = Gdoc.idParse(step.fromDoc.trim());
+  const declaredAliases = new Set<string>();
+  for (const s of steps) {
+    if (s.as) declaredAliases.add(s.as.trim());
+  }
+
+  const rawIdsToLoad = new Set<string>();
+  for (const step of steps) {
+    if (step.kind === "docOpen" && step.doc) {
+      const id = Gdoc.idParse(step.doc.trim());
+      if (!id.startsWith("virtual:")) rawIdsToLoad.add(id);
+    } else if (step.kind === "docCreate" && step.fromDoc) {
+      const trimmed = step.fromDoc.trim();
+      if (!declaredAliases.has(trimmed)) {
+        const id = Gdoc.idParse(trimmed);
         if (!id.startsWith("virtual:")) rawIdsToLoad.add(id);
       }
     }
-    if (rawIdsToLoad.size > 0) {
-      await Promise.all(
-        Array.from(rawIdsToLoad).map(async (docId) => {
+  }
+  if (rawIdsToLoad.size > 0) {
+    await Promise.all(
+      Array.from(rawIdsToLoad).map(async (docId) => {
+        try {
           const loaded = await Gdoc.load(docId, client);
           preloadedDocs.set(docId, loaded);
-        }),
-      );
-    }
+        } catch (err) {
+          if (dryRun) {
+            return;
+          }
+          throw err;
+        }
+      }),
+    );
   }
 
   const runtime: ApplyScriptRuntime = {

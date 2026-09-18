@@ -122,7 +122,8 @@ export const docCreateStep: WorkflowStepHandler = async (
 
   let newDocId = `virtual:${as}`;
   if (!runtime.dryRun) {
-    const res = await gws.createDocument(title);
+    const createDoc = runtime.client.createDocument?.bind(runtime.client) ?? gws.createDocument.bind(gws);
+    const res = await createDoc(title);
     newDocId = res.documentId;
     if (effectivePageSetup) {
       const styleReq = buildDocumentStyleRequest(effectivePageSetup);

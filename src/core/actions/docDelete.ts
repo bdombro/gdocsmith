@@ -1,5 +1,6 @@
 /* Workflow step: docDelete — trash or permanently delete a document. */
 
+import { docCache } from "~/core/cache/docCache.ts";
 import { gwsDrive } from "~/core/gws.ts";
 import type { WorkflowStepHandler } from "./types.ts";
 
@@ -12,6 +13,7 @@ export const docDeleteStep: WorkflowStepHandler = async (runtime, _stepIndex, st
     } else {
       await gwsDrive.updateFile(targetDoc.docId, { trashed: true });
     }
+    docCache.invalidate(targetDoc.docId);
   }
   runtime.openDocs.delete(targetDoc.alias);
   runtime.stepsExecuted++;

@@ -81,6 +81,22 @@ describe("symbolicLinkResolve", () => {
     expect(resolver("#Legacy Migration")).toBe("?tab=t.dec#heading=h.migration");
   });
 
+  test("resolves heading deep link from scopedId when headingId is absent", () => {
+    const nodes = [
+      {
+        end: 10,
+        kind: "paragraph" as const,
+        namedStyleType: "HEADING_2" as const,
+        scopedId: "h.heading_3.deadbeef",
+        start: 1,
+        tapeIndex: 3,
+        text: "Design Details",
+      },
+    ];
+    const resolver = createSymbolicLinkResolver({ currentTabId: "t.0", nodes });
+    expect(resolver("#Design Details")).toBe("?tab=t.0#heading=h.heading_3");
+  });
+
   test("resolves heading link across tabs when not in active tab", () => {
     const resolver = createSymbolicLinkResolver({ currentTabId: "t.0", doc: mockDoc });
     expect(resolver("#Architecture Decisions")).toBe("?tab=t.dec#heading=h.arch_dec");

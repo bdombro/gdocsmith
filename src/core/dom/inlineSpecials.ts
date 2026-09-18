@@ -135,7 +135,7 @@ function chipToSpecial(
   const offset = chip.textOffset ?? 0;
   const kind = chip.kind ?? chipKindInfer(chip);
   if (kind === "person") {
-    const email = chip.email || emailFromMailto(chip.uri);
+    const email = chip.email ?? emailFromMailto(chip.uri);
     if (!email) {
       return { unclonable: `person chip "${chip.title || chip.uri}" has no email` };
     }
@@ -194,8 +194,9 @@ function chipKindInfer(
   /** Parsed chip. */
   chip: InlineChip,
 ): InlineChip["kind"] {
-  if (chip.uri.startsWith("mailto:")) return "person";
-  if (/^https?:\/\//i.test(chip.uri)) return "richLink";
+  if (chip.kind) return chip.kind;
+  if (chip.email || chip.uri?.startsWith("mailto:")) return "person";
+  if (chip.uri && /^https?:\/\//i.test(chip.uri)) return "richLink";
   if (chip.timestamp || chip.dateId) return "date";
   return undefined;
 }
@@ -203,9 +204,9 @@ function chipKindInfer(
 /** Reads an email address from a mailto URI. */
 function emailFromMailto(
   /** Chip URI. */
-  uri: string,
+  uri?: string,
 ): string | undefined {
-  if (!uri.toLowerCase().startsWith("mailto:")) return undefined;
+  if (!uri?.toLowerCase().startsWith("mailto:")) return undefined;
   const email = uri.slice("mailto:".length).trim();
   return email || undefined;
 }

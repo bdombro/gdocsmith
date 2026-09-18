@@ -4,7 +4,9 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { cacheDbPath } from "~/core/config.ts";
 
+/** Flag indicating whether the current runtime is Bun. */
 const isBun = typeof (process.versions as unknown as { bun?: string }).bun !== "undefined";
+/** Dynamically resolved SQLite module depending on the active JavaScript runtime. */
 const sqliteModule = isBun ? await import("bun:sqlite") : await import("node:sqlite");
 
 /**

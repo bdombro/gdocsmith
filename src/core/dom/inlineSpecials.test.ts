@@ -79,6 +79,37 @@ describe("inlineClonePlan", () => {
     expect(drivePlan.unclonable.some((m) => m.includes("no public source URI"))).toBe(true);
   });
 
+  test("handles date chips without uri and person chips with email only", () => {
+    const datePlan = inlineClonePlan("Due ", [
+      {
+        dateFormat: "MMMM d, yyyy",
+        end: 1,
+        kind: "date",
+        start: 0,
+        textOffset: 4,
+        timestamp: "2026-09-17T00:00:00.000Z",
+        title: "Sep 17, 2026",
+        uri: "",
+      },
+    ]);
+    expect(datePlan.unclonable).toEqual([]);
+    expect(datePlan.specials).toHaveLength(1);
+
+    const personPlan = inlineClonePlan("Owner: ", [
+      {
+        email: "owner@example.com",
+        end: 1,
+        kind: "person",
+        start: 0,
+        textOffset: 7,
+        title: "Owner",
+        uri: "",
+      },
+    ]);
+    expect(personPlan.unclonable).toEqual([]);
+    expect(personPlan.specials).toEqual([{ email: "owner@example.com", kind: "person", offset: 7 }]);
+  });
+
   test("fails closed on chips that cannot be recreated", () => {
     expect(
       inlineClonePlan("x", [{ end: 1, kind: "person", start: 0, title: "Anon", uri: "" }]).unclonable[0],

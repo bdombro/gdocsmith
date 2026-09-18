@@ -64,6 +64,22 @@ describe("domOpFromStep", () => {
     expect(mutation.insertMarkdown).toBeUndefined();
   });
 
+  test("resolves at, after, and before shorthand anchor fields", () => {
+    const mutation = domOpFromStep(
+      {
+        after: "h.after",
+        at: "h.at",
+        before: "h.before",
+        doc: "doc1",
+        kind: "surgical",
+      } as GdocsmithStepInput,
+      (v) => v,
+    );
+    expect(mutation.at).toBe("h.at");
+    expect(mutation.after).toBe("h.after");
+    expect(mutation.before).toBe("h.before");
+  });
+
   test("resolves nodeAt, nodeAfter, nodeBefore, and nodeUnder aliases", () => {
     const aliases = (val?: string) => (val === "heading" ? "h.arch.9a1b" : val);
     const mutation = domOpFromStep(

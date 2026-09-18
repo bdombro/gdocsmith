@@ -1,5 +1,6 @@
 /* Core find-and-replace execution. */
 
+import { docCache } from "./cache/docCache.ts";
 import {
   type AppliedOpPlan,
   applyDom,
@@ -238,6 +239,7 @@ export async function batchReplaceExecute(
   );
 
   const resText = await client.batchUpdate(documentId, requests);
+  docCache.invalidate(documentId);
 
   let parsedRes: {
     replies?: Array<{ replaceAllText?: { occurrencesChanged?: number } }>;
@@ -520,6 +522,7 @@ export async function regexReplaceExecute(
     force: options.force,
     plan: plans,
   });
+  docCache.invalidate(documentId);
 
   return {
     allTabs: options.allTabs ? true : undefined,

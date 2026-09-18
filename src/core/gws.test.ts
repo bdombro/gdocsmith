@@ -1,7 +1,7 @@
 /* Unit tests for DriveClient permission REST methods. */
 
 import { describe, expect, test } from "bun:test";
-import { DriveClient } from "./gws.ts";
+import { DriveClient, GwsClientImpl } from "./gws.ts";
 
 describe("DriveClient permissions", () => {
   test("createPermission sends correct URL, headers, and body", async () => {
@@ -132,6 +132,28 @@ describe("DriveClient permissions", () => {
     expect(domain).toBe("acme-corp.com");
   });
 
+  test("userDomainGet memoizes workspace domain across calls", async () => {
+    let aboutCalls = 0;
+    const client = new DriveClient(async (url) => {
+      if (url.includes("/about?")) {
+        aboutCalls++;
+      }
+      return new Response(
+        JSON.stringify({
+          user: {
+            displayName: "Dev User",
+            emailAddress: "dev@acme-corp.com",
+          },
+        }),
+        { status: 200 },
+      );
+    });
+
+    expect(await client.userDomainGet()).toBe("acme-corp.com");
+    expect(await client.userDomainGet()).toBe("acme-corp.com");
+    expect(aboutCalls).toBe(1);
+  });
+
   test("userDomainGet throws for personal Gmail accounts", async () => {
     const client = new DriveClient(async () => {
       return new Response(
@@ -167,6 +189,28 @@ describe("DriveClient permissions", () => {
     });
 
     const rev = await client.headRevisionIdGet("nonexistent");
+    expect(rev).toBeUndefined();
+  });
+});
+
+describe("GwsClientImpl revisionIdGet", () => {
+  test("revisionIdGet fetches Docs revisionId with fields projection", async () => {
+    let capturedUrl = "";
+    const client = new GwsClientImpl(async (url) => {
+      capturedUrl = url;
+      return new Response(JSON.stringify({ revisionId: "docs-rev-xyz" }), { status: 200 });
+    });
+
+    const rev = await client.revisionIdGet("doc-abc");
+    expect(rev).toBe("docs-rev-xyz");
+    expect(capturedUrl).toContain("/documents/doc-abc?");
+    expect(capturedUrl).toContain("fields=revisionId");
+    expect(capturedUrl).not.toContain("includeTabsContent");
+  });
+
+  test("revisionIdGet returns undefined when API call fails", async () => {
+    const client = new GwsClientImpl(async () => new Response("Not Found", { status: 404 }));
+    const rev = await client.revisionIdGet("missing");
     expect(rev).toBeUndefined();
   });
 });

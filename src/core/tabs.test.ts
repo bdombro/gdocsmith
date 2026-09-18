@@ -141,6 +141,14 @@ describe("resolveTab", () => {
     expect(resolveTab(dataWithoutT0, "root")).toEqual({ tabId: "t.abc", title: "Overview" });
   });
 
+  test("auto-resolves main and tab 1 aliases to root tab", () => {
+    const multiTabDoc: GoogleDoc = {
+      tabs: [docTab("t.0", "Tab 1", "intro"), docTab("t.1", "Notes", "body")],
+    };
+    expect(resolveTab(multiTabDoc, "Main")).toEqual({ tabId: "t.0", title: "Tab 1" });
+    expect(resolveTab(multiTabDoc, "tab 1")).toEqual({ tabId: "t.0", title: "Tab 1" });
+  });
+
   test("several tabs without a hint fail closed with tabs in the error", () => {
     expect(() => resolveTab(nested)).toThrow(TAB_REQUIRED_MSG);
     expect(() => resolveTab(nested)).toThrow(/"tabId": "t.0"/);

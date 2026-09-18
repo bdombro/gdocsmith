@@ -1,5 +1,6 @@
 /* Workflow step: tabMove / tabReorder — reorder a document tab to a zero-based index. */
 
+import { docCache } from "~/core/cache/docCache.ts";
 import { Gdoc } from "~/core/gdoc.ts";
 import { RequestBuilder } from "~/core/requests.ts";
 import { flattenTabs, resolveRelativeTabIndex, resolveTab } from "~/core/tabs.ts";
@@ -78,6 +79,7 @@ export const tabMoveStep: WorkflowStepHandler = async (
       }
       throw err;
     }
+    docCache.invalidate(targetDoc.docId);
     targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   } else {
     const tabs: DocTab[] = targetDoc.gdoc.data.tabs ? [...targetDoc.gdoc.data.tabs] : [];

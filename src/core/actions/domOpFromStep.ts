@@ -66,6 +66,10 @@ export function domOpFromStep(
   }
 
   const kind = stepKindRead(step);
+  if (mutation.at === undefined && s.find !== undefined && kind !== "textReplace") {
+    const resolved = typeof s.find === "string" ? aliasResolve(s.find) : s.find;
+    if (resolved !== undefined) mutation.at = resolved as never;
+  }
   const replaceMarkdownVal = s.replaceMarkdown;
   const replaceSectionVal = s.replaceSection;
   const insertMarkdownVal = s.insertMarkdown;

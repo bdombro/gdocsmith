@@ -1,5 +1,6 @@
 /* Workflow step: tabRename — rename a document tab. */
 
+import { docCache } from "~/core/cache/docCache.ts";
 import { Gdoc } from "~/core/gdoc.ts";
 import { RequestBuilder } from "~/core/requests.ts";
 import { findTab, flattenTabs, resolveTab } from "~/core/tabs.ts";
@@ -59,6 +60,7 @@ export const tabRenameStep: WorkflowStepHandler = async (runtime, stepIndex, ste
       }
       throw err;
     }
+    docCache.invalidate(targetDoc.docId);
     targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   } else {
     if (targetDoc.gdoc.data.tabs?.length) {

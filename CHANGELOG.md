@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Direct placeholder targeting in `replace` and `replaceMarkdown` via `find:` (or text snippets in `nodeAt:`), allowing agents to replace placeholder paragraphs with rich formatted Markdown (lists, formatting, bold) while preserving child subsections.
+- Turn budget, batching ratio, recovery loops, and dry-run thrashing metrics tracking in `.cursor/skills/gdocsmith-e2e/SKILL.md`.
 - Extended cache usage: table-fill paths in `applyBatch` use `Gdoc.load` with revision-locked fills; lifecycle steps invalidate cache on delete/trash/rename; live `replace` clears cache after mutations; cross-doc clone resolution forwards the runtime client; dry-run workflows preload `docOpen` targets in parallel; `DriveClient.userDomainGet` memoizes workspace domain.
 - Two-tier document snapshot caching (`DocCache`) in memory and SQLite at `~/.cache/gdocsmith/db.sqlite` with dual TTL freshness (TTL1: 10s stale-while-revalidate, TTL2: 5m hard check / memory GC) and in-flight promise deduplication.
 - Dual-runtime SQLite abstraction (`SqliteDatabase`) seamlessly bridging `bun:sqlite` in Bun and `node:sqlite` in Node without native C++ compilation or external dependencies.
@@ -34,10 +36,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documented Cursor Auto-review guidelines for dry-run inspection in `run` operational notes and agent skill rules.
 
 ### Changed
+- Upgraded `sectionCopy` to transfer AST node specs (`elementSpecFromNode`) directly between documents and tabs instead of round-tripping through Markdown export, losslessly preserving images, chips, styles, and tables.
+- Generalized `replaceSection` and `replaceMarkdown` to accept AST `ElementSpec[]` arrays directly alongside Markdown text.
+- Generalized child heading deletion protection in `replaceSection` across all heading levels (`TITLE`, `HEADING_1` through `HEADING_6`) instead of restricting to top-level headings, failing upfront with a descriptive error naming the child headings when a caller attempts to overwrite a parent section without `force: true` and ending with an explicit bypass instruction (`To bypass, pass force: true.`).
+- Documented 3-phase workflow batching guidance and creation-time tab title positioning rules in `skills/gdocsmith/SKILL.md` and `run` notes to prevent upstream Google Docs API rename bugs.
+- Codified Engineering & Triage Principles and Agent Decision Boundaries in `AGENTS.md` (root-cause fixes over easiest patches, never coddling lazy client agents with permissive fallbacks or aliases, preventing schema and context bloat, not treating every client failure as a bug to fix), and streamlined `.cursor/skills/gdocsmith-e2e/SKILL.md` triage instructions to delegate directly to `AGENTS.md`.
 - Documented a When to Halt policy in `AGENTS.md`: argsbarg shortcomings are fixed in the argsbarg repo, not worked around here.
 - `tabCreate` with `fromTab` / `cloneNode` now reconstructs person, date, and rich-link chips plus public https images via native insert requests. Fail-closed still blocks Drive-only images, footnotes, equations, unsupported chips, TOC, and horizontal rules unless `force: true`.
 
 ### Fixed
+- Preserved bullet preset and numbering type when reconstructing `DocNode` from `ParagraphSpec` in `write.ts`, ensuring numbered decimal lists serialize properly.
+- Replaced paragraphs in `diffAndApplyMarkdown` when special content (images, smart chips) changes, preventing image loss during diff replacement.
+- Fixed `insertRichLink` request payload to omit `mimeType` and `title`, complying with Google Docs API requirements that rich link insertion requests must only specify `uri`.
+- Invalidate `docCache` and force-refresh document state immediately after `batchUpdate` across all tab operations (`tabCreate`, `tabDelete`, `tabRename`, `tabMove`), `pageSetup`, and `elementsInsertExecute`, preventing stale-cache hits from throwing `Unknown tab` on newly added tabs.
+- Fixed date chip parsing (`parseChips` / `dateTimestampFromProps`) to extract ISO timestamps from Google Docs API `dateElementProperties.timestamp`, enabling lossless cloning of date smart chips.
+- Fixed inline image parsing (`parseImages`) to extract Google Docs API `imageProperties.contentUri` as a fallback when `sourceUri` is empty, enabling lossless reconstruction of user-uploaded images.
+- Fixed `docCreate` in live mode to load the created document from Google Docs via `Gdoc.load` instead of retaining a synthetic stub with hardcoded tab title `"Main"`, matching Google Docs' real default tab title (`"Tab 1"`), and aligned tab resolution to match root tab `t.0` when referencing default tab names.
 - `DocCache` TTL revalidation now compares Docs API `revisionId` via `DocsClient.revisionIdGet` instead of Drive `headRevisionId` (always undefined for Google Docs), avoiding full document re-download on every stale-while-revalidate check.
 - Smart chip cloning no longer throws when `InlineChip.uri` is omitted (date chips, email-only person chips).
 - Symbolic heading links resolve full heading anchors from scoped ids (`h.heading_N`) instead of truncating to `#heading=h`.

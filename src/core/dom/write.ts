@@ -707,7 +707,19 @@ function specToNode(spec: ElementSpec, tapeIndex: number): DocNode {
   }
   const node: DocNode = {
     ...(spec.alignment ? { alignment: spec.alignment } : {}),
-    ...(spec.bullet ? { bullet: { nestingLevel: spec.bullet.nestingLevel } } : {}),
+    ...(spec.bullet
+      ? {
+          bullet: {
+            nestingLevel: spec.bullet.nestingLevel,
+            preset: spec.bullet.preset,
+            type: spec.bullet.preset?.startsWith("NUMBERED")
+              ? ("NUMBERED" as const)
+              : spec.bullet.preset?.includes("CHECKBOX")
+                ? ("CHECKBOX" as const)
+                : ("BULLET" as const),
+          },
+        }
+      : {}),
     ...(spec.indentStart ? { indentStart: spec.indentStart } : {}),
     end: -1,
     tapeIndex,
@@ -788,10 +800,11 @@ function chipsImagesFromSpecials(
       chips.push(chip);
     } else {
       const image: InlineImage = {
+        contentUri: special.uri,
         end: -1,
         objectId: "",
-        start: -1,
         sourceUri: special.uri,
+        start: -1,
         textOffset: special.offset,
       };
       if (special.heightPt != null) image.heightPt = special.heightPt;

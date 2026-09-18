@@ -545,8 +545,18 @@ function parseChips(paragraph: NonNullable<DocElement["paragraph"]>): InlineChip
 /** Builds an ISO date timestamp from Docs date chip properties. */
 function dateTimestampFromProps(
   /** Date chip properties from documents.get. */
-  props: { date?: string | { day?: number; month?: number; year?: number }; dateFormat?: string; displayText?: string },
+  props: {
+    date?: string | { day?: number; month?: number; year?: number };
+    dateFormat?: string;
+    displayText?: string;
+    timestamp?: string;
+  },
 ): string | undefined {
+  const ts = props.timestamp;
+  if (typeof ts === "string" && ts.trim()) {
+    const ms = Date.parse(ts);
+    return Number.isNaN(ms) ? ts : new Date(ms).toISOString();
+  }
   const raw = props.date;
   if (typeof raw === "string" && raw.trim()) {
     const ms = Date.parse(raw);
@@ -558,6 +568,12 @@ function dateTimestampFromProps(
     const day = raw.day;
     if (typeof year === "number" && typeof month === "number" && typeof day === "number") {
       return new Date(Date.UTC(year, month - 1, day)).toISOString();
+    }
+  }
+  if (props.displayText && typeof props.displayText === "string") {
+    const ms = Date.parse(props.displayText);
+    if (!Number.isNaN(ms)) {
+      return new Date(ms).toISOString();
     }
   }
   return undefined;
@@ -584,7 +600,9 @@ function parseImages(paragraph: NonNullable<DocElement["paragraph"]>, data: Goog
     const heightPt = size?.height?.magnitude;
     if (typeof widthPt === "number") image.widthPt = widthPt;
     if (typeof heightPt === "number") image.heightPt = heightPt;
-    const sourceUri = embedded?.imageProperties?.sourceUri;
+    const contentUri = embedded?.imageProperties?.contentUri;
+    if (contentUri) image.contentUri = contentUri;
+    const sourceUri = embedded?.imageProperties?.sourceUri || contentUri;
     if (sourceUri) image.sourceUri = sourceUri;
     images.push(image);
   }

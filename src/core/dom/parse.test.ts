@@ -923,4 +923,77 @@ describe("parseDocument", () => {
     expect(tape.nodes[1]?.isCode).toBeUndefined();
     expect(tape.nodes[2]?.isCode).toBeUndefined();
   });
+
+  test("parses dateElement with timestamp in dateElementProperties", () => {
+    const doc = mockDoc([
+      {
+        endIndex: 20,
+        paragraph: {
+          elements: [
+            {
+              dateElement: {
+                dateElementProperties: {
+                  dateFormat: "DATE_FORMAT_MONTH_DAY_YEAR_ABBREVIATED",
+                  displayText: "Sep 17, 2026",
+                  timestamp: "2026-09-17T12:00:00Z",
+                },
+                dateId: "kix.date1",
+              },
+              endIndex: 10,
+              startIndex: 1,
+            },
+          ],
+        },
+        startIndex: 1,
+      },
+    ]);
+    const tape = parseTape(new Gdoc(doc, "doc"));
+    const chip = tape.nodes[0]?.chips?.[0];
+    expect(chip).toBeDefined();
+    expect(chip?.kind).toBe("date");
+    expect(chip?.timestamp).toBe("2026-09-17T12:00:00.000Z");
+    expect(chip?.title).toBe("Sep 17, 2026");
+  });
+
+  test("parses inline image using contentUri when sourceUri is absent", () => {
+    const doc = mockDoc([
+      {
+        endIndex: 20,
+        paragraph: {
+          elements: [
+            {
+              endIndex: 10,
+              inlineObjectElement: {
+                inlineObjectId: "img-1",
+              },
+              startIndex: 1,
+            },
+          ],
+        },
+        startIndex: 1,
+      },
+    ]);
+    doc.inlineObjects = {
+      "img-1": {
+        inlineObjectProperties: {
+          embeddedObject: {
+            imageProperties: {
+              contentUri: "https://lh7-rt.googleusercontent.com/docsz/test-image=s2048",
+            },
+            size: {
+              height: { magnitude: 200, unit: "PT" },
+              width: { magnitude: 300, unit: "PT" },
+            },
+          },
+        },
+      },
+    };
+    const tape = parseTape(new Gdoc(doc, "doc"));
+    const img = tape.nodes[0]?.images?.[0];
+    expect(img).toBeDefined();
+    expect(img?.contentUri).toBe("https://lh7-rt.googleusercontent.com/docsz/test-image=s2048");
+    expect(img?.sourceUri).toBe("https://lh7-rt.googleusercontent.com/docsz/test-image=s2048");
+    expect(img?.widthPt).toBe(300);
+    expect(img?.heightPt).toBe(200);
+  });
 });

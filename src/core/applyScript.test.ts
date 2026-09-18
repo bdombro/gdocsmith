@@ -1396,6 +1396,111 @@ describe("applyScriptExecute", () => {
     expect(md).not.toContain("Out of Scope");
   });
 
+  test("replaceMarkdown targets placeholder paragraph by find text and inserts formatted markdown", async () => {
+    const res = await applyScriptExecute({
+      dryRun: true,
+      steps: [
+        {
+          as: "doc",
+          kind: "docCreate",
+          title: "Spec Doc",
+        },
+        {
+          doc: "doc",
+          kind: "markdownInsert",
+          markdown:
+            "# Architecture\n\nPlaceholder: Replace with architectural specification.\n\n## Component Breakdown\n\nComponent details.",
+        },
+        {
+          doc: "doc",
+          find: "Placeholder: Replace with architectural specification.",
+          kind: "replaceMarkdown",
+          markdown: "1. Core Engine\n2. Memory Cache",
+        },
+        {
+          as: "dump",
+          doc: "doc",
+          kind: "query",
+          output: "markdown",
+        },
+      ],
+    });
+
+    expect(res.ok).toBe(true);
+    const md = (res.dumped.dump as { markdown: string }).markdown;
+    expect(md).toContain("1. Core Engine");
+    expect(md).toContain("2. Memory Cache");
+    expect(md).toContain("## Component Breakdown");
+    expect(md).toContain("Component details.");
+    expect(md).not.toContain("Placeholder: Replace with architectural specification.");
+  });
+
+  test("sectionCopy transfers inline images across documents losslessly without markdown degradation", async () => {
+    const res = await applyScriptExecute({
+      dryRun: true,
+      steps: [
+        {
+          as: "sourceDoc",
+          kind: "docCreate",
+          title: "Source Spec",
+        },
+        {
+          doc: "sourceDoc",
+          element: {
+            kind: "paragraph",
+            namedStyleType: "HEADING_2",
+            specials: [
+              {
+                heightPt: 150,
+                kind: "inlineImage",
+                offset: 0,
+                uri: "https://lh7-rt.googleusercontent.com/test=s2048",
+                widthPt: 200,
+              },
+            ],
+            text: "Fleet Diagrams",
+          },
+          kind: "surgical",
+          nodeAt: "1",
+        },
+        {
+          as: "targetDoc",
+          kind: "docCreate",
+          title: "Target Subproject",
+        },
+        {
+          doc: "targetDoc",
+          element: {
+            kind: "paragraph",
+            namedStyleType: "HEADING_2",
+            text: "Fleet Diagrams",
+          },
+          kind: "surgical",
+          nodeAt: "1",
+        },
+        {
+          doc: "targetDoc",
+          fromDoc: "sourceDoc",
+          fromSection: "Fleet Diagrams",
+          kind: "sectionCopy",
+        },
+        {
+          as: "targetNodes",
+          doc: "targetDoc",
+          kind: "query",
+          output: "nodes",
+        },
+      ],
+    });
+
+    expect(res.ok).toBe(true);
+    const nodes = res.dumped.targetNodes as Array<{ image?: { count: number; heightPt?: number; widthPt?: number } }>;
+    const imageNode = nodes.find((n) => n.image?.count);
+    expect(imageNode).toBeDefined();
+    expect(imageNode?.image?.count).toBe(1);
+    expect(imageNode?.image?.widthPt).toBe(200);
+  });
+
   test("eager preflight pre-validates all docOpen targets before applying mutations", async () => {
     let batchUpdateCalls = 0;
     const mockClient = {

@@ -209,6 +209,8 @@ export type InlineChip = {
 export type InlineImage = {
   /** Column index if inside a table cell. */
   col?: number;
+  /** Direct Google-hosted image content URI. */
+  contentUri?: string;
   /** End character offset. */
   end: number;
   /** Display height in points. */

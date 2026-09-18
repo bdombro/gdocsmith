@@ -1,6 +1,6 @@
 /* Workflow step: sectionCopy — copy a section between documents/tabs server-side. */
 
-import { exportDocumentToMarkdown } from "~/core/dom/export.ts";
+import { elementSpecFromNode } from "~/core/dom/clone.ts";
 import type { TapeMutation } from "~/core/dom/ops.ts";
 import { parseDocument } from "~/core/dom/parse.ts";
 import { headingByTitleOrSlugFind, isHeading, neighborhoodFrom, nodeAtFind } from "~/core/dom/query.ts";
@@ -57,22 +57,21 @@ export const sectionCopyStep: WorkflowStepHandler = async (
     }
   }
 
-  const exp = exportDocumentToMarkdown([
-    { nodes: sectionNodes, tabId: sourceTabId, tabTitle: resolvedSourceTab.title },
-  ]);
-  const markdown = exp.markdown.trim();
+  const specs = sectionNodes.filter((n) => n.kind !== "sectionBreak").map((n) => elementSpecFromNode(n));
 
-  const mutation: TapeMutation = {};
+  const mutation: TapeMutation = {
+    force: step.force,
+  };
   if (step.nodeAfter != null) {
     mutation.after = runtime.aliasResolve(step.nodeAfter) as never;
-    mutation.insertMarkdown = markdown;
+    mutation.elements = specs as Array<Record<string, unknown>>;
   } else if (step.nodeBefore != null) {
     mutation.before = runtime.aliasResolve(step.nodeBefore) as never;
-    mutation.insertMarkdown = markdown;
+    mutation.elements = specs as Array<Record<string, unknown>>;
   } else {
     const at = step.nodeAt ?? fromSection;
     mutation.at = runtime.aliasResolve(at) as never;
-    mutation.replaceSection = markdown;
+    mutation.replaceSection = specs as Array<Record<string, unknown>>;
   }
 
   await surgicalMutationExecute(runtime, step, mutation);

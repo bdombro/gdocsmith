@@ -257,14 +257,16 @@ export interface StepReplace extends BaseStepInput {
   alignment?: TapeMutation["alignment"];
   /** Target document ID or alias. */
   doc: string;
+  /** Target text snippet or substring to find and replace. */
+  find?: string;
   /** In-place text for a targeted node. */
   innerText?: string;
   /** Workflow step kind. */
   kind: "innerText" | "replace";
   /** Change namedStyleType on an existing paragraph. */
   namedStyleType?: TapeMutation["namedStyleType"];
-  /** Heading-scoped id from query to replace (e.g. h.arch.9a1b). */
-  nodeAt: string;
+  /** Heading-scoped id from query or text snippet to replace (e.g. h.arch.9a1b or "Placeholder: ..."). */
+  nodeAt?: string;
   /** Canonical replacement text. */
   replace?: string;
   /** Explicit styled text runs for inline formatting. */
@@ -285,14 +287,16 @@ export interface StepReplaceMarkdown extends BaseStepInput {
   doc: string;
   /** Local markdown or text file path to read (or '-' for stdin). */
   file?: string;
+  /** Target text snippet or substring to find and replace with markdown. */
+  find?: string;
   /** Workflow step kind. */
   kind: "replaceMarkdown";
   /** Markdown content for replacing one node. */
   markdown?: string;
   /** Named `::styleName[]::` directive styles (`{ alert: { color: "#f00" } }`). Distinct from native `style`. */
   markdownStyles?: Record<string, unknown>;
-  /** Heading-scoped id from query to replace (e.g. h.arch.9a1b). */
-  nodeAt: string;
+  /** Heading-scoped id from query or text snippet to replace (e.g. h.arch.9a1b or "Placeholder: ..."). */
+  nodeAt?: string;
   /** Markdown content or boolean flag when file: is specified. */
   replaceMarkdown?: string | boolean;
   /** Target tab ID or title. */

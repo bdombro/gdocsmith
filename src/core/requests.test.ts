@@ -392,7 +392,6 @@ describe("RequestBuilder", () => {
     expect(
       RequestBuilder.insertRichLink({
         index: 30,
-        title: "Docs",
         uri: "https://docs.google.com",
       }),
     ).toEqual({

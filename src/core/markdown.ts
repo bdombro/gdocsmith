@@ -1,5 +1,6 @@
 /* High-level markdown DOM insertion workflows. */
 
+import { docCache } from "./cache/docCache.ts";
 import {
   applyDom,
   applyOps,
@@ -101,7 +102,7 @@ export async function elementsInsertExecute(params: ExecuteElementsInsertParams)
 
   const chunks = chunkMarkdownElements(elements);
 
-  let freshDoc = await Gdoc.load(params.documentId, client);
+  let freshDoc = await Gdoc.load(params.documentId, client, { forceFetch: true });
   const tabResolution = freshDoc.data.tabs?.length ? resolveTab(freshDoc.data, params.tabHint) : {};
   const tabId = tabResolution.tabId;
   let gdoc = tabId ? freshDoc.withTab(tabId) : freshDoc;
@@ -189,6 +190,8 @@ export async function elementsInsertExecute(params: ExecuteElementsInsertParams)
     const startId =
       originalReplaceAnchor || effectivePosition === "beforebegin" ? originalAnchorId : originalAnchorId + 1;
     const endId = startId + elements.length - 1;
+
+    docCache.invalidate(params.documentId);
 
     return {
       appliedChunks: chunksApplied,

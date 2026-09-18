@@ -2,7 +2,7 @@
 
 import { buildDocumentStyleRequest } from "~/core/dom/applyBatch.ts";
 import { exportDocumentToMarkdown } from "~/core/dom/export.ts";
-import type { PageSetup } from "~/core/dom/ops.ts";
+import { type PageSetup, pageSetupExtract } from "~/core/dom/ops.ts";
 import { parseDocument } from "~/core/dom/parse.ts";
 import { Gdoc } from "~/core/gdoc.ts";
 import { gws, gwsDrive } from "~/core/gws.ts";
@@ -121,6 +121,7 @@ export const docCreateStep: WorkflowStepHandler = async (
       : undefined;
 
   let newDocId = `virtual:${as}`;
+  let gdoc: Gdoc;
   if (!runtime.dryRun) {
     const createDoc = runtime.client.createDocument?.bind(runtime.client) ?? gws.createDocument.bind(gws);
     const res = await createDoc(title);
@@ -131,41 +132,42 @@ export const docCreateStep: WorkflowStepHandler = async (
         await runtime.client.batchUpdate(newDocId, [styleReq]);
       }
     }
-  }
-
-  const initialBody = {
-    content: [
-      { endIndex: 1, sectionBreak: {}, startIndex: 0 },
-      {
-        endIndex: 2,
-        paragraph: { elements: [{ textRun: { content: "\n" } }] },
-        startIndex: 1,
-      },
-    ],
-  };
-
-  const initialDocumentStyle = effectivePageSetup?.mode
-    ? { documentFormat: { documentMode: effectivePageSetup.mode } }
-    : undefined;
-
-  const gdoc = new Gdoc(
-    {
-      body: initialBody,
-      documentId: newDocId,
-      documentStyle: initialDocumentStyle,
-      tabs: [
+    gdoc = await Gdoc.load(newDocId, runtime.client, { forceFetch: true });
+  } else {
+    const initialBody = {
+      content: [
+        { endIndex: 1, sectionBreak: {}, startIndex: 0 },
         {
-          documentTab: {
-            body: initialBody,
-            documentStyle: initialDocumentStyle,
-          },
-          tabProperties: { tabId: "t.0", title: "Main" },
+          endIndex: 2,
+          paragraph: { elements: [{ textRun: { content: "\n" } }] },
+          startIndex: 1,
         },
       ],
-      title,
-    },
-    newDocId,
-  );
+    };
+
+    const initialDocumentStyle = effectivePageSetup?.mode
+      ? { documentFormat: { documentMode: effectivePageSetup.mode } }
+      : undefined;
+
+    gdoc = new Gdoc(
+      {
+        body: initialBody,
+        documentId: newDocId,
+        documentStyle: initialDocumentStyle,
+        tabs: [
+          {
+            documentTab: {
+              body: initialBody,
+              documentStyle: initialDocumentStyle,
+            },
+            tabProperties: { tabId: "t.0", title: "Main" },
+          },
+        ],
+        title,
+      },
+      newDocId,
+    );
+  }
 
   const openContext = {
     alias: as,
@@ -175,11 +177,15 @@ export const docCreateStep: WorkflowStepHandler = async (
     title,
   };
 
+  const tabs = flattenTabs(gdoc.data.tabs);
+  const tabsToCheck = tabs.length > 0 ? tabs : [{ tabId: "t.0", title: "Main" }];
+  const pageSetup = pageSetupExtract(gdoc.data.documentStyle ?? gdoc.data.tabs?.[0]?.documentTab?.documentStyle);
   const dumpPayload = {
     alias: as,
     id: newDocId,
     kind: "doc",
-    tabs: [{ id: "t.0", kind: "tab", title: "Main" }],
+    ...(pageSetup ? { pageSetup } : {}),
+    tabs: tabsToCheck.map((t) => ({ id: t.tabId, kind: "tab", title: t.title })),
     title,
   };
 

@@ -1,5 +1,6 @@
 /* Workflow step: pageSetup — configure document geometry, margins, and layout mode (PAGES/PAGELESS). */
 
+import { docCache } from "~/core/cache/docCache.ts";
 import { buildDocumentStyleRequest } from "~/core/dom/applyBatch.ts";
 import { type PageSetup, pageSetupExtract } from "~/core/dom/ops.ts";
 import { Gdoc } from "~/core/gdoc.ts";
@@ -56,6 +57,7 @@ export const pageSetupStep: WorkflowStepHandler = async (
 
   if (!runtime.dryRun) {
     await runtime.client.batchUpdate(targetDoc.docId, [req]);
+    docCache.invalidate(targetDoc.docId);
     targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   } else {
     const updateStyle = (req as { updateDocumentStyle: { documentStyle: Record<string, unknown> } }).updateDocumentStyle

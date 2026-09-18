@@ -43,6 +43,8 @@ export type DocElement = {
           dateFormat?: string;
           /** Display text label. */
           displayText?: string;
+          /** RFC 3339 date timestamp. */
+          timestamp?: string;
         };
         /** Unique date identifier. */
         dateId?: string;
@@ -426,6 +428,8 @@ export type GoogleDoc = {
         embeddedObject?: {
           /** Image details. */
           imageProperties?: {
+            /** Public content URI for the image served by Google. */
+            contentUri?: string;
             /** Source URI for the image. */
             sourceUri?: string;
           };

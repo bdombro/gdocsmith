@@ -11572,7 +11572,7 @@ function pickTab(flat, hint) {
   if (byTitle.length > 1) {
     throw new Error(`Ambiguous tab title "${hint}". Use the tab id from tab list.`);
   }
-  if ((needle === "t.0" || needle === "0" || needle === "root") && flat.length > 0) {
+  if ((needle === "t.0" || needle === "0" || needle === "root" || needle === "main" || needle === "tab 1") && flat.length > 0) {
     return flat[0];
   }
   const known = flat.map((t) => `${t.tabId} (${t.title || "untitled"})`).join(", ");
@@ -14477,8 +14477,7 @@ class RequestBuilder {
       insertRichLink: {
         location: loc(opts.index, opts.segmentId, opts.tabId),
         richLinkProperties: {
-          uri: opts.uri,
-          ...opts.mimeType ? { mimeType: opts.mimeType } : {}
+          uri: opts.uri
         }
       }
     };
@@ -14543,10 +14542,8 @@ class RequestBuilder {
       } else if (special.kind === "richLink") {
         reqs.push(RequestBuilder.insertRichLink({
           index: at2,
-          mimeType: special.mimeType,
           segmentId: opts.segmentId,
           tabId: opts.tabId,
-          title: special.title,
           uri: special.uri
         }));
       } else {
@@ -14722,8 +14719,9 @@ function nodeChecksumCompute(node) {
     bulletStr = `${type}:${nesting}`;
   }
   const alignStr = typeof node.alignment === "string" ? node.alignment : "";
-  const imagesCount = Array.isArray(node.images) ? node.images.length : 0;
-  const chipsCount = Array.isArray(node.chips) ? node.chips.length : 0;
+  const rawSpecials = Array.isArray(node.specials) ? node.specials : undefined;
+  const imagesCount = Array.isArray(node.images) ? node.images.length : rawSpecials?.filter((s) => s.kind === "inlineImage").length ?? 0;
+  const chipsCount = Array.isArray(node.chips) ? node.chips.length : rawSpecials?.filter((s) => s.kind !== "inlineImage").length ?? 0;
   let tableShape = "";
   if (node.table && typeof node.table === "object") {
     const t = node.table;
@@ -15438,6 +15436,11 @@ function parseChips(paragraph) {
   return chips;
 }
 function dateTimestampFromProps(props) {
+  const ts = props.timestamp;
+  if (typeof ts === "string" && ts.trim()) {
+    const ms = Date.parse(ts);
+    return Number.isNaN(ms) ? ts : new Date(ms).toISOString();
+  }
   const raw = props.date;
   if (typeof raw === "string" && raw.trim()) {
     const ms = Date.parse(raw);
@@ -15449,6 +15452,12 @@ function dateTimestampFromProps(props) {
     const day = raw.day;
     if (typeof year === "number" && typeof month === "number" && typeof day === "number") {
       return new Date(Date.UTC(year, month - 1, day)).toISOString();
+    }
+  }
+  if (props.displayText && typeof props.displayText === "string") {
+    const ms = Date.parse(props.displayText);
+    if (!Number.isNaN(ms)) {
+      return new Date(ms).toISOString();
     }
   }
   return;
@@ -15477,7 +15486,10 @@ function parseImages(paragraph, data) {
       image.widthPt = widthPt;
     if (typeof heightPt === "number")
       image.heightPt = heightPt;
-    const sourceUri = embedded?.imageProperties?.sourceUri;
+    const contentUri = embedded?.imageProperties?.contentUri;
+    if (contentUri)
+      image.contentUri = contentUri;
+    const sourceUri = embedded?.imageProperties?.sourceUri || contentUri;
     if (sourceUri)
       image.sourceUri = sourceUri;
     images.push(image);
@@ -17172,10 +17184,10 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
     if (op.insertMarkdown !== undefined || op.file && !op.replaceMarkdown && !op.replaceSection) {
       op.insertMarkdown = resolveMarkdownContent(op.insertMarkdown, op.file, "insertMarkdown", index);
     }
-    if (op.replaceMarkdown !== undefined) {
+    if (op.replaceMarkdown !== undefined && !Array.isArray(op.replaceMarkdown)) {
       op.replaceMarkdown = resolveMarkdownContent(op.replaceMarkdown, op.file, "replaceMarkdown", index);
     }
-    if (op.replaceSection !== undefined) {
+    if (op.replaceSection !== undefined && !Array.isArray(op.replaceSection)) {
       op.replaceSection = resolveMarkdownContent(op.replaceSection, op.file, "replaceSection", index);
     }
     const markdownOpts = markdownParseOptionsFromOp(op, writer);
@@ -17440,8 +17452,8 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
       continue;
     }
     if (op.replaceSection !== undefined) {
-      if (typeof op.replaceSection !== "string") {
-        throw new Error(`ops[${index}] replaceSection must be a string or file path`);
+      if (typeof op.replaceSection !== "string" && !Array.isArray(op.replaceSection)) {
+        throw new Error(`ops[${index}] replaceSection must be a string, element specs, or file path`);
       }
       if (!isHeadingStyle(target.namedStyleType)) {
         throw new Error(`ops[${index}] replaceSection requires a heading node target (found "${target.namedStyleType ?? target.kind}"). To replace a single node, use replaceMarkdown or replace.`);
@@ -17450,18 +17462,14 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
       if (markdownOpts.h1IsTitle === undefined && target.namedStyleType === "TITLE") {
         markdownOpts.h1IsTitle = true;
       }
-      const incomingSpecs = parseMarkdownToElements(op.replaceSection, markdownOpts);
-      const isTopLevelHeading = target.namedStyleType === "TITLE" || target.namedStyleType === "HEADING_1";
-      if (isTopLevelHeading) {
-        const targetLevel2 = STYLE_TO_LEVEL[target.namedStyleType] ?? 1;
-        const childHeadings = scopeNodes.filter((n) => n.tapeIndex !== target.tapeIndex && isHeadingStyle(n.namedStyleType));
-        const incomingChildHeadings = incomingSpecs.filter((s) => s.kind === "paragraph" && isHeadingStyle(s.namedStyleType) && (STYLE_TO_LEVEL[s.namedStyleType] ?? 99) > targetLevel2);
-        if (childHeadings.length > 0 && incomingChildHeadings.length === 0 && !effectiveForce) {
-          const previewList = childHeadings.slice(0, 5).map((h) => `"${preview(h.text ?? "")}"`).join(", ");
-          throw new Error(`ops[${index}] replaceSection on ${target.namedStyleType} "${preview(target.text ?? "")}" would delete ${childHeadings.length} child heading(s) (${previewList}). To replace only the title/heading paragraph, use replace or replaceMarkdown. To replace the entire section including all subsections, include them in your markdown or pass force: true.`);
-        }
-      }
+      const incomingSpecs = Array.isArray(op.replaceSection) ? op.replaceSection : parseMarkdownToElements(op.replaceSection, markdownOpts);
       const targetLevel = STYLE_TO_LEVEL[target.namedStyleType] ?? 1;
+      const childHeadings = scopeNodes.filter((n) => n.tapeIndex !== target.tapeIndex && isHeadingStyle(n.namedStyleType));
+      const incomingChildHeadings = incomingSpecs.filter((s) => s.kind === "paragraph" && isHeadingStyle(s.namedStyleType) && (STYLE_TO_LEVEL[s.namedStyleType] ?? 99) > targetLevel);
+      if (childHeadings.length > 0 && incomingChildHeadings.length === 0 && !effectiveForce) {
+        const previewList = childHeadings.slice(0, 5).map((h) => `"${preview(h.text ?? "")}"`).join(", ");
+        throw new Error(`ops[${index}] replaceSection on ${target.namedStyleType} "${preview(target.text ?? "")}" would delete ${childHeadings.length} child heading(s) (${previewList}). To replace only the placeholder or body under this heading while preserving child subsections, target the body node with replace/replaceMarkdown, or use textReplace. To bypass, pass force: true.`);
+      }
       const incomingStartsWithHeading = incomingSpecs.length > 0 && incomingSpecs[0]?.kind === "paragraph" && isHeadingStyle(incomingSpecs[0].namedStyleType);
       const incomingLevel = incomingStartsWithHeading ? STYLE_TO_LEVEL[incomingSpecs[0].namedStyleType] ?? 99 : 99;
       const incomingReplacesAnchor = incomingStartsWithHeading && incomingLevel <= targetLevel;
@@ -17481,15 +17489,15 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
       continue;
     }
     if (op.replaceMarkdown !== undefined) {
-      if (typeof op.replaceMarkdown !== "string") {
-        throw new Error(`ops[${index}] replaceMarkdown must be a string or file path`);
+      if (typeof op.replaceMarkdown !== "string" && !Array.isArray(op.replaceMarkdown)) {
+        throw new Error(`ops[${index}] replaceMarkdown must be a string, element specs, or file path`);
       }
       assertNotFragile(target, "replace", effectiveForce);
       const scopeNodes = [target];
       if (markdownOpts.h1IsTitle === undefined && target.namedStyleType === "TITLE") {
         markdownOpts.h1IsTitle = true;
       }
-      const incomingSpecs = parseMarkdownToElements(op.replaceMarkdown, markdownOpts);
+      const incomingSpecs = Array.isArray(op.replaceMarkdown) ? op.replaceMarkdown : parseMarkdownToElements(op.replaceMarkdown, markdownOpts);
       plan.push(withWarnings({
         action: "replaceMarkdown",
         index,
@@ -17800,7 +17808,10 @@ function diffAndApplyMarkdown(writer, oldNodes, newSpecs, anchorTarget, force) {
       const oldPreset = oldNode.bullet?.preset;
       const newPreset = paraSpec?.bullet?.preset;
       const bulletChanged = oldHasBullet !== newHasBullet || oldHasBullet && (oldNesting !== newNesting || oldPreset && newPreset && oldPreset !== newPreset);
-      if (oldNode.kind === "paragraph" && newSpec.kind === "paragraph" && !bulletChanged) {
+      const oldHasSpecials = Boolean(oldNode.chips?.length || oldNode.images?.length);
+      const newHasSpecials = Boolean(paraSpec?.specials?.length);
+      const specialsChanged = oldHasSpecials || newHasSpecials;
+      if (oldNode.kind === "paragraph" && newSpec.kind === "paragraph" && !bulletChanged && !specialsChanged) {
         const handle = writer.wrap(oldNode);
         if (paraSpec?.runs?.length) {
           writer.setInnerText(oldNode, paraSpec.text, undefined, undefined, { runs: paraSpec.runs });
@@ -17999,6 +18010,13 @@ function targetResolve(dom, op, namedAnchors) {
         return targetTable;
     }
     return titleOrSlugHit;
+  }
+  if (typeof dest.rawAt === "string" && dest.rawAt.trim()) {
+    try {
+      const textHit = findNodesByText(dom.nodes, dest.rawAt.trim());
+      if (textHit)
+        return textHit;
+    } catch {}
   }
   if (dest.nodeId != null) {
     throw new Error(missingNodeIdMsg(dest.nodeId, dom.nodes.length));
@@ -18864,10 +18882,8 @@ function domCompile(writer, opts = {}) {
       push([
         RequestBuilder.insertRichLink({
           index: split.writeAt,
-          mimeType: op.mimeType,
           segmentId: seg,
           tabId: tab,
-          title: op.title,
           uri: op.uri
         })
       ], op.mutationIndexes);
@@ -20295,7 +20311,13 @@ function specToNode(spec, tapeIndex) {
   }
   const node = {
     ...spec.alignment ? { alignment: spec.alignment } : {},
-    ...spec.bullet ? { bullet: { nestingLevel: spec.bullet.nestingLevel } } : {},
+    ...spec.bullet ? {
+      bullet: {
+        nestingLevel: spec.bullet.nestingLevel,
+        preset: spec.bullet.preset,
+        type: spec.bullet.preset?.startsWith("NUMBERED") ? "NUMBERED" : spec.bullet.preset?.includes("CHECKBOX") ? "CHECKBOX" : "BULLET"
+      }
+    } : {},
     ...spec.indentStart ? { indentStart: spec.indentStart } : {},
     end: -1,
     tapeIndex,
@@ -20373,10 +20395,11 @@ function chipsImagesFromSpecials(specials) {
       chips.push(chip);
     } else {
       const image = {
+        contentUri: special.uri,
         end: -1,
         objectId: "",
-        start: -1,
         sourceUri: special.uri,
+        start: -1,
         textOffset: special.offset
       };
       if (special.heightPt != null)
@@ -20993,13 +21016,13 @@ var docCreateStep = async (runtime, stepIndex, step) => {
       isVirtual: runtime.dryRun,
       title
     };
-    const tabs = flattenTabs(gdoc2.data.tabs);
-    const tabsToCheck = tabs.length > 0 ? tabs : [{ tabId: "t.0", title }];
+    const tabs2 = flattenTabs(gdoc2.data.tabs);
+    const tabsToCheck2 = tabs2.length > 0 ? tabs2 : [{ tabId: "t.0", title }];
     const dumpPayload2 = {
       alias: as,
       id: newDocId2,
       kind: "doc",
-      tabs: tabsToCheck.map((t) => ({ id: t.tabId, kind: "tab", title: t.title })),
+      tabs: tabsToCheck2.map((t) => ({ id: t.tabId, kind: "tab", title: t.title })),
       title
     };
     runtime.openDocs.set(as, openContext2);
@@ -21011,7 +21034,7 @@ var docCreateStep = async (runtime, stepIndex, step) => {
     }
     runtime.activeDocAlias = as;
     if (runtime.dryRun) {
-      for (const t of tabsToCheck) {
+      for (const t of tabsToCheck2) {
         const parsed = parseDocument(t.tabId && gdoc2.data.tabs?.length ? gdoc2.withTab(t.tabId) : gdoc2);
         const exp = exportDocumentToMarkdown([{ nodes: parsed.nodes, tabId: t.tabId, tabTitle: t.title }]);
         runtime.initialMarkdownStates.set(`${as}/${t.tabId}`, exp.markdown);
@@ -21026,6 +21049,7 @@ var docCreateStep = async (runtime, stepIndex, step) => {
     ...mode ? { mode, pageless: mode === "PAGELESS" } : {}
   } : undefined;
   let newDocId = `virtual:${as}`;
+  let gdoc;
   if (!runtime.dryRun) {
     const createDoc = runtime.client.createDocument?.bind(runtime.client) ?? gws.createDocument.bind(gws);
     const res = await createDoc(title);
@@ -21036,34 +21060,36 @@ var docCreateStep = async (runtime, stepIndex, step) => {
         await runtime.client.batchUpdate(newDocId, [styleReq]);
       }
     }
-  }
-  const initialBody = {
-    content: [
-      { endIndex: 1, sectionBreak: {}, startIndex: 0 },
-      {
-        endIndex: 2,
-        paragraph: { elements: [{ textRun: { content: `
+    gdoc = await Gdoc.load(newDocId, runtime.client, { forceFetch: true });
+  } else {
+    const initialBody = {
+      content: [
+        { endIndex: 1, sectionBreak: {}, startIndex: 0 },
+        {
+          endIndex: 2,
+          paragraph: { elements: [{ textRun: { content: `
 ` } }] },
-        startIndex: 1
-      }
-    ]
-  };
-  const initialDocumentStyle = effectivePageSetup?.mode ? { documentFormat: { documentMode: effectivePageSetup.mode } } : undefined;
-  const gdoc = new Gdoc({
-    body: initialBody,
-    documentId: newDocId,
-    documentStyle: initialDocumentStyle,
-    tabs: [
-      {
-        documentTab: {
-          body: initialBody,
-          documentStyle: initialDocumentStyle
-        },
-        tabProperties: { tabId: "t.0", title: "Main" }
-      }
-    ],
-    title
-  }, newDocId);
+          startIndex: 1
+        }
+      ]
+    };
+    const initialDocumentStyle = effectivePageSetup?.mode ? { documentFormat: { documentMode: effectivePageSetup.mode } } : undefined;
+    gdoc = new Gdoc({
+      body: initialBody,
+      documentId: newDocId,
+      documentStyle: initialDocumentStyle,
+      tabs: [
+        {
+          documentTab: {
+            body: initialBody,
+            documentStyle: initialDocumentStyle
+          },
+          tabProperties: { tabId: "t.0", title: "Main" }
+        }
+      ],
+      title
+    }, newDocId);
+  }
   const openContext = {
     alias: as,
     docId: newDocId,
@@ -21071,11 +21097,15 @@ var docCreateStep = async (runtime, stepIndex, step) => {
     isVirtual: runtime.dryRun,
     title
   };
+  const tabs = flattenTabs(gdoc.data.tabs);
+  const tabsToCheck = tabs.length > 0 ? tabs : [{ tabId: "t.0", title: "Main" }];
+  const pageSetup = pageSetupExtract(gdoc.data.documentStyle ?? gdoc.data.tabs?.[0]?.documentTab?.documentStyle);
   const dumpPayload = {
     alias: as,
     id: newDocId,
     kind: "doc",
-    tabs: [{ id: "t.0", kind: "tab", title: "Main" }],
+    ...pageSetup ? { pageSetup } : {},
+    tabs: tabsToCheck.map((t) => ({ id: t.tabId, kind: "tab", title: t.title })),
     title
   };
   runtime.openDocs.set(as, openContext);
@@ -21341,6 +21371,11 @@ function domOpFromStep(step, aliasResolve) {
       mutation.at = under;
   }
   const kind = stepKindRead(step);
+  if (mutation.at === undefined && s.find !== undefined && kind !== "textReplace") {
+    const resolved = typeof s.find === "string" ? aliasResolve(s.find) : s.find;
+    if (resolved !== undefined)
+      mutation.at = resolved;
+  }
   const replaceMarkdownVal = s.replaceMarkdown;
   const replaceSectionVal = s.replaceSection;
   const insertMarkdownVal = s.insertMarkdown;
@@ -21758,7 +21793,7 @@ async function elementsInsertExecute(params) {
     };
   }
   const chunks = chunkMarkdownElements(elements);
-  let freshDoc = await Gdoc.load(params.documentId, client);
+  let freshDoc = await Gdoc.load(params.documentId, client, { forceFetch: true });
   const tabResolution = freshDoc.data.tabs?.length ? resolveTab(freshDoc.data, params.tabHint) : {};
   const tabId = tabResolution.tabId;
   let gdoc = tabId ? freshDoc.withTab(tabId) : freshDoc;
@@ -21830,6 +21865,7 @@ async function elementsInsertExecute(params) {
     }
     const startId = originalReplaceAnchor || effectivePosition === "beforebegin" ? originalAnchorId : originalAnchorId + 1;
     const endId = startId + elements.length - 1;
+    docCache.invalidate(params.documentId);
     return {
       appliedChunks: chunksApplied,
       elementsInserted: elements.length,
@@ -22185,6 +22221,7 @@ var pageSetupStep = async (runtime, stepIndex, step) => {
   }
   if (!runtime.dryRun) {
     await runtime.client.batchUpdate(targetDoc.docId, [req]);
+    docCache.invalidate(targetDoc.docId);
     targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   } else {
     const updateStyle = req.updateDocumentStyle.documentStyle;
@@ -22464,21 +22501,20 @@ var sectionCopyStep = async (runtime, stepIndex, step) => {
       throw new Error(`steps[${stepIndex}] sectionCopy: source section "${fromSection}" has no body content to copy`);
     }
   }
-  const exp = exportDocumentToMarkdown([
-    { nodes: sectionNodes, tabId: sourceTabId, tabTitle: resolvedSourceTab.title }
-  ]);
-  const markdown = exp.markdown.trim();
-  const mutation = {};
+  const specs = sectionNodes.filter((n) => n.kind !== "sectionBreak").map((n) => elementSpecFromNode(n));
+  const mutation = {
+    force: step.force
+  };
   if (step.nodeAfter != null) {
     mutation.after = runtime.aliasResolve(step.nodeAfter);
-    mutation.insertMarkdown = markdown;
+    mutation.elements = specs;
   } else if (step.nodeBefore != null) {
     mutation.before = runtime.aliasResolve(step.nodeBefore);
-    mutation.insertMarkdown = markdown;
+    mutation.elements = specs;
   } else {
     const at2 = step.nodeAt ?? fromSection;
     mutation.at = runtime.aliasResolve(at2);
-    mutation.replaceSection = markdown;
+    mutation.replaceSection = specs;
   }
   await surgicalMutationExecute(runtime, step, mutation);
 };
@@ -22574,6 +22610,8 @@ var tabCreateStep = async (runtime, stepIndex, step) => {
         throw new Error(`steps[${stepIndex}] tabCreate: addDocumentTab reply did not include created tabId`);
       }
       newTabId = createdTabId;
+      docCache.invalidate(targetDoc.docId);
+      targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
       const specs = parsedSource.nodes.filter((n) => n.kind !== "sectionBreak").map((n) => {
         const spec = elementSpecFromNode(n);
         if ("warnings" in spec && Array.isArray(spec.warnings)) {
@@ -22620,6 +22658,7 @@ var tabCreateStep = async (runtime, stepIndex, step) => {
         throw new Error(`steps[${stepIndex}] tabCreate: addDocumentTab reply did not include created tabId`);
       }
       newTabId = createdTabId;
+      docCache.invalidate(targetDoc.docId);
       targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
     } else {
       const existingTabs = targetDoc.gdoc.data.tabs?.length ? targetDoc.gdoc.data.tabs : [
@@ -22785,6 +22824,7 @@ var tabDeleteStep = async (runtime, stepIndex, step) => {
   if (!runtime.dryRun && !targetDoc.docId.startsWith("virtual:")) {
     const req = RequestBuilder.deleteTab(resolved.tabId);
     await runtime.client.batchUpdate(targetDoc.docId, [req]);
+    docCache.invalidate(targetDoc.docId);
     targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   } else {
     const tabs = targetDoc.gdoc.data.tabs ? [...targetDoc.gdoc.data.tabs] : [];
@@ -22854,6 +22894,7 @@ var tabMoveStep = async (runtime, stepIndex, step) => {
       }
       throw err;
     }
+    docCache.invalidate(targetDoc.docId);
     targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   } else {
     const tabs = targetDoc.gdoc.data.tabs ? [...targetDoc.gdoc.data.tabs] : [];
@@ -22919,6 +22960,7 @@ var tabRenameStep = async (runtime, stepIndex, step) => {
       }
       throw err;
     }
+    docCache.invalidate(targetDoc.docId);
     targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   } else {
     if (targetDoc.gdoc.data.tabs?.length) {
@@ -24477,6 +24519,10 @@ var GdocsmithDocumentSchema_default = {
           $ref: "#/definitions/ParagraphAlignment",
           description: "Paragraph or table-cell alignment (START / CENTER / END / JUSTIFIED)."
         },
+        find: {
+          type: "string",
+          description: "Target text snippet or substring to find and replace."
+        },
         innerText: {
           type: "string",
           description: "In-place text for a targeted node."
@@ -24492,7 +24538,7 @@ var GdocsmithDocumentSchema_default = {
         },
         nodeAt: {
           type: "string",
-          description: "Heading-scoped id from query to replace (e.g. h.arch.9a1b)."
+          description: 'Heading-scoped id from query or text snippet to replace (e.g. h.arch.9a1b or "Placeholder: ...").'
         },
         replace: {
           type: "string",
@@ -24518,7 +24564,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text content (fallback alias for canonical replace:)."
         }
       },
-      required: ["doc", "kind", "nodeAt"],
+      required: ["doc", "kind"],
       additionalProperties: false,
       description: 'In-place text replacement step (`kind: "replace" | "innerText"`).'
     },
@@ -24727,6 +24773,10 @@ var GdocsmithDocumentSchema_default = {
           type: "string",
           description: "Local markdown or text file path to read (or '-' for stdin)."
         },
+        find: {
+          type: "string",
+          description: "Target text snippet or substring to find and replace with markdown."
+        },
         kind: {
           type: "string",
           const: "replaceMarkdown",
@@ -24743,7 +24793,7 @@ var GdocsmithDocumentSchema_default = {
         },
         nodeAt: {
           type: "string",
-          description: "Heading-scoped id from query to replace (e.g. h.arch.9a1b)."
+          description: 'Heading-scoped id from query or text snippet to replace (e.g. h.arch.9a1b or "Placeholder: ...").'
         },
         replaceMarkdown: {
           type: ["string", "boolean"],
@@ -24758,7 +24808,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text content (fallback alias for canonical markdown:)."
         }
       },
-      required: ["doc", "kind", "nodeAt"],
+      required: ["doc", "kind"],
       additionalProperties: false,
       description: 'Single-node markdown replacement step (`kind: "replaceMarkdown"`).'
     },
@@ -25585,7 +25635,7 @@ var runCommand = {
   inputSchema: GdocsmithDocumentSchema,
   key: "run",
   kind: "document",
-  notes: "• Pipe stdin or pass one JSON document. Knobs: `dryRun`, `force`, `quiet` on the document.\n" + "• Each step requires `kind` (e.g. docOpen|docClose|docCreate|tabCreate|query|markdownInsert|replaceSection|…).\n" + "• File-touching steps require `doc:` (raw id or open alias). `docCreate` binds `as` (optional `fromDoc:` to clone). There is no run-level documentId.\n" + "• Raw IDs only: extract between `/document/d/` and `/edit`. Full URLs are rejected.\n" + "• Surgical targeting: copy heading-scoped ids from `kind: query` into `nodeAt`, `nodeAfter`, or `nodeBefore` (e.g. `h.arch.9a1b`). NEVER compute startIndex/endIndex or write raw batchUpdate scripts.\n" + "• In-place updates: prefer `replaceSection`, `replaceMarkdown`, or `replace` over deleting and re-inserting content (no demolish-and-rebuild). Use `replace` or `replaceMarkdown` for heading titles; `replaceSection` on an H1 replaces all subsections under it.\n" + "• Real headings only (`TITLE`, `HEADING_1`–`HEADING_3`). No bullet glyphs in surgical text; use run-in bold (`**Label**: value`).\n" + "• Bindings: `docOpen`, `docCreate`, and `tabCreate` set aliases. Every `run` call is stateless; aliases do not persist across multiple `run` invocations. `dump: true` on docOpen/docCreate/tabCreate dumps metadata into `dumped[as]`. `query` with `as:` writes matches into `dumped[as]` (`output: markdown` or `nodes`). Query aliases cannot be used as mutation anchors.\n" + "• Cross-doc transfers: use `kind: sectionCopy` with `fromDoc:` and `fromSection:` to transfer sections server-side without streaming markdown, or query source with `output: markdown` and write with `replaceSection`. Anchors must always belong to the target `doc:`.\n" + "• Symbolic links: use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown; gdocsmith automatically resolves them to native Docs deep links (`?tab=...#heading=...`).\n" + "• Prefer one `run` per phase until step kinds are proven; then batch related steps. Chip/table writes use `kind: surgical`.\n" + "• Dry run: optional `dryRun: true` returns a unified git diff without writing. Run mutations directly without requiring dry-run first; use dryRun only when you need to inspect an expected diff.",
+  notes: "• Pipe stdin or pass one JSON document. Knobs: `dryRun`, `force`, `quiet` on the document.\n" + "• Each step requires `kind` (e.g. docOpen|docClose|docCreate|tabCreate|query|markdownInsert|replaceSection|…).\n" + "• File-touching steps require `doc:` (raw id or open alias). `docCreate` binds `as` (optional `fromDoc:` to clone). There is no run-level documentId.\n" + "• Raw IDs only: extract between `/document/d/` and `/edit`. Full URLs are rejected.\n" + "• Surgical targeting: copy heading-scoped ids from `kind: query` into `nodeAt`, `nodeAfter`, or `nodeBefore` (e.g. `h.arch.9a1b`). NEVER compute startIndex/endIndex or write raw batchUpdate scripts.\n" + "• In-place updates: prefer `replaceSection`, `replaceMarkdown`, or `replace` over deleting and re-inserting content (no demolish-and-rebuild). `replaceSection` replaces all subsections under that heading (e.g. H1 replaces H2s, H2 replaces H3s); guards reject deleting child subsections without `force: true`. To update a placeholder or body paragraph under a parent heading while preserving child subsections, use `replaceMarkdown` with `find: <placeholder>` or `nodeAt: <scopedId|text>` to insert formatted markdown, or `textReplace` for plain string edits.\n" + "• Real headings only (`TITLE`, `HEADING_1`–`HEADING_3`). No bullet glyphs in surgical text; use run-in bold (`**Label**: value`).\n" + "• Bindings: `docOpen`, `docCreate`, and `tabCreate` set aliases. Always set final tab `title` in `tabCreate` (with `as:` and position) because tabRename fails on docs without root `t.0`. Every `run` call is stateless; aliases do not persist across multiple `run` invocations. `dump: true` on docOpen/docCreate/tabCreate dumps metadata into `dumped[as]`. `query` with `as:` writes matches into `dumped[as]` (`output: markdown` or `nodes`). Query aliases cannot be used as mutation anchors.\n" + "• Cross-doc transfers: use `kind: sectionCopy` with `fromDoc:` and `fromSection:` to transfer sections server-side without streaming markdown, or query source with `output: markdown` and write with `replaceSection`. Anchors must always belong to the target `doc:`.\n" + "• Symbolic links: use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown; gdocsmith automatically resolves them to native Docs deep links (`?tab=...#heading=...`).\n" + "• Prefer one `run` per phase until step kinds are proven; then batch related steps. Chip/table writes use `kind: surgical`.\n" + "• Dry run: optional `dryRun: true` returns a unified git diff without writing. Run mutations directly without requiring dry-run first; use dryRun only when you need to inspect an expected diff.",
   outputSchema: GdocsmithJsonOutputSchema
 };
 // src/commands/status/__generated__/StatusJsonOutputSchema.json

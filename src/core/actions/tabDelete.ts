@@ -1,5 +1,6 @@
 /* Workflow step: tabDelete — remove a document tab. */
 
+import { docCache } from "~/core/cache/docCache.ts";
 import { Gdoc } from "~/core/gdoc.ts";
 import { RequestBuilder } from "~/core/requests.ts";
 import { flattenTabs, resolveTab } from "~/core/tabs.ts";
@@ -34,6 +35,7 @@ export const tabDeleteStep: WorkflowStepHandler = async (runtime, stepIndex, ste
   if (!runtime.dryRun && !targetDoc.docId.startsWith("virtual:")) {
     const req = RequestBuilder.deleteTab(resolved.tabId);
     await runtime.client.batchUpdate(targetDoc.docId, [req]);
+    docCache.invalidate(targetDoc.docId);
     targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
   } else {
     const tabs = targetDoc.gdoc.data.tabs ? [...targetDoc.gdoc.data.tabs] : [];

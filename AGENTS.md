@@ -92,19 +92,56 @@ Avoid needless extraction: keep single-use helpers in the calling file by defaul
 
 ## Memory
 
-AI chat thread context (decisions, rejected, footguns, open items) are captured in [.agents/memories/](.agents/memories/) using Brian's `/thread-memory` skill.
+Durable context (decisions, rejections, footguns, open items, glossary) is stored in SQLite via the `thread-memory` MCP plugin.
 
-- Named `YYYYMMDD-{slug}.md` — read Meta first; matching bodies only (no repo glob)
-- `glossary.md` — common terms and evolution of them
-- Same thread → `/thread-memory sync` again when more settles (merge; keep `id`)
-- Save via `/thread-memory sync` (`save memory` / `save decisions`)
-- Read when modifying step schemas, AST compiler, DomWriter batching, tab lifecycle, or Docs REST API integration
+Before substantive work on scoped paths:
+- Call MCP `recall` with the file path (e.g. `path: "src/core/applyScript.ts"`) or a query.
+- Review returned decisions and footguns before implementing changes.
+- If a memory proved helpful or stale, call MCP `feedback` with its `id`.
 
-## When to Halt
+## Engineering & Triage Principles
 
-Stop and report to the user. Do not work around, paper over, or substitute a weaker path.
+### 1. Not All Failures Need Fixing
+- Differentiate client agent errors from engine bugs:
+  - If an agent hallucinated fields, passed invalid arguments, or violated constraints, **the engine is working correctly by rejecting it**.
+  - If a safety guard fired (e.g. `uncreatable-elements` without `force: true`, deleting the only remaining tab, MIME mismatch), verify if the guard performed as designed. Do not remove or bypass guards to force a test pass.
+- Fix only genuine engine bugs (crashes, incorrect DOM compilation, character offset drift, false cache hits) or misleading documentation.
 
-- Issues or shortcomings with argsbarg (MCP/CLI framework, error shaping, schema, headless handlers). do not compensate in this app.
+### 2. Never Coddle Lazy Agents (No Permissive Fallbacks or Aliases)
+- **Let invalid agents fail loudly**: Return crisp, actionable errors pointing to the correct schema/syntax.
+- **No argument aliases or loose coercion**: Do not add alternate keys (`doc_id` alongside `doc`, `text` alongside `content`) just because a calling agent guessed wrong. Keep schemas canonical.
+- **No backwards compatibility**: Unreleased app. Never maintain compatibility shims or legacy aliases.
+
+### 3. Prevent Schema & Context Bloat (KISS)
+- **Do not explode schemas**: Schemas must stay strictly typed, minimal, and discriminated on `kind`. Avoid sprawling optional-field catch-alls.
+- **Context efficiency**: Keep tool descriptions, JSON schemas, error messages, and `skills/gdocsmith/SKILL.md` concise. Never bloat them with narrative essays or exhaustive edge-case encyclopedias.
+- **Avoid premature abstractions**: Inline single-use logic; do not create helper indirection to solve one-off problems.
+
+### 4. Root-Cause Engineering Over Easiest Fix
+- Fix the core model, compiler, or cache logic at the root rather than patching over symptoms with regex hacks or swallow-and-ignore blocks.
+- Preserve fail-closed safety and transactional revision locking (`requiredRevisionId`) above all else.
+
+## Agent Decision Boundaries
+
+### Autonomous Fixes (No User Prompt)
+Apply immediately, verify with `just check`, and proceed:
+- Engine bugs in `src/core/` (DOM compilation, anchor resolution, cache freshness, revision replay).
+- Clear typos, omissions, or inaccuracies in `skills/gdocsmith/SKILL.md` (keep it concise).
+- Schema fixes in `src/core/workflowTypes.ts` that enforce correctness without adding bloat.
+- *Mandatory*: maintain JSDocs, alphabetical imports, single-line file headers, and summarize changes in `CHANGELOG.md` under `[UNRELEASED]`.
+
+### User Decision Required (Stop & Ask)
+Present options and wait for input before proceeding:
+- Architectural shifts (e.g. session persistence, storage backends).
+- Breaking interface changes affecting core workflows.
+- Ambiguous Google Docs REST API edge cases or conflicting requirements.
+- Changing safety defaults (e.g. relaxing destructive protections).
+
+### Mandatory Halt (Do Not Work Around)
+Stop immediately and report to the user without attempting in-repo workarounds, papering over, or substituting a weaker path:
+- Issues or shortcomings with `argsbarg` (MCP/CLI framework, error shaping, schema, headless handlers). Fixes belong in `argsbarg`, not compensating shims here.
+- Auth failures (`401`, `403`, expired `gws auth export` credentials).
+- Network login walls or missing external secrets/tokens.
 
 ## Code quality
 

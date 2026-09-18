@@ -20,7 +20,14 @@ import {
 } from "./element.ts";
 import { CHIP_MUTATE_MSG, EXISTING_NEST_MSG, HEADING_BULLET_MSG, hasChips } from "./guards.ts";
 import { type MarkdownParseOptions, markdownStylesParse, parseMarkdownToElements } from "./markdownParser.ts";
-import { DocDom, formatMissingScopedTargetMsg, missingNodeIdMsg, neighborhoodFrom, nodeAtFind } from "./query.ts";
+import {
+  DocDom,
+  findNodesByText,
+  formatMissingScopedTargetMsg,
+  missingNodeIdMsg,
+  neighborhoodFrom,
+  nodeAtFind,
+} from "./query.ts";
 import { hangingFirstLine, hasIndent, hasStyle, type StylePatch } from "./style.ts";
 import {
   asAlignment,
@@ -102,10 +109,10 @@ export type TapeMutation = {
   remove?: boolean;
   /** In-place text replacement (alias for innerText). */
   replace?: string;
-  /** In-place single-node markdown replacement. Never touches children or following siblings. Accepts markdown text or file path. */
-  replaceMarkdown?: string | boolean;
-  /** Section-level diff-preserving markdown replacement. Target MUST be a heading. Accepts markdown text or file path. */
-  replaceSection?: string | boolean;
+  /** In-place single-node markdown or element replacement. Never touches children or following siblings. Accepts markdown text, element specs, or file path. */
+  replaceMarkdown?: string | boolean | Array<Record<string, unknown>>;
+  /** Section-level diff-preserving markdown or element replacement. Target MUST be a heading. Accepts markdown text, element specs, or file path. */
+  replaceSection?: string | boolean | Array<Record<string, unknown>>;
   /** Explicit styled text runs for inline formatting (e.g. { text: "word", code: true, fontSize: 9 }). */
   runs?: InlineRunInput[];
   /** Native paragraph / text / cell / section fields. Combinable with innerText/replace. */
@@ -673,10 +680,10 @@ export function tapeMutationsApply(
     if (op.insertMarkdown !== undefined || (op.file && !op.replaceMarkdown && !op.replaceSection)) {
       op.insertMarkdown = resolveMarkdownContent(op.insertMarkdown, op.file, "insertMarkdown", index);
     }
-    if (op.replaceMarkdown !== undefined) {
+    if (op.replaceMarkdown !== undefined && !Array.isArray(op.replaceMarkdown)) {
       op.replaceMarkdown = resolveMarkdownContent(op.replaceMarkdown, op.file, "replaceMarkdown", index);
     }
-    if (op.replaceSection !== undefined) {
+    if (op.replaceSection !== undefined && !Array.isArray(op.replaceSection)) {
       op.replaceSection = resolveMarkdownContent(op.replaceSection, op.file, "replaceSection", index);
     }
 
@@ -1056,8 +1063,8 @@ export function tapeMutationsApply(
     }
 
     if (op.replaceSection !== undefined) {
-      if (typeof op.replaceSection !== "string") {
-        throw new Error(`ops[${index}] replaceSection must be a string or file path`);
+      if (typeof op.replaceSection !== "string" && !Array.isArray(op.replaceSection)) {
+        throw new Error(`ops[${index}] replaceSection must be a string, element specs, or file path`);
       }
       if (!isHeadingStyle(target.namedStyleType)) {
         throw new Error(
@@ -1068,32 +1075,29 @@ export function tapeMutationsApply(
       if (markdownOpts.h1IsTitle === undefined && target.namedStyleType === "TITLE") {
         markdownOpts.h1IsTitle = true;
       }
-      const incomingSpecs = parseMarkdownToElements(op.replaceSection, markdownOpts);
-
-      const isTopLevelHeading = target.namedStyleType === "TITLE" || target.namedStyleType === "HEADING_1";
-      if (isTopLevelHeading) {
-        const targetLevel = STYLE_TO_LEVEL[target.namedStyleType as NamedStyle] ?? 1;
-        const childHeadings = scopeNodes.filter(
-          (n) => n.tapeIndex !== target.tapeIndex && isHeadingStyle(n.namedStyleType),
-        );
-        const incomingChildHeadings = incomingSpecs.filter(
-          (s) =>
-            s.kind === "paragraph" &&
-            isHeadingStyle((s as ParagraphSpec).namedStyleType) &&
-            (STYLE_TO_LEVEL[(s as ParagraphSpec).namedStyleType as NamedStyle] ?? 99) > targetLevel,
-        );
-        if (childHeadings.length > 0 && incomingChildHeadings.length === 0 && !effectiveForce) {
-          const previewList = childHeadings
-            .slice(0, 5)
-            .map((h) => `"${preview(h.text ?? "")}"`)
-            .join(", ");
-          throw new Error(
-            `ops[${index}] replaceSection on ${target.namedStyleType} "${preview(target.text ?? "")}" would delete ${childHeadings.length} child heading(s) (${previewList}). To replace only the title/heading paragraph, use replace or replaceMarkdown. To replace the entire section including all subsections, include them in your markdown or pass force: true.`,
-          );
-        }
-      }
+      const incomingSpecs: ElementSpec[] = Array.isArray(op.replaceSection)
+        ? (op.replaceSection as ElementSpec[])
+        : parseMarkdownToElements(op.replaceSection, markdownOpts);
 
       const targetLevel = STYLE_TO_LEVEL[target.namedStyleType as NamedStyle] ?? 1;
+      const childHeadings = scopeNodes.filter(
+        (n) => n.tapeIndex !== target.tapeIndex && isHeadingStyle(n.namedStyleType),
+      );
+      const incomingChildHeadings = incomingSpecs.filter(
+        (s) =>
+          s.kind === "paragraph" &&
+          isHeadingStyle((s as ParagraphSpec).namedStyleType) &&
+          (STYLE_TO_LEVEL[(s as ParagraphSpec).namedStyleType as NamedStyle] ?? 99) > targetLevel,
+      );
+      if (childHeadings.length > 0 && incomingChildHeadings.length === 0 && !effectiveForce) {
+        const previewList = childHeadings
+          .slice(0, 5)
+          .map((h) => `"${preview(h.text ?? "")}"`)
+          .join(", ");
+        throw new Error(
+          `ops[${index}] replaceSection on ${target.namedStyleType} "${preview(target.text ?? "")}" would delete ${childHeadings.length} child heading(s) (${previewList}). To replace only the placeholder or body under this heading while preserving child subsections, target the body node with replace/replaceMarkdown, or use textReplace. To bypass, pass force: true.`,
+        );
+      }
 
       const incomingStartsWithHeading =
         incomingSpecs.length > 0 &&
@@ -1130,8 +1134,8 @@ export function tapeMutationsApply(
     }
 
     if (op.replaceMarkdown !== undefined) {
-      if (typeof op.replaceMarkdown !== "string") {
-        throw new Error(`ops[${index}] replaceMarkdown must be a string or file path`);
+      if (typeof op.replaceMarkdown !== "string" && !Array.isArray(op.replaceMarkdown)) {
+        throw new Error(`ops[${index}] replaceMarkdown must be a string, element specs, or file path`);
       }
       assertNotFragile(target, "replace", effectiveForce);
       // Single-node replacement only! Never touches following siblings.
@@ -1139,7 +1143,9 @@ export function tapeMutationsApply(
       if (markdownOpts.h1IsTitle === undefined && target.namedStyleType === "TITLE") {
         markdownOpts.h1IsTitle = true;
       }
-      const incomingSpecs = parseMarkdownToElements(op.replaceMarkdown, markdownOpts);
+      const incomingSpecs: ElementSpec[] = Array.isArray(op.replaceMarkdown)
+        ? (op.replaceMarkdown as ElementSpec[])
+        : parseMarkdownToElements(op.replaceMarkdown, markdownOpts);
 
       plan.push(
         withWarnings(
@@ -1562,8 +1568,11 @@ function diffAndApplyMarkdown(
       const bulletChanged =
         oldHasBullet !== newHasBullet ||
         (oldHasBullet && (oldNesting !== newNesting || (oldPreset && newPreset && oldPreset !== newPreset)));
+      const oldHasSpecials = Boolean(oldNode.chips?.length || oldNode.images?.length);
+      const newHasSpecials = Boolean(paraSpec?.specials?.length);
+      const specialsChanged = oldHasSpecials || newHasSpecials;
 
-      if (oldNode.kind === "paragraph" && newSpec.kind === "paragraph" && !bulletChanged) {
+      if (oldNode.kind === "paragraph" && newSpec.kind === "paragraph" && !bulletChanged && !specialsChanged) {
         const handle = writer.wrap(oldNode);
         if (paraSpec?.runs?.length) {
           writer.setInnerText(oldNode, paraSpec.text, undefined, undefined, { runs: paraSpec.runs });
@@ -1821,6 +1830,16 @@ export function targetResolve(
       if (targetTable) return targetTable;
     }
     return titleOrSlugHit;
+  }
+
+  // 7. Match node by paragraph text or substring (e.g. nodeAt or find on placeholder text)
+  if (typeof dest.rawAt === "string" && dest.rawAt.trim()) {
+    try {
+      const textHit = findNodesByText(dom.nodes, dest.rawAt.trim());
+      if (textHit) return textHit;
+    } catch {
+      // Ignore and proceed to error formatting
+    }
   }
 
   if (dest.nodeId != null) {

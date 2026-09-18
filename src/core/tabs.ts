@@ -269,7 +269,10 @@ function pickTab(
   if (byTitle.length > 1) {
     throw new Error(`Ambiguous tab title "${hint}". Use the tab id from tab list.`);
   }
-  if ((needle === "t.0" || needle === "0" || needle === "root") && flat.length > 0) {
+  if (
+    (needle === "t.0" || needle === "0" || needle === "root" || needle === "main" || needle === "tab 1") &&
+    flat.length > 0
+  ) {
     return flat[0]!;
   }
   const known = flat.map((t) => `${t.tabId} (${t.title || "untitled"})`).join(", ");

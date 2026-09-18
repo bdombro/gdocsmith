@@ -720,10 +720,8 @@ export function domCompile(
         [
           RequestBuilder.insertRichLink({
             index: split.writeAt,
-            mimeType: op.mimeType,
             segmentId: seg,
             tabId: tab,
-            title: op.title,
             uri: op.uri,
           }),
         ],

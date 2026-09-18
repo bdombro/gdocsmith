@@ -621,6 +621,10 @@
           "$ref": "#/definitions/ParagraphAlignment",
           "description": "Paragraph or table-cell alignment (START / CENTER / END / JUSTIFIED)."
         },
+        "find": {
+          "type": "string",
+          "description": "Target text snippet or substring to find and replace."
+        },
         "innerText": {
           "type": "string",
           "description": "In-place text for a targeted node."
@@ -636,7 +640,7 @@
         },
         "nodeAt": {
           "type": "string",
-          "description": "Heading-scoped id from query to replace (e.g. h.arch.9a1b)."
+          "description": "Heading-scoped id from query or text snippet to replace (e.g. h.arch.9a1b or \"Placeholder: ...\")."
         },
         "replace": {
           "type": "string",
@@ -662,7 +666,7 @@
           "description": "Plain text content (fallback alias for canonical replace:)."
         }
       },
-      "required": ["doc", "kind", "nodeAt"],
+      "required": ["doc", "kind"],
       "additionalProperties": false,
       "description": "In-place text replacement step (`kind: \"replace\" | \"innerText\"`)."
     },
@@ -871,6 +875,10 @@
           "type": "string",
           "description": "Local markdown or text file path to read (or '-' for stdin)."
         },
+        "find": {
+          "type": "string",
+          "description": "Target text snippet or substring to find and replace with markdown."
+        },
         "kind": {
           "type": "string",
           "const": "replaceMarkdown",
@@ -887,7 +895,7 @@
         },
         "nodeAt": {
           "type": "string",
-          "description": "Heading-scoped id from query to replace (e.g. h.arch.9a1b)."
+          "description": "Heading-scoped id from query or text snippet to replace (e.g. h.arch.9a1b or \"Placeholder: ...\")."
         },
         "replaceMarkdown": {
           "type": ["string", "boolean"],
@@ -902,7 +910,7 @@
           "description": "Plain text content (fallback alias for canonical markdown:)."
         }
       },
-      "required": ["doc", "kind", "nodeAt"],
+      "required": ["doc", "kind"],
       "additionalProperties": false,
       "description": "Single-node markdown replacement step (`kind: \"replaceMarkdown\"`)."
     },

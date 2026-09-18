@@ -55,8 +55,15 @@ export function nodeChecksumCompute(
     bulletStr = `${type}:${nesting}`;
   }
   const alignStr = typeof node.alignment === "string" ? node.alignment : "";
-  const imagesCount = Array.isArray(node.images) ? node.images.length : 0;
-  const chipsCount = Array.isArray(node.chips) ? node.chips.length : 0;
+  const rawSpecials = Array.isArray((node as Record<string, unknown>).specials)
+    ? ((node as Record<string, unknown>).specials as Array<{ kind?: string }>)
+    : undefined;
+  const imagesCount = Array.isArray(node.images)
+    ? node.images.length
+    : (rawSpecials?.filter((s) => s.kind === "inlineImage").length ?? 0);
+  const chipsCount = Array.isArray(node.chips)
+    ? node.chips.length
+    : (rawSpecials?.filter((s) => s.kind !== "inlineImage").length ?? 0);
   let tableShape = "";
   if (node.table && typeof node.table === "object") {
     const t = node.table as Record<string, unknown>;

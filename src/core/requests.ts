@@ -869,20 +869,12 @@ export class RequestBuilder {
   }
 
   /** Inserts a smart chip rich link (Drive file, YouTube, Calendar, etc.). */
-  static insertRichLink(opts: {
-    index: number;
-    mimeType?: string;
-    segmentId?: string;
-    tabId?: string;
-    title?: string;
-    uri: string;
-  }): object {
+  static insertRichLink(opts: { index: number; segmentId?: string; tabId?: string; uri: string }): object {
     return {
       insertRichLink: {
         location: loc(opts.index, opts.segmentId, opts.tabId),
         richLinkProperties: {
           uri: opts.uri,
-          ...(opts.mimeType ? { mimeType: opts.mimeType } : {}),
         },
       },
     };
@@ -983,10 +975,8 @@ export class RequestBuilder {
         reqs.push(
           RequestBuilder.insertRichLink({
             index: at,
-            mimeType: special.mimeType,
             segmentId: opts.segmentId,
             tabId: opts.tabId,
-            title: special.title,
             uri: special.uri,
           }),
         );

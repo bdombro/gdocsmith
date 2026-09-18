@@ -1,5 +1,6 @@
 /* Workflow step: tabCreate — add a new tab or copy an existing tab. */
 
+import { docCache } from "~/core/cache/docCache.ts";
 import { elementSpecFromNode } from "~/core/dom/clone.ts";
 import { unclonableFromNode } from "~/core/dom/inlineSpecials.ts";
 import { parseDocument } from "~/core/dom/parse.ts";
@@ -127,6 +128,8 @@ export const tabCreateStep: WorkflowStepHandler = async (
         throw new Error(`steps[${stepIndex}] tabCreate: addDocumentTab reply did not include created tabId`);
       }
       newTabId = createdTabId;
+      docCache.invalidate(targetDoc.docId);
+      targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
 
       const specs = parsedSource.nodes
         .filter((n) => n.kind !== "sectionBreak")
@@ -181,6 +184,7 @@ export const tabCreateStep: WorkflowStepHandler = async (
         throw new Error(`steps[${stepIndex}] tabCreate: addDocumentTab reply did not include created tabId`);
       }
       newTabId = createdTabId;
+      docCache.invalidate(targetDoc.docId);
       targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
     } else {
       const existingTabs = targetDoc.gdoc.data.tabs?.length

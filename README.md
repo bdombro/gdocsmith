@@ -1,5 +1,6 @@
 ![Logo](logo.png)
-<!-- https://patorjk.com/software/taag/#p=display&f=Double&t=gdoc+smith&x=none&v=4&h=4&w=80&we=false -->
+
+
 
 # gdocsmith - ai plugin
 
@@ -19,18 +20,22 @@ The native Docs API was designed for batch backend scripts, not LLMs:
 4. **No structural awareness**: No way to query document outlines, check list nesting, diff changes, or clone nodes.
 5. **Silent formatting corruption**: A single missing newline or misordered list call silently breaks document layout.
 
+
+
 ## How gdocsmith fixes it
 
 `gdocsmith` gives agents safe, surgical hands:
 
-- **Stable scoped IDs (`h.arch.9a1b`)**: Outline nodes use heading-scoped checksums instead of volatile character offsets, letting agents target content reliably across revisions.
+- **Stable scoped IDs (**`h.arch.9a1b`**)**: Outline nodes use heading-scoped checksums instead of volatile character offsets, letting agents target content reliably across revisions.
 - **Native Markdown**: Agents author in standard Markdown (headings, lists, tables, callouts, code blocks); gdocsmith compiles it directly into native Google Docs styled elements.
-- **Semantic color & callout queries (`fontColors: ["red"]`, `["!default"]`)**: Find warnings, blockers, and review marks by color name or exclusion without decoding raw RGB floats.
-- **2D table & list scoping (`rows`, `cols`, `sameList`)**: Target specific cells (`h.arch.table.0.1.3c8f`) without clobbering column widths, and treat bullet lists as logical subtrees.
+- **Semantic color & callout queries (**`fontColors: ["red"]`**,** `["!default"]`**)**: Find warnings, blockers, and review marks by color name or exclusion without decoding raw RGB floats.
+- **2D table & list scoping (**`rows`**,** `cols`**,** `sameList`**)**: Target specific cells (`h.arch.table.0.1.3c8f`) without clobbering column widths, and treat bullet lists as logical subtrees.
 - **Zero turn tax**: Batch document creation, tab management, queries, and edits into a single 5-second tool call with in-memory aliasing (`as:` → `doc:`, `tab:`).
 - **Anti-demolition guardrails**: Blocks agents from deleting and recreating unchanged text, protecting human comments and version history ([docs/guards.md](docs/guards.md)).
 - **Single declarative MCP tool**: One `run` workflow contract instead of 15+ chatty tools, cutting prompt bloat and hallucinations.
 - **Aesthetic defaults**: Native Google Docs styling presets prevent ugly agent formatting hacks ([docs/style.md](docs/style.md)).
+
+
 
 ## How it works
 
@@ -39,6 +44,8 @@ Workflows run in three simple steps:
 1. **Inspect**: Query headings, bullet trees, table rows/cols, or text colors (`query`). Matches return stable IDs (e.g. `h.arch.9a1b`, cell `h.arch.table.0.1.3c8f`).
 2. **Mutate**: Target verified IDs with surgical edits or Markdown insertions (`nodeAt`, `nodeAfter`, `nodeBefore`, `nodeUnder`).
 3. **Batch**: Chain creation (`docCreate`), tabs (`tabCreate`), and insertions in one pass using aliases (`as: "spec"` → `doc: "spec"`).
+
+
 
 ### Workflow Example
 
@@ -66,32 +73,31 @@ The query result in `dumped.componentsHeading` contains the matching node ID (`h
 
 ## Installation & Setup
 
+
+
 ### 1. Cursor Plugin
 
-Install directly via the Cursor Marketplace, or link for local development:
-
-```bash
-git clone https://github.com/bdombro/gdocsmith.git
-cd gdocsmith
-just install-plugin-cursor
-```
-
-The plugin automatically provides `.cursor-plugin/plugin.json`, `mcp.json`, and the bundled zero-dependency Node runner at `scripts/mcp.mjs`.
+Recommended: import directly from GitHub — Cursor Dashboard → **Settings → Plugins → Team Marketplaces → Import**, then enter `https://github.com/bdombro/gdocsmith`. Once published to the [official marketplace](https://cursor.com/marketplace/publish), install via `/add-plugin gdocsmith` or the Customize sidebar.
 
 ### 2. Claude Code Plugin
 
-`gdocsmith` includes native Claude Code plugin manifests:
-- `.claude-plugin/plugin.json`
-- `.mcp.json`
+Recommended: add the GitHub repo as a marketplace, then install:
+
+```bash
+/plugin marketplace add bdombro/gdocsmith
+/plugin install gdocsmith@gdocsmith
+```
 
 ### 3. Authentication
 
-`gdocsmith` uses credentials from the official Google Workspace CLI ([`gws`](https://github.com/googleworkspace/cli)). If you have `gws` installed and authenticated (`gws auth login`), no additional setup is required.
+`gdocsmith` uses credentials from the official Google Workspace CLI (`[gws](https://github.com/googleworkspace/cli)`). If you have `gws` installed and authenticated (`gws auth login`), no additional setup is required.
 
 ## MCP Tools
 
 - `run` *(Primary)*: Execute an ordered Google Docs workflow from JSON (`steps` with `kind`).
 - `status`: Print application version and verify environment health.
+
+
 
 ## CLI Usage (Testing & Debugging)
 
@@ -103,7 +109,29 @@ gdocsmith run < workflow.json
 
 See [docs/cli.md](docs/cli.md) for full CLI documentation and options.
 
+## Contributing / Local Development
+
+```bash
+git clone https://github.com/bdombro/gdocsmith.git
+cd gdocsmith
+
+# Install dependencies and generate schemas
+just setup
+
+# Schemagen, format, lint, typecheck, and tests
+just check
+
+# Bundle the standalone Node MCP server script
+just build
+
+# Link the repo into ~/.cursor/plugins/local/gdocsmith for local Cursor testing
+just install-plugin-cursor
+```
+
+
+
 ## Documentation
+
 
 | Need                                | File                                                   |
 | ----------------------------------- | ------------------------------------------------------ |
@@ -119,3 +147,5 @@ See [docs/cli.md](docs/cli.md) for full CLI documentation and options.
 | Guardrails & anti-demolition        | [docs/guards.md](docs/guards.md)                       |
 | Images                              | [docs/images.md](docs/images.md)                       |
 | Comments                            | [docs/comments.md](docs/comments.md)                   |
+
+

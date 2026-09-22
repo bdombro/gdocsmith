@@ -1,6 +1,6 @@
 {
   "name": "gdocsmith",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Google Docs surgical authoring and workflow engine",
   "author": {
     "name": "Brian Dombrowski"

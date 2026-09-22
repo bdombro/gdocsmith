@@ -2,11 +2,10 @@
   "name": "gdocsmith",
   "displayName": "Gdocsmith",
   "description": "Google Docs surgical authoring and workflow engine",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": {
     "name": "Brian Dombrowski"
   },
   "homepage": "https://github.com/bdombro/gdocsmith",
-  "repository": "https://github.com/bdombro/gdocsmith",
-  "skills": ["skills/gdocsmith"]
+  "repository": "https://github.com/bdombro/gdocsmith"
 }

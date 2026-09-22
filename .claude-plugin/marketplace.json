@@ -1,0 +1,13 @@
+{
+  "name": "gdocsmith",
+  "owner": {
+    "name": "Brian Dombrowski"
+  },
+  "plugins": [
+    {
+      "name": "gdocsmith",
+      "source": ".",
+      "description": "Gdocsmith Google Docs Plugin"
+    }
+  ]
+}

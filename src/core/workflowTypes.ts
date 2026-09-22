@@ -54,6 +54,7 @@ export type GdocsmithStepInput =
   | StepSurgical
   | StepTabCreate
   | StepTabModify
+  | StepTabPopulate
   | StepTabRename
   | StepTextReplace;
 
@@ -81,8 +82,12 @@ export type StepContent =
 export interface StepDocCreate extends BaseStepInput {
   /** Target alias to bind this document to in the runtime session. */
   as: string;
+  /** Force tab copy even if source contains uncloneable elements (chips/images/equations). */
+  force?: boolean;
   /** Optional source document ID or alias to copy from (creates blank document if omitted). */
   fromDoc?: string;
+  /** Optional source tab ID or title to populate the initial tab from (requires fromDoc). */
+  fromTab?: string;
   /** Workflow step kind. */
   kind: "docCreate";
   /** Document layout mode: "PAGES" or "PAGELESS". */
@@ -91,6 +96,10 @@ export interface StepDocCreate extends BaseStepInput {
   pageSetup?: PageSetup;
   /** Whether the document is in pageless mode (convenience alias for mode: "PAGELESS"). */
   pageless?: boolean;
+  /** Optional alias to bind the initial tab ID ("t.0") to in the runtime session (when fromTab is provided). */
+  tabAs?: string;
+  /** Optional title for the initial tab (defaults to source tab's title when fromTab is provided, or "Main"). */
+  tabTitle?: string;
   /** Document title. */
   title: string;
 }
@@ -469,6 +478,26 @@ export interface StepTabModify extends BaseStepInput {
   tab: string;
 }
 
+/** Whole-tab population step into an existing tab (`kind: "tabPopulate"`). */
+export interface StepTabPopulate extends BaseStepInput {
+  /** Target alias to bind this tab ID to in the runtime session. */
+  as?: string;
+  /** Target document ID or alias. */
+  doc: string;
+  /** Force overwrite if the target tab already contains content, or if source contains uncloneable elements. */
+  force?: boolean;
+  /** Source document ID or alias when copying a tab across documents (defaults to doc). */
+  fromDoc?: string;
+  /** Source tab ID or title to copy content from. */
+  fromTab: string;
+  /** Workflow step kind. */
+  kind: "tabPopulate";
+  /** Target tab ID, title, or alias to populate (e.g. "Tab 1" or "t.0"). */
+  tab: string;
+  /** Optional new title to rename the target tab in place. */
+  title?: string;
+}
+
 /** Tab renaming step (`kind: "tabRename"`). */
 export interface StepTabRename extends BaseStepInput {
   /** Target document ID or alias. */
@@ -534,6 +563,7 @@ export type WorkflowStepKind =
   | "tabCreate"
   | "tabDelete"
   | "tabMove"
+  | "tabPopulate"
   | "tabRename"
   | "tabReorder"
   | "textReplace";

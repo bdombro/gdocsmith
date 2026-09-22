@@ -139,6 +139,7 @@ export async function elementsInsertExecute(params: ExecuteElementsInsertParams)
     await DriveRevisions.pinHead(params.documentId, params.client ?? gws);
 
     let chunksApplied = 0;
+    let chunkPosition: InsertPosition = effectivePosition;
 
     for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
       const chunk = chunks[cIdx]!;
@@ -150,7 +151,14 @@ export async function elementsInsertExecute(params: ExecuteElementsInsertParams)
       });
 
       const isReplacing = cIdx === 0 && replaceAnchor;
-      const ops = buildChunkOps(currentAnchorId, effectivePosition, chunk, isReplacing);
+      const ops = buildChunkOps(currentAnchorId, chunkPosition, chunk, isReplacing);
+
+      const anchorIdx = parsedDoc.nodes.findIndex((n) => n.tapeIndex === currentAnchorId);
+      const effectiveAnchorIdx = anchorIdx >= 0 ? anchorIdx : parsedDoc.nodes.length - 1;
+      const tailCount =
+        isReplacing || chunkPosition === "afterend"
+          ? parsedDoc.nodes.length - (effectiveAnchorIdx + 1)
+          : parsedDoc.nodes.length - effectiveAnchorIdx;
 
       const plan = applyOps(writer, ops);
       await applyDom(params.documentId, writer, {
@@ -167,23 +175,12 @@ export async function elementsInsertExecute(params: ExecuteElementsInsertParams)
         gdoc = tabId ? freshDoc.withTab(tabId) : freshDoc;
         parsedDoc = parseDocument(gdoc);
 
-        const lastSpec = chunk.kind === "table" ? chunk.spec : chunk.specs[chunk.specs.length - 1]!;
-
-        const matchingNode = parsedDoc.nodes.find((n) => {
-          if (lastSpec.kind === "table" && n.kind === "table") {
-            return true;
-          }
-          if (lastSpec.kind === "paragraph" && n.kind === "paragraph") {
-            return n.text === lastSpec.text;
-          }
-          return false;
-        });
-
-        if (matchingNode) {
-          currentAnchorId = matchingNode.tapeIndex;
-        } else {
-          currentAnchorId = parsedDoc.nodes[parsedDoc.nodes.length - 1]?.tapeIndex;
-        }
+        const newAnchorIdx = Math.max(0, parsedDoc.nodes.length - tailCount - 1);
+        const lastInsertedNode = parsedDoc.nodes[newAnchorIdx];
+        currentAnchorId = lastInsertedNode
+          ? lastInsertedNode.tapeIndex
+          : (parsedDoc.nodes[parsedDoc.nodes.length - 1]?.tapeIndex ?? 0);
+        chunkPosition = "afterend";
       }
     }
 

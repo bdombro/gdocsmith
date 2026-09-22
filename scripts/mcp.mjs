@@ -19004,7 +19004,31 @@ function domCompile(writer, opts = {}) {
       insertChars += parsed.plain.length;
       push([RequestBuilder.clearInlineStyles(writeAt, writeAt + parsed.plain.length, seg, tab)], op.mutationIndexes);
     }
-    const rangeEnd = writeAt + parsed.plain.length + 1;
+    const consumedLeadingTabs = allBullets && !peerJoin ? op.specs.reduce((sum, s) => sum + (s.bullet ? s.bullet.nestingLevel : 0), 0) : 0;
+    const specialCount = op.specs.reduce((n, s) => n + (s.specials?.length ?? 0), 0);
+    if (specialCount > 0) {
+      let specialOffset = 0;
+      const specialStarts = [];
+      for (let i = 0;i < op.specs.length; i++) {
+        const spec = op.specs[i];
+        const bodyLen = parsed.bodies[i]?.length ?? 0;
+        const plainLen = parsed.plains[i]?.length ?? 0;
+        const currentLen = consumedLeadingTabs > 0 ? bodyLen : plainLen;
+        specialStarts.push({ index: writeAt + specialOffset, specials: spec.specials });
+        specialOffset += currentLen + 1;
+      }
+      for (let i = specialStarts.length - 1;i >= 0; i--) {
+        const item = specialStarts[i];
+        push(RequestBuilder.insertInlineSpecials({
+          index: item.index,
+          segmentId: seg,
+          specials: item.specials,
+          tabId: tab
+        }), op.mutationIndexes);
+      }
+      insertChars += specialCount;
+    }
+    const rangeEnd = writeAt + parsed.plain.length + specialCount + 1;
     const style2 = op.specs[0]?.namedStyleType ?? "NORMAL_TEXT";
     push([RequestBuilder.namedStyle(writeAt, rangeEnd, style2, seg, tab)], op.mutationIndexes);
     {
@@ -19028,6 +19052,7 @@ function domCompile(writer, opts = {}) {
       const preset = op.specs[0]?.bullet?.preset ?? "BULLET_DISC_CIRCLE_SQUARE";
       push([RequestBuilder.deleteParagraphBullets(writeAt, rangeEnd, seg, tab)], op.mutationIndexes);
       push([RequestBuilder.createParagraphBullets(writeAt, rangeEnd, preset, seg, tab)], op.mutationIndexes);
+      segmentEnd -= consumedLeadingTabs;
     } else if (!allBullets) {
       push([RequestBuilder.deleteParagraphBullets(writeAt, rangeEnd, seg, tab)], op.mutationIndexes);
     }
@@ -19035,8 +19060,11 @@ function domCompile(writer, opts = {}) {
       let offset = 0;
       for (let i = 0;i < op.specs.length; i++) {
         const spec = op.specs[i];
+        const bodyLen = parsed.bodies[i]?.length ?? 0;
+        const plainLen = parsed.plains[i]?.length ?? 0;
+        const currentLen = consumedLeadingTabs > 0 ? bodyLen : plainLen;
         const start = writeAt + offset;
-        const end = start + parsed.plains[i]?.length + 1;
+        const end = start + currentLen + 1;
         const indentPatch = indentPatchFromSpec(spec);
         if (hasIndent(indentPatch)) {
           push(RequestBuilder.applyStyle({
@@ -19048,29 +19076,8 @@ function domCompile(writer, opts = {}) {
             tabId: tab
           }), op.mutationIndexes);
         }
-        offset += parsed.plains[i]?.length + 1;
+        offset += currentLen + 1;
       }
-    }
-    const specialCount = op.specs.reduce((n, s) => n + (s.specials?.length ?? 0), 0);
-    if (specialCount > 0) {
-      let specialOffset = 0;
-      const specialStarts = [];
-      for (let i = 0;i < op.specs.length; i++) {
-        const spec = op.specs[i];
-        const tabs = allBullets && !peerJoin && spec.bullet ? spec.bullet.nestingLevel : 0;
-        specialStarts.push({ index: writeAt + specialOffset + tabs, specials: spec.specials });
-        specialOffset += parsed.plains[i]?.length + 1;
-      }
-      for (let i = specialStarts.length - 1;i >= 0; i--) {
-        const item = specialStarts[i];
-        push(RequestBuilder.insertInlineSpecials({
-          index: item.index,
-          segmentId: seg,
-          specials: item.specials,
-          tabId: tab
-        }), op.mutationIndexes);
-      }
-      insertChars += specialCount;
     }
     const delta = 1 + parsed.bodies.join(`
 `).length + specialCount;
@@ -20950,6 +20957,400 @@ function tableToMarkdown(cells) {
   return lines.join(`
 `);
 }
+// src/core/dom/diff.ts
+function diffUnifiedFormat(oldText, newText, opts) {
+  if (oldText === newText)
+    return "";
+  const oldLines = oldText ? oldText.split(/\r?\n/) : [];
+  const newLines = newText ? newText.split(/\r?\n/) : [];
+  const context = opts.contextLines ?? 3;
+  const edits = computeLineEdits(oldLines, newLines);
+  const hunks = buildHunks(edits, context);
+  if (!hunks.length)
+    return "";
+  const header = [
+    `--- ${opts.oldPath}${opts.oldLabel ? `	${opts.oldLabel}` : ""}`,
+    `+++ ${opts.newPath}${opts.newLabel ? `	${opts.newLabel}` : ""}`
+  ];
+  const hunkStrs = hunks.map((hunk) => {
+    const hunkHeader = `@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@`;
+    const lines = hunk.lines.map((l3) => `${l3.type}${l3.text}`);
+    return [hunkHeader, ...lines].join(`
+`);
+  });
+  return [...header, ...hunkStrs].join(`
+`);
+}
+var formatUnifiedDiff = diffUnifiedFormat;
+function computeLineEdits(a, b2) {
+  const N2 = a.length;
+  const M2 = b2.length;
+  const dp = Array.from({ length: N2 + 1 }, () => Array(M2 + 1).fill(0));
+  for (let i2 = 0;i2 < N2; i2++) {
+    for (let j2 = 0;j2 < M2; j2++) {
+      if (a[i2] === b2[j2]) {
+        dp[i2 + 1][j2 + 1] = dp[i2]?.[j2] + 1;
+      } else {
+        dp[i2 + 1][j2 + 1] = Math.max(dp[i2 + 1]?.[j2], dp[i2]?.[j2 + 1]);
+      }
+    }
+  }
+  const edits = [];
+  let i = N2;
+  let j = M2;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && a[i - 1] === b2[j - 1]) {
+      edits.unshift({ text: a[i - 1], type: "=" });
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || dp[i]?.[j - 1] >= dp[i - 1]?.[j])) {
+      edits.unshift({ text: b2[j - 1], type: "+" });
+      j--;
+    } else if (i > 0 && (j === 0 || dp[i]?.[j - 1] < dp[i - 1]?.[j])) {
+      edits.unshift({ text: a[i - 1], type: "-" });
+      i--;
+    }
+  }
+  return edits;
+}
+function buildHunks(edits, context) {
+  const hunks = [];
+  let currentHunk = null;
+  let oldLineNum = 1;
+  let newLineNum = 1;
+  let pendingEquals = [];
+  for (let e = 0;e < edits.length; e++) {
+    const edit = edits[e];
+    if (edit.type === "=") {
+      if (!currentHunk) {
+        pendingEquals.push({ text: edit.text, type: " " });
+        if (pendingEquals.length > context) {
+          pendingEquals.shift();
+        }
+      } else {
+        let nextChangeDist = -1;
+        for (let k = e;k < edits.length; k++) {
+          if (edits[k]?.type !== "=") {
+            nextChangeDist = k - e;
+            break;
+          }
+        }
+        if (nextChangeDist !== -1 && nextChangeDist <= 2 * context) {
+          currentHunk.lines.push({ text: edit.text, type: " " });
+          currentHunk.oldCount++;
+          currentHunk.newCount++;
+        } else {
+          currentHunk.lines.push({ text: edit.text, type: " " });
+          currentHunk.oldCount++;
+          currentHunk.newCount++;
+          if (currentHunk.lines.filter((l3) => l3.type === " ").length >= context) {
+            hunks.push(currentHunk);
+            currentHunk = null;
+            pendingEquals = [{ text: edit.text, type: " " }];
+          }
+        }
+      }
+      oldLineNum++;
+      newLineNum++;
+    } else {
+      if (!currentHunk) {
+        const leadingContext = pendingEquals.slice(-context);
+        const oldStart = oldLineNum - leadingContext.length;
+        const newStart = newLineNum - leadingContext.length;
+        currentHunk = {
+          lines: [...leadingContext],
+          newCount: leadingContext.length,
+          newStart: Math.max(1, newStart),
+          oldCount: leadingContext.length,
+          oldStart: Math.max(1, oldStart)
+        };
+        pendingEquals = [];
+      }
+      if (edit.type === "-") {
+        currentHunk.lines.push({ text: edit.text, type: "-" });
+        currentHunk.oldCount++;
+        oldLineNum++;
+      } else if (edit.type === "+") {
+        currentHunk.lines.push({ text: edit.text, type: "+" });
+        currentHunk.newCount++;
+        newLineNum++;
+      }
+    }
+  }
+  if (currentHunk) {
+    hunks.push(currentHunk);
+  }
+  return hunks;
+}
+// src/core/revisions.ts
+class DriveRevisions {
+  static async pinHead(fileId, client = gws) {
+    let head = null;
+    try {
+      const out = await client.run([
+        "drive",
+        "revisions",
+        "list",
+        "--params",
+        JSON.stringify({
+          fields: "revisions(id,modifiedTime,keepForever)",
+          fileId,
+          pageSize: 1000
+        })
+      ]);
+      head = DriveRevisions.#newest(DriveRevisions.#parseList(out));
+    } catch {
+      return null;
+    }
+    if (!head)
+      return null;
+    try {
+      await client.run([
+        "drive",
+        "revisions",
+        "update",
+        "--params",
+        JSON.stringify({ fileId, revisionId: head.id }),
+        "--json",
+        JSON.stringify({ keepForever: true })
+      ]);
+      return { ...head, keepForever: true };
+    } catch {
+      return head;
+    }
+  }
+  static restoreHint(fileId, revisionId) {
+    const url = `https://docs.google.com/document/d/${fileId}/revisions/revisions`;
+    const pin = revisionId ? `Pinned Drive revision ${revisionId} before apply. ` : "";
+    return `${pin}Docs API cannot roll back in-place. ` + `Restore: File → Version history (${url}).`;
+  }
+  static #parseList(out) {
+    const json = DriveRevisions.#parseJson(out);
+    if (Array.isArray(json))
+      return json;
+    if (json && typeof json === "object" && "revisions" in json) {
+      const revs = json.revisions;
+      return Array.isArray(revs) ? revs : [];
+    }
+    return [];
+  }
+  static #parseJson(out) {
+    const text = out.trim();
+    const startObj = text.indexOf("{");
+    const startArr = text.indexOf("[");
+    let start = -1;
+    if (startObj >= 0 && (startArr < 0 || startObj < startArr))
+      start = startObj;
+    else if (startArr >= 0)
+      start = startArr;
+    if (start < 0)
+      return null;
+    try {
+      return JSON.parse(text.slice(start));
+    } catch {
+      return null;
+    }
+  }
+  static #newest(revs) {
+    const withId = revs.filter((r) => Boolean(r.id));
+    if (!withId.length)
+      return null;
+    const dated = withId.filter((r) => r.modifiedTime);
+    const pool = dated.length ? dated : withId;
+    pool.sort((a, b2) => Date.parse(a.modifiedTime ?? "") - Date.parse(b2.modifiedTime ?? ""));
+    const head = pool.at(-1);
+    return {
+      id: head.id,
+      keepForever: head.keepForever,
+      modifiedTime: head.modifiedTime
+    };
+  }
+}
+
+// src/core/markdown.ts
+async function elementsInsertExecute(params) {
+  const client = params.client ?? gws;
+  const elements = params.elements;
+  const effectiveStyles = params.customStyles ?? {};
+  if (!elements.length) {
+    return {
+      appliedChunks: 0,
+      elementsInserted: 0,
+      message: "No elements found to insert."
+    };
+  }
+  const chunks = chunkMarkdownElements(elements);
+  let freshDoc = await Gdoc.load(params.documentId, client, { forceFetch: true });
+  const tabResolution = freshDoc.data.tabs?.length ? resolveTab(freshDoc.data, params.tabHint) : {};
+  const tabId = tabResolution.tabId;
+  let gdoc = tabId ? freshDoc.withTab(tabId) : freshDoc;
+  let parsedDoc = parseDocument(gdoc);
+  let currentAnchorId;
+  let replaceAnchor = false;
+  if (params.anchorId != null) {
+    const hit = findNodeAt(parsedDoc.nodes, params.anchorId);
+    if (!hit) {
+      throw new Error(missingNodeIdMsg(params.anchorId, parsedDoc.nodes.length));
+    }
+    currentAnchorId = hit.tapeIndex;
+  } else {
+    const contentNodes = parsedDoc.nodes.filter((n) => n.kind !== "sectionBreak");
+    if (contentNodes.length === 1 && contentNodes[0]?.kind === "paragraph" && !contentNodes[0]?.text) {
+      currentAnchorId = contentNodes[0]?.tapeIndex;
+      replaceAnchor = true;
+    } else {
+      const target = contentNodes[contentNodes.length - 1] ?? parsedDoc.nodes[parsedDoc.nodes.length - 1];
+      if (!target) {
+        throw new Error("Document has no nodes to insert content into.");
+      }
+      currentAnchorId = target.tapeIndex;
+    }
+  }
+  const effectivePosition = params.position ?? "afterend";
+  const originalAnchorId = currentAnchorId;
+  const originalReplaceAnchor = replaceAnchor;
+  return await InlineMarkup.withStyles(effectiveStyles, async () => {
+    await DriveRevisions.pinHead(params.documentId, params.client ?? gws);
+    let chunksApplied = 0;
+    let chunkPosition = effectivePosition;
+    for (let cIdx = 0;cIdx < chunks.length; cIdx++) {
+      const chunk = chunks[cIdx];
+      const writer = new DomWriter(parsedDoc.nodes, {
+        force: params.force,
+        lists: gdoc.data.lists,
+        tabId
+      });
+      const isReplacing = cIdx === 0 && replaceAnchor;
+      const ops = buildChunkOps(currentAnchorId, chunkPosition, chunk, isReplacing);
+      const anchorIdx = parsedDoc.nodes.findIndex((n) => n.tapeIndex === currentAnchorId);
+      const effectiveAnchorIdx = anchorIdx >= 0 ? anchorIdx : parsedDoc.nodes.length - 1;
+      const tailCount = isReplacing || chunkPosition === "afterend" ? parsedDoc.nodes.length - (effectiveAnchorIdx + 1) : parsedDoc.nodes.length - effectiveAnchorIdx;
+      const plan = applyOps(writer, ops);
+      await applyDom(params.documentId, writer, {
+        client,
+        doc: gdoc.data,
+        force: params.force,
+        plan
+      });
+      chunksApplied++;
+      if (cIdx < chunks.length - 1) {
+        freshDoc = await Gdoc.load(params.documentId, client, { forceFetch: true });
+        gdoc = tabId ? freshDoc.withTab(tabId) : freshDoc;
+        parsedDoc = parseDocument(gdoc);
+        const newAnchorIdx = Math.max(0, parsedDoc.nodes.length - tailCount - 1);
+        const lastInsertedNode = parsedDoc.nodes[newAnchorIdx];
+        currentAnchorId = lastInsertedNode ? lastInsertedNode.tapeIndex : parsedDoc.nodes[parsedDoc.nodes.length - 1]?.tapeIndex ?? 0;
+        chunkPosition = "afterend";
+      }
+    }
+    const startId = originalReplaceAnchor || effectivePosition === "beforebegin" ? originalAnchorId : originalAnchorId + 1;
+    const endId = startId + elements.length - 1;
+    docCache.invalidate(params.documentId);
+    return {
+      appliedChunks: chunksApplied,
+      elementsInserted: elements.length,
+      insertedRange: {
+        count: elements.length,
+        endId,
+        startId
+      },
+      message: `Inserted ${elements.length} element(s) into document (${chunksApplied} batch(es)).`,
+      tabId
+    };
+  });
+}
+var executeElementsInsert = elementsInsertExecute;
+async function markdownInsertExecute(params) {
+  const elements = parseMarkdownToElements(params.markdown, {
+    customStyles: params.customStyles,
+    h1IsTitle: params.h1IsTitle,
+    linkResolver: params.linkResolver
+  });
+  return executeElementsInsert({
+    anchorId: params.anchorId,
+    client: params.client,
+    customStyles: params.customStyles,
+    documentId: params.documentId,
+    elements,
+    force: params.force,
+    position: params.position,
+    tabHint: params.tabHint
+  });
+}
+function chunkOpsBuild(anchorId, position, chunk, replaceAnchor) {
+  const ops = [];
+  if (chunk.kind === "table") {
+    ops.push({
+      at: anchorId,
+      insertAdjacentElement: {
+        element: chunk.spec,
+        position: replaceAnchor ? "afterend" : position
+      }
+    });
+    if (replaceAnchor) {
+      ops.push({
+        at: anchorId,
+        remove: true
+      });
+    }
+    return ops;
+  }
+  const specs = chunk.specs;
+  if (!specs.length)
+    return ops;
+  const first = specs[0];
+  if (replaceAnchor && first && first.kind === "paragraph" && (!first.bullet || (first.bullet.nestingLevel ?? 0) === 0)) {
+    const op = {
+      at: anchorId,
+      innerText: first.text
+    };
+    if (first.namedStyleType && first.namedStyleType !== "NORMAL_TEXT") {
+      op.namedStyleType = first.namedStyleType;
+    }
+    if (first.style) {
+      op.style = first.style;
+    }
+    if (first.bullet) {
+      op.bullet = first.bullet;
+    }
+    if (first.runs?.length) {
+      op.runs = first.runs;
+    }
+    ops.push(op);
+    const remaining = specs.slice(1);
+    if (remaining.length > 0) {
+      ops.push({
+        at: anchorId,
+        insertAdjacentElement: {
+          elements: remaining,
+          position: "afterend"
+        }
+      });
+    }
+  } else if (replaceAnchor) {
+    ops.push({
+      at: anchorId,
+      insertAdjacentElement: {
+        elements: specs,
+        position: "afterend"
+      }
+    });
+    ops.push({
+      at: anchorId,
+      remove: true
+    });
+  } else {
+    ops.push({
+      at: anchorId,
+      insertAdjacentElement: {
+        elements: specs,
+        position
+      }
+    });
+  }
+  return ops;
+}
+var buildChunkOps = chunkOpsBuild;
 
 // src/core/actions/simulated.ts
 function simulatedNodesOf(gdoc, tabId) {
@@ -20968,6 +21369,67 @@ function simulatedNodesSet(gdoc, nodes, tabId) {
   }
 }
 
+// src/core/actions/tabLossyScan.ts
+function detectLossyTabElements(nodes) {
+  const counts = {
+    chipTitles: [],
+    equations: 0,
+    footnotes: 0,
+    horizontalRules: 0,
+    images: 0,
+    toc: 0
+  };
+  const details = [];
+  for (const node of nodes) {
+    const msgs = unclonableFromNode(node);
+    details.push(...msgs);
+    for (const msg of msgs) {
+      const chip = msg.match(/(?:person chip|date chip|rich link chip|unsupported smart chip) "([^"]*)"/);
+      if (chip)
+        counts.chipTitles.push(chip[1] || "chip");
+      else if (msg.includes("inline image"))
+        counts.images++;
+      else if (msg.includes("math equation"))
+        counts.equations++;
+      else if (msg.includes("footnote"))
+        counts.footnotes++;
+      else if (msg.includes("Table of Contents"))
+        counts.toc++;
+      else if (msg.includes("horizontal rule"))
+        counts.horizontalRules++;
+    }
+  }
+  return { details, summary: lossyTabScanSummary(counts, details.length) };
+}
+function lossyTabCopyError(stepIndex, sourceTitle, scan, stepKind = "tabCreate") {
+  const issueList = scan.details.map((msg) => `  • ${msg}`).join(`
+`);
+  return `steps[${stepIndex}] ${stepKind}: cannot copy tab "${sourceTitle}" losslessly (${scan.summary}). Use the Google Docs UI (right-click the tab > Duplicate) or pass force: true for lossy conversion.
+` + `${issueList}
+
+` + `Google Docs REST API has no native tab duplication endpoint. Person, date, and rich-link chips and public https images are reconstructed; Drive-only images, footnotes, equations, unsupported chips, TOC, and horizontal rules cannot.`;
+}
+function lossyTabScanSummary(counts, detailCount) {
+  const parts = [];
+  if (counts.chipTitles.length > 0) {
+    const titles = counts.chipTitles.map((t) => `"${t}"`).join(", ");
+    parts.push(`${counts.chipTitles.length} smart chip(s): ${titles}`);
+  }
+  if (counts.images > 0)
+    parts.push(`${counts.images} inline image(s)`);
+  if (counts.equations > 0)
+    parts.push(`${counts.equations} math equation(s)`);
+  if (counts.footnotes > 0)
+    parts.push(`${counts.footnotes} footnote(s)`);
+  if (counts.horizontalRules > 0)
+    parts.push(`${counts.horizontalRules} horizontal rule(s)`);
+  if (counts.toc > 0)
+    parts.push(`${counts.toc} table of contents`);
+  if (parts.length === 0 && detailCount > 0)
+    parts.push(`${detailCount} uncreatable element(s)`);
+  return parts.join("; ");
+}
+
 // src/core/actions/docCreate.ts
 var docCreateStep = async (runtime, stepIndex, step) => {
   const as = step.as;
@@ -20977,6 +21439,28 @@ var docCreateStep = async (runtime, stepIndex, step) => {
   if (!title)
     throw new Error(`steps[${stepIndex}] docCreate requires title: <string>`);
   const fromDocRaw = step.fromDoc;
+  const fromTabRaw = step.fromTab;
+  if (fromTabRaw && !fromDocRaw) {
+    throw new Error(`steps[${stepIndex}] docCreate: "fromTab" requires "fromDoc" to be specified.`);
+  }
+  const mode = step.mode ?? step.pageSetup?.mode ?? (step.pageless !== undefined ? step.pageless ? "PAGELESS" : "PAGES" : step.pageSetup?.pageless !== undefined ? step.pageSetup.pageless ? "PAGELESS" : "PAGES" : undefined);
+  const effectivePageSetup = step.pageSetup || mode ? {
+    ...step.pageSetup ?? {},
+    ...mode ? { mode, pageless: mode === "PAGELESS" } : {}
+  } : undefined;
+  if (fromDocRaw && fromTabRaw) {
+    await docCreateFromTab({
+      as,
+      effectivePageSetup,
+      fromDocRaw,
+      fromTabRaw,
+      runtime,
+      step,
+      stepIndex,
+      title
+    });
+    return;
+  }
   if (fromDocRaw) {
     const fromDoc = runtime.aliasResolve(fromDocRaw);
     if (!fromDoc)
@@ -21043,22 +21527,25 @@ var docCreateStep = async (runtime, stepIndex, step) => {
     runtime.stepsExecuted++;
     return;
   }
-  const mode = step.mode ?? step.pageSetup?.mode ?? (step.pageless !== undefined ? step.pageless ? "PAGELESS" : "PAGES" : step.pageSetup?.pageless !== undefined ? step.pageSetup.pageless ? "PAGELESS" : "PAGES" : undefined);
-  const effectivePageSetup = step.pageSetup || mode ? {
-    ...step.pageSetup ?? {},
-    ...mode ? { mode, pageless: mode === "PAGELESS" } : {}
-  } : undefined;
+  const initialTabTitle = step.tabTitle?.trim();
   let newDocId = `virtual:${as}`;
   let gdoc;
   if (!runtime.dryRun) {
     const createDoc = runtime.client.createDocument?.bind(runtime.client) ?? gws.createDocument.bind(gws);
     const res = await createDoc(title);
     newDocId = res.documentId;
+    const initialBatchReqs = [];
     if (effectivePageSetup) {
       const styleReq = buildDocumentStyleRequest(effectivePageSetup);
       if ("updateDocumentStyle" in styleReq) {
-        await runtime.client.batchUpdate(newDocId, [styleReq]);
+        initialBatchReqs.push(styleReq);
       }
+    }
+    if (initialTabTitle && initialTabTitle !== "Tab 1" && initialTabTitle !== "Main") {
+      initialBatchReqs.push(RequestBuilder.renameTab("t.0", initialTabTitle));
+    }
+    if (initialBatchReqs.length > 0) {
+      await runtime.client.batchUpdate(newDocId, initialBatchReqs);
     }
     gdoc = await Gdoc.load(newDocId, runtime.client, { forceFetch: true });
   } else {
@@ -21074,6 +21561,7 @@ var docCreateStep = async (runtime, stepIndex, step) => {
       ]
     };
     const initialDocumentStyle = effectivePageSetup?.mode ? { documentFormat: { documentMode: effectivePageSetup.mode } } : undefined;
+    const virtualTabTitle = initialTabTitle || "Main";
     gdoc = new Gdoc({
       body: initialBody,
       documentId: newDocId,
@@ -21084,7 +21572,7 @@ var docCreateStep = async (runtime, stepIndex, step) => {
             body: initialBody,
             documentStyle: initialDocumentStyle
           },
-          tabProperties: { tabId: "t.0", title: "Main" }
+          tabProperties: { tabId: "t.0", title: virtualTabTitle }
         }
       ],
       title
@@ -21098,7 +21586,7 @@ var docCreateStep = async (runtime, stepIndex, step) => {
     title
   };
   const tabs = flattenTabs(gdoc.data.tabs);
-  const tabsToCheck = tabs.length > 0 ? tabs : [{ tabId: "t.0", title: "Main" }];
+  const tabsToCheck = tabs.length > 0 ? tabs : [{ tabId: "t.0", title: initialTabTitle || "Main" }];
   const pageSetup = pageSetupExtract(gdoc.data.documentStyle ?? gdoc.data.tabs?.[0]?.documentTab?.documentStyle);
   const dumpPayload = {
     alias: as,
@@ -21116,11 +21604,176 @@ var docCreateStep = async (runtime, stepIndex, step) => {
     runtime.dumped[as] = dumpPayload;
   }
   runtime.activeDocAlias = as;
+  if (step.tabAs) {
+    runtime.aliasMap.set(step.tabAs, "t.0");
+    const tabDumpPayload = {
+      alias: step.tabAs,
+      id: "t.0",
+      kind: "tab",
+      title: tabsToCheck[0]?.title || initialTabTitle || "Main"
+    };
+    runtime.dumpStore.set(step.tabAs, tabDumpPayload);
+    if (step.dump) {
+      runtime.dumped[step.tabAs] = tabDumpPayload;
+    }
+  }
+  let highlight = runtime.createdHighlights.get(as);
+  if (!highlight) {
+    highlight = {
+      as,
+      id: newDocId,
+      tabs: [],
+      title
+    };
+    runtime.createdHighlights.set(as, highlight);
+  }
+  if (!highlight.tabs)
+    highlight.tabs = [];
+  highlight.tabs.push({ id: "t.0", title: tabsToCheck[0]?.title || initialTabTitle || "Main" });
   if (runtime.dryRun) {
     runtime.initialMarkdownStates.set(`${as}/t.0`, "");
   }
   runtime.stepsExecuted++;
 };
+async function docCreateFromTab(opts) {
+  const fromDoc = opts.runtime.aliasResolve(opts.fromDocRaw);
+  if (!fromDoc)
+    throw new Error(`steps[${opts.stepIndex}] docCreate could not resolve fromDoc: "${opts.fromDocRaw}"`);
+  const sourceContext = opts.runtime.openDocs.get(fromDoc) ?? Array.from(opts.runtime.openDocs.values()).find((d2) => d2.docId === fromDoc);
+  let sourceGdoc;
+  if (sourceContext) {
+    sourceGdoc = sourceContext.gdoc;
+  } else {
+    sourceGdoc = opts.runtime.preloadedDocs?.get(fromDoc) ?? await Gdoc.load(fromDoc, opts.runtime.client);
+  }
+  const fromTabHint = opts.runtime.aliasResolve(opts.fromTabRaw);
+  const resolvedSourceTab = sourceGdoc.data.tabs?.length ? resolveTab(sourceGdoc.data, fromTabHint) : { tabId: "t.0", title: sourceGdoc.data.title };
+  const sourceTabId = resolvedSourceTab.tabId;
+  if (!sourceTabId) {
+    throw new Error(`steps[${opts.stepIndex}] docCreate could not resolve source tab "${fromTabHint}" in "${opts.fromDocRaw}"`);
+  }
+  const force = opts.runtime.force || Boolean(opts.step.force);
+  const sourceSimulated = simulatedNodesOf(sourceGdoc, sourceTabId);
+  const parsedSource = sourceSimulated ? { nodes: sourceSimulated } : parseDocument(sourceGdoc.withTab(sourceTabId));
+  const lossyScan = detectLossyTabElements(parsedSource.nodes);
+  if (lossyScan.details.length > 0 && !force) {
+    throw new Error(lossyTabCopyError(opts.stepIndex, resolvedSourceTab.title || fromTabHint || "Tab", lossyScan, "docCreate"));
+  }
+  const copyWarnings = [...lossyScan.details];
+  const initialTabTitle = opts.step.tabTitle?.trim() || resolvedSourceTab.title || "Main";
+  let newDocId = `virtual:${opts.as}`;
+  let gdoc;
+  if (opts.runtime.dryRun) {
+    const sourceDocTab = sourceGdoc.data.tabs?.length ? findTab(sourceGdoc.data.tabs, sourceTabId) : null;
+    const sourceBody = sourceDocTab?.documentTab?.body ?? sourceGdoc.data.body;
+    const initialDocumentStyle = opts.effectivePageSetup?.mode ? { documentFormat: { documentMode: opts.effectivePageSetup.mode } } : undefined;
+    gdoc = new Gdoc({
+      body: structuredClone(sourceBody),
+      documentId: newDocId,
+      documentStyle: initialDocumentStyle,
+      tabs: [
+        {
+          documentTab: {
+            body: structuredClone(sourceBody),
+            documentStyle: initialDocumentStyle
+          },
+          tabProperties: { tabId: "t.0", title: initialTabTitle }
+        }
+      ],
+      title: opts.title
+    }, newDocId);
+    simulatedNodesSet(gdoc, structuredClone(sourceSimulated ?? parsedSource.nodes), "t.0");
+    opts.runtime.initialMarkdownStates.set(`${opts.as}/t.0`, "");
+  } else {
+    const createDoc = opts.runtime.client.createDocument?.bind(opts.runtime.client) ?? gws.createDocument.bind(gws);
+    const res = await createDoc(opts.title);
+    newDocId = res.documentId;
+    if (opts.effectivePageSetup) {
+      const styleReq = buildDocumentStyleRequest(opts.effectivePageSetup);
+      if ("updateDocumentStyle" in styleReq) {
+        await opts.runtime.client.batchUpdate(newDocId, [styleReq]);
+      }
+    }
+    if (initialTabTitle && initialTabTitle !== "Main") {
+      const renameReq = RequestBuilder.renameTab("t.0", initialTabTitle);
+      await opts.runtime.client.batchUpdate(newDocId, [renameReq]);
+    }
+    const specs = parsedSource.nodes.filter((n) => n.kind !== "sectionBreak").map((n) => {
+      const spec = elementSpecFromNode(n);
+      if ("warnings" in spec && Array.isArray(spec.warnings)) {
+        copyWarnings.push(...spec.warnings);
+      }
+      return spec;
+    });
+    if (specs.length > 0) {
+      await elementsInsertExecute({
+        client: opts.runtime.client,
+        documentId: newDocId,
+        elements: specs,
+        force,
+        tabHint: "t.0"
+      });
+    }
+    docCache.invalidate(newDocId);
+    gdoc = await Gdoc.load(newDocId, opts.runtime.client, { forceFetch: true });
+  }
+  const openContext = {
+    alias: opts.as,
+    docId: newDocId,
+    gdoc,
+    isVirtual: opts.runtime.dryRun,
+    title: opts.title
+  };
+  const pageSetup = pageSetupExtract(gdoc.data.documentStyle ?? gdoc.data.tabs?.[0]?.documentTab?.documentStyle);
+  const dumpPayload = {
+    alias: opts.as,
+    id: newDocId,
+    kind: "doc",
+    ...pageSetup ? { pageSetup } : {},
+    tabs: [{ id: "t.0", kind: "tab", title: initialTabTitle }],
+    title: opts.title
+  };
+  opts.runtime.openDocs.set(opts.as, openContext);
+  opts.runtime.docIdToAlias.set(newDocId, opts.as);
+  opts.runtime.aliasMap.set(opts.as, newDocId);
+  opts.runtime.dumpStore.set(opts.as, dumpPayload);
+  if (opts.step.dump) {
+    opts.runtime.dumped[opts.as] = dumpPayload;
+  }
+  opts.runtime.activeDocAlias = opts.as;
+  if (opts.step.tabAs) {
+    opts.runtime.aliasMap.set(opts.step.tabAs, "t.0");
+    const tabDumpPayload = {
+      alias: opts.step.tabAs,
+      id: "t.0",
+      kind: "tab",
+      title: initialTabTitle,
+      ...copyWarnings.length > 0 ? { warnings: Array.from(new Set(copyWarnings)) } : {}
+    };
+    opts.runtime.dumpStore.set(opts.step.tabAs, tabDumpPayload);
+    if (opts.step.dump) {
+      opts.runtime.dumped[opts.step.tabAs] = tabDumpPayload;
+    }
+  }
+  let highlight = opts.runtime.createdHighlights.get(opts.as);
+  if (!highlight) {
+    highlight = {
+      as: opts.as,
+      id: newDocId,
+      tabs: [],
+      title: opts.title
+    };
+    opts.runtime.createdHighlights.set(opts.as, highlight);
+  }
+  if (!highlight.tabs)
+    highlight.tabs = [];
+  highlight.tabs.push({
+    as: opts.step.tabAs,
+    id: "t.0",
+    title: initialTabTitle
+  });
+  opts.runtime.stepsExecuted++;
+}
 
 // src/core/actions/docDelete.ts
 var docDeleteStep = async (runtime, _stepIndex, step) => {
@@ -21422,131 +22075,7 @@ function insertAdjacentResolve(adj, aliasResolve) {
   }
   return out;
 }
-// src/core/dom/diff.ts
-function diffUnifiedFormat(oldText, newText, opts) {
-  if (oldText === newText)
-    return "";
-  const oldLines = oldText ? oldText.split(/\r?\n/) : [];
-  const newLines = newText ? newText.split(/\r?\n/) : [];
-  const context = opts.contextLines ?? 3;
-  const edits = computeLineEdits(oldLines, newLines);
-  const hunks = buildHunks(edits, context);
-  if (!hunks.length)
-    return "";
-  const header = [
-    `--- ${opts.oldPath}${opts.oldLabel ? `	${opts.oldLabel}` : ""}`,
-    `+++ ${opts.newPath}${opts.newLabel ? `	${opts.newLabel}` : ""}`
-  ];
-  const hunkStrs = hunks.map((hunk) => {
-    const hunkHeader = `@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@`;
-    const lines = hunk.lines.map((l3) => `${l3.type}${l3.text}`);
-    return [hunkHeader, ...lines].join(`
-`);
-  });
-  return [...header, ...hunkStrs].join(`
-`);
-}
-var formatUnifiedDiff = diffUnifiedFormat;
-function computeLineEdits(a, b2) {
-  const N2 = a.length;
-  const M2 = b2.length;
-  const dp = Array.from({ length: N2 + 1 }, () => Array(M2 + 1).fill(0));
-  for (let i2 = 0;i2 < N2; i2++) {
-    for (let j2 = 0;j2 < M2; j2++) {
-      if (a[i2] === b2[j2]) {
-        dp[i2 + 1][j2 + 1] = dp[i2]?.[j2] + 1;
-      } else {
-        dp[i2 + 1][j2 + 1] = Math.max(dp[i2 + 1]?.[j2], dp[i2]?.[j2 + 1]);
-      }
-    }
-  }
-  const edits = [];
-  let i = N2;
-  let j = M2;
-  while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && a[i - 1] === b2[j - 1]) {
-      edits.unshift({ text: a[i - 1], type: "=" });
-      i--;
-      j--;
-    } else if (j > 0 && (i === 0 || dp[i]?.[j - 1] >= dp[i - 1]?.[j])) {
-      edits.unshift({ text: b2[j - 1], type: "+" });
-      j--;
-    } else if (i > 0 && (j === 0 || dp[i]?.[j - 1] < dp[i - 1]?.[j])) {
-      edits.unshift({ text: a[i - 1], type: "-" });
-      i--;
-    }
-  }
-  return edits;
-}
-function buildHunks(edits, context) {
-  const hunks = [];
-  let currentHunk = null;
-  let oldLineNum = 1;
-  let newLineNum = 1;
-  let pendingEquals = [];
-  for (let e = 0;e < edits.length; e++) {
-    const edit = edits[e];
-    if (edit.type === "=") {
-      if (!currentHunk) {
-        pendingEquals.push({ text: edit.text, type: " " });
-        if (pendingEquals.length > context) {
-          pendingEquals.shift();
-        }
-      } else {
-        let nextChangeDist = -1;
-        for (let k = e;k < edits.length; k++) {
-          if (edits[k]?.type !== "=") {
-            nextChangeDist = k - e;
-            break;
-          }
-        }
-        if (nextChangeDist !== -1 && nextChangeDist <= 2 * context) {
-          currentHunk.lines.push({ text: edit.text, type: " " });
-          currentHunk.oldCount++;
-          currentHunk.newCount++;
-        } else {
-          currentHunk.lines.push({ text: edit.text, type: " " });
-          currentHunk.oldCount++;
-          currentHunk.newCount++;
-          if (currentHunk.lines.filter((l3) => l3.type === " ").length >= context) {
-            hunks.push(currentHunk);
-            currentHunk = null;
-            pendingEquals = [{ text: edit.text, type: " " }];
-          }
-        }
-      }
-      oldLineNum++;
-      newLineNum++;
-    } else {
-      if (!currentHunk) {
-        const leadingContext = pendingEquals.slice(-context);
-        const oldStart = oldLineNum - leadingContext.length;
-        const newStart = newLineNum - leadingContext.length;
-        currentHunk = {
-          lines: [...leadingContext],
-          newCount: leadingContext.length,
-          newStart: Math.max(1, newStart),
-          oldCount: leadingContext.length,
-          oldStart: Math.max(1, oldStart)
-        };
-        pendingEquals = [];
-      }
-      if (edit.type === "-") {
-        currentHunk.lines.push({ text: edit.text, type: "-" });
-        currentHunk.oldCount++;
-        oldLineNum++;
-      } else if (edit.type === "+") {
-        currentHunk.lines.push({ text: edit.text, type: "+" });
-        currentHunk.newCount++;
-        newLineNum++;
-      }
-    }
-  }
-  if (currentHunk) {
-    hunks.push(currentHunk);
-  }
-  return hunks;
-}
+
 // src/core/actions/surgicalMutation.ts
 async function surgicalMutationExecute(runtime, step, mutation) {
   const targetDoc = runtime.openDocResolve(step.doc);
@@ -21694,285 +22223,6 @@ var innerTextStep = async (runtime, _stepIndex, step) => {
 
 // src/core/actions/markdownInsert.ts
 import { readFileSync as readFileSync7 } from "node:fs";
-
-// src/core/revisions.ts
-class DriveRevisions {
-  static async pinHead(fileId, client = gws) {
-    let head = null;
-    try {
-      const out = await client.run([
-        "drive",
-        "revisions",
-        "list",
-        "--params",
-        JSON.stringify({
-          fields: "revisions(id,modifiedTime,keepForever)",
-          fileId,
-          pageSize: 1000
-        })
-      ]);
-      head = DriveRevisions.#newest(DriveRevisions.#parseList(out));
-    } catch {
-      return null;
-    }
-    if (!head)
-      return null;
-    try {
-      await client.run([
-        "drive",
-        "revisions",
-        "update",
-        "--params",
-        JSON.stringify({ fileId, revisionId: head.id }),
-        "--json",
-        JSON.stringify({ keepForever: true })
-      ]);
-      return { ...head, keepForever: true };
-    } catch {
-      return head;
-    }
-  }
-  static restoreHint(fileId, revisionId) {
-    const url = `https://docs.google.com/document/d/${fileId}/revisions/revisions`;
-    const pin = revisionId ? `Pinned Drive revision ${revisionId} before apply. ` : "";
-    return `${pin}Docs API cannot roll back in-place. ` + `Restore: File → Version history (${url}).`;
-  }
-  static #parseList(out) {
-    const json = DriveRevisions.#parseJson(out);
-    if (Array.isArray(json))
-      return json;
-    if (json && typeof json === "object" && "revisions" in json) {
-      const revs = json.revisions;
-      return Array.isArray(revs) ? revs : [];
-    }
-    return [];
-  }
-  static #parseJson(out) {
-    const text = out.trim();
-    const startObj = text.indexOf("{");
-    const startArr = text.indexOf("[");
-    let start = -1;
-    if (startObj >= 0 && (startArr < 0 || startObj < startArr))
-      start = startObj;
-    else if (startArr >= 0)
-      start = startArr;
-    if (start < 0)
-      return null;
-    try {
-      return JSON.parse(text.slice(start));
-    } catch {
-      return null;
-    }
-  }
-  static #newest(revs) {
-    const withId = revs.filter((r) => Boolean(r.id));
-    if (!withId.length)
-      return null;
-    const dated = withId.filter((r) => r.modifiedTime);
-    const pool = dated.length ? dated : withId;
-    pool.sort((a, b2) => Date.parse(a.modifiedTime ?? "") - Date.parse(b2.modifiedTime ?? ""));
-    const head = pool.at(-1);
-    return {
-      id: head.id,
-      keepForever: head.keepForever,
-      modifiedTime: head.modifiedTime
-    };
-  }
-}
-
-// src/core/markdown.ts
-async function elementsInsertExecute(params) {
-  const client = params.client ?? gws;
-  const elements = params.elements;
-  const effectiveStyles = params.customStyles ?? {};
-  if (!elements.length) {
-    return {
-      appliedChunks: 0,
-      elementsInserted: 0,
-      message: "No elements found to insert."
-    };
-  }
-  const chunks = chunkMarkdownElements(elements);
-  let freshDoc = await Gdoc.load(params.documentId, client, { forceFetch: true });
-  const tabResolution = freshDoc.data.tabs?.length ? resolveTab(freshDoc.data, params.tabHint) : {};
-  const tabId = tabResolution.tabId;
-  let gdoc = tabId ? freshDoc.withTab(tabId) : freshDoc;
-  let parsedDoc = parseDocument(gdoc);
-  let currentAnchorId;
-  let replaceAnchor = false;
-  if (params.anchorId != null) {
-    const hit = findNodeAt(parsedDoc.nodes, params.anchorId);
-    if (!hit) {
-      throw new Error(missingNodeIdMsg(params.anchorId, parsedDoc.nodes.length));
-    }
-    currentAnchorId = hit.tapeIndex;
-  } else {
-    const contentNodes = parsedDoc.nodes.filter((n) => n.kind !== "sectionBreak");
-    if (contentNodes.length === 1 && contentNodes[0]?.kind === "paragraph" && !contentNodes[0]?.text) {
-      currentAnchorId = contentNodes[0]?.tapeIndex;
-      replaceAnchor = true;
-    } else {
-      const target = contentNodes[contentNodes.length - 1] ?? parsedDoc.nodes[parsedDoc.nodes.length - 1];
-      if (!target) {
-        throw new Error("Document has no nodes to insert content into.");
-      }
-      currentAnchorId = target.tapeIndex;
-    }
-  }
-  const effectivePosition = params.position ?? "afterend";
-  const originalAnchorId = currentAnchorId;
-  const originalReplaceAnchor = replaceAnchor;
-  return await InlineMarkup.withStyles(effectiveStyles, async () => {
-    await DriveRevisions.pinHead(params.documentId, params.client ?? gws);
-    let chunksApplied = 0;
-    for (let cIdx = 0;cIdx < chunks.length; cIdx++) {
-      const chunk = chunks[cIdx];
-      const writer = new DomWriter(parsedDoc.nodes, {
-        force: params.force,
-        lists: gdoc.data.lists,
-        tabId
-      });
-      const isReplacing = cIdx === 0 && replaceAnchor;
-      const ops = buildChunkOps(currentAnchorId, effectivePosition, chunk, isReplacing);
-      const plan = applyOps(writer, ops);
-      await applyDom(params.documentId, writer, {
-        client,
-        doc: gdoc.data,
-        force: params.force,
-        plan
-      });
-      chunksApplied++;
-      if (cIdx < chunks.length - 1) {
-        freshDoc = await Gdoc.load(params.documentId, client, { forceFetch: true });
-        gdoc = tabId ? freshDoc.withTab(tabId) : freshDoc;
-        parsedDoc = parseDocument(gdoc);
-        const lastSpec = chunk.kind === "table" ? chunk.spec : chunk.specs[chunk.specs.length - 1];
-        const matchingNode = parsedDoc.nodes.find((n) => {
-          if (lastSpec.kind === "table" && n.kind === "table") {
-            return true;
-          }
-          if (lastSpec.kind === "paragraph" && n.kind === "paragraph") {
-            return n.text === lastSpec.text;
-          }
-          return false;
-        });
-        if (matchingNode) {
-          currentAnchorId = matchingNode.tapeIndex;
-        } else {
-          currentAnchorId = parsedDoc.nodes[parsedDoc.nodes.length - 1]?.tapeIndex;
-        }
-      }
-    }
-    const startId = originalReplaceAnchor || effectivePosition === "beforebegin" ? originalAnchorId : originalAnchorId + 1;
-    const endId = startId + elements.length - 1;
-    docCache.invalidate(params.documentId);
-    return {
-      appliedChunks: chunksApplied,
-      elementsInserted: elements.length,
-      insertedRange: {
-        count: elements.length,
-        endId,
-        startId
-      },
-      message: `Inserted ${elements.length} element(s) into document (${chunksApplied} batch(es)).`,
-      tabId
-    };
-  });
-}
-var executeElementsInsert = elementsInsertExecute;
-async function markdownInsertExecute(params) {
-  const elements = parseMarkdownToElements(params.markdown, {
-    customStyles: params.customStyles,
-    h1IsTitle: params.h1IsTitle,
-    linkResolver: params.linkResolver
-  });
-  return executeElementsInsert({
-    anchorId: params.anchorId,
-    client: params.client,
-    customStyles: params.customStyles,
-    documentId: params.documentId,
-    elements,
-    force: params.force,
-    position: params.position,
-    tabHint: params.tabHint
-  });
-}
-function chunkOpsBuild(anchorId, position, chunk, replaceAnchor) {
-  const ops = [];
-  if (chunk.kind === "table") {
-    ops.push({
-      at: anchorId,
-      insertAdjacentElement: {
-        element: chunk.spec,
-        position: replaceAnchor ? "afterend" : position
-      }
-    });
-    if (replaceAnchor) {
-      ops.push({
-        at: anchorId,
-        remove: true
-      });
-    }
-    return ops;
-  }
-  const specs = chunk.specs;
-  if (!specs.length)
-    return ops;
-  const first = specs[0];
-  if (replaceAnchor && first && first.kind === "paragraph" && (!first.bullet || (first.bullet.nestingLevel ?? 0) === 0)) {
-    const op = {
-      at: anchorId,
-      innerText: first.text
-    };
-    if (first.namedStyleType && first.namedStyleType !== "NORMAL_TEXT") {
-      op.namedStyleType = first.namedStyleType;
-    }
-    if (first.style) {
-      op.style = first.style;
-    }
-    if (first.bullet) {
-      op.bullet = first.bullet;
-    }
-    if (first.runs?.length) {
-      op.runs = first.runs;
-    }
-    ops.push(op);
-    const remaining = specs.slice(1);
-    if (remaining.length > 0) {
-      ops.push({
-        at: anchorId,
-        insertAdjacentElement: {
-          elements: remaining,
-          position: "afterend"
-        }
-      });
-    }
-  } else if (replaceAnchor) {
-    ops.push({
-      at: anchorId,
-      insertAdjacentElement: {
-        elements: specs,
-        position: "afterend"
-      }
-    });
-    ops.push({
-      at: anchorId,
-      remove: true
-    });
-  } else {
-    ops.push({
-      at: anchorId,
-      insertAdjacentElement: {
-        elements: specs,
-        position
-      }
-    });
-  }
-  return ops;
-}
-var buildChunkOps = chunkOpsBuild;
-
-// src/core/actions/markdownInsert.ts
 var markdownInsertStep = async (runtime, stepIndex, step) => {
   const targetDoc = runtime.openDocResolve(step.doc);
   const tabHint = runtime.aliasResolve(step.tab);
@@ -22540,9 +22790,11 @@ var tabCreateStep = async (runtime, stepIndex, step) => {
   if (existingFlat.some((t) => t.title.trim().toLowerCase() === title.trim().toLowerCase())) {
     throw new Error(`Tab title "${title}" already exists in document "${targetDoc.alias}". Tab titles must be unique.`);
   }
+  const afterTabHint = step.afterTab ? runtime.aliasResolve(step.afterTab) : undefined;
+  const beforeTabHint = step.beforeTab ? runtime.aliasResolve(step.beforeTab) : undefined;
   const targetIndex = resolveRelativeTabIndex(targetDoc.gdoc.data, {
-    afterTab: step.afterTab,
-    beforeTab: step.beforeTab,
+    afterTab: afterTabHint,
+    beforeTab: beforeTabHint,
     index: step.index
   });
   const fromTabHint = step.fromTab ? runtime.aliasResolve(step.fromTab) : undefined;
@@ -22743,65 +22995,6 @@ var tabCreateStep = async (runtime, stepIndex, step) => {
   });
   runtime.stepsExecuted++;
 };
-function detectLossyTabElements(nodes) {
-  const counts = {
-    chipTitles: [],
-    equations: 0,
-    footnotes: 0,
-    horizontalRules: 0,
-    images: 0,
-    toc: 0
-  };
-  const details = [];
-  for (const node of nodes) {
-    const msgs = unclonableFromNode(node);
-    details.push(...msgs);
-    for (const msg of msgs) {
-      const chip = msg.match(/(?:person chip|date chip|rich link chip|unsupported smart chip) "([^"]*)"/);
-      if (chip)
-        counts.chipTitles.push(chip[1] || "chip");
-      else if (msg.includes("inline image"))
-        counts.images++;
-      else if (msg.includes("math equation"))
-        counts.equations++;
-      else if (msg.includes("footnote"))
-        counts.footnotes++;
-      else if (msg.includes("Table of Contents"))
-        counts.toc++;
-      else if (msg.includes("horizontal rule"))
-        counts.horizontalRules++;
-    }
-  }
-  return { details, summary: lossyTabScanSummary(counts, details.length) };
-}
-function lossyTabCopyError(stepIndex, sourceTitle, scan) {
-  const issueList = scan.details.map((msg) => `  • ${msg}`).join(`
-`);
-  return `steps[${stepIndex}] tabCreate: cannot copy tab "${sourceTitle}" losslessly (${scan.summary}). Use the Google Docs UI (right-click the tab > Duplicate) or pass force: true for lossy conversion.
-` + `${issueList}
-
-` + `Google Docs REST API has no native tab duplication endpoint. Person, date, and rich-link chips and public https images are reconstructed; Drive-only images, footnotes, equations, unsupported chips, TOC, and horizontal rules cannot.`;
-}
-function lossyTabScanSummary(counts, detailCount) {
-  const parts = [];
-  if (counts.chipTitles.length > 0) {
-    const titles = counts.chipTitles.map((t) => `"${t}"`).join(", ");
-    parts.push(`${counts.chipTitles.length} smart chip(s): ${titles}`);
-  }
-  if (counts.images > 0)
-    parts.push(`${counts.images} inline image(s)`);
-  if (counts.equations > 0)
-    parts.push(`${counts.equations} math equation(s)`);
-  if (counts.footnotes > 0)
-    parts.push(`${counts.footnotes} footnote(s)`);
-  if (counts.horizontalRules > 0)
-    parts.push(`${counts.horizontalRules} horizontal rule(s)`);
-  if (counts.toc > 0)
-    parts.push(`${counts.toc} table of contents`);
-  if (parts.length === 0 && detailCount > 0)
-    parts.push(`${detailCount} uncreatable element(s)`);
-  return parts.join("; ");
-}
 
 // src/core/actions/tabDelete.ts
 var tabDeleteStep = async (runtime, stepIndex, step) => {
@@ -22862,9 +23055,11 @@ var tabMoveStep = async (runtime, stepIndex, step) => {
   if (!resolved.tabId) {
     throw new Error(`Cannot move tab "${tabHint}": resolved tab has no tabId`);
   }
+  const afterTabHint = step.afterTab ? runtime.aliasResolve(step.afterTab) : undefined;
+  const beforeTabHint = step.beforeTab ? runtime.aliasResolve(step.beforeTab) : undefined;
   const targetIndex = resolveRelativeTabIndex(targetDoc.gdoc.data, {
-    afterTab: step.afterTab,
-    beforeTab: step.beforeTab,
+    afterTab: afterTabHint,
+    beforeTab: beforeTabHint,
     index: step.index,
     movingTabId: resolved.tabId
   });
@@ -22913,6 +23108,168 @@ var tabMoveStep = async (runtime, stepIndex, step) => {
   }
   runtime.stepsExecuted++;
 };
+
+// src/core/actions/tabPopulate.ts
+var tabPopulateStep = async (runtime, stepIndex, step) => {
+  const docRef = step.doc;
+  if (!docRef)
+    throw new Error(`steps[${stepIndex}] tabPopulate requires doc: <documentId|alias>`);
+  const targetTabHint = runtime.aliasResolve(step.tab);
+  if (!targetTabHint)
+    throw new Error(`steps[${stepIndex}] tabPopulate requires tab: <id|title>`);
+  const fromTabHint = runtime.aliasResolve(step.fromTab);
+  if (!fromTabHint)
+    throw new Error(`steps[${stepIndex}] tabPopulate requires fromTab: <id|title>`);
+  await pendingWritersFlush(runtime, docRef);
+  const targetDoc = runtime.openDocResolve(docRef);
+  const resolvedTargetTab = targetDoc.gdoc.data.tabs?.length ? resolveTab(targetDoc.gdoc.data, targetTabHint) : { tabId: "t.0", title: targetDoc.title };
+  const targetTabId = resolvedTargetTab.tabId;
+  if (!targetTabId) {
+    throw new Error(`steps[${stepIndex}] tabPopulate: could not resolve target tab "${targetTabHint}"`);
+  }
+  const sourceDocRef = step.fromDoc ? runtime.aliasResolve(step.fromDoc) : undefined;
+  const sourceDoc = sourceDocRef ? runtime.openDocResolve(sourceDocRef) : targetDoc;
+  const resolvedSourceTab = sourceDoc.gdoc.data.tabs?.length ? resolveTab(sourceDoc.gdoc.data, fromTabHint) : { tabId: "t.0", title: sourceDoc.title };
+  const sourceTabId = resolvedSourceTab.tabId;
+  if (!sourceTabId) {
+    throw new Error(`steps[${stepIndex}] tabPopulate: could not resolve source tab "${fromTabHint}"`);
+  }
+  const title = step.title?.trim();
+  if (title) {
+    const existingTabs = flattenTabs(targetDoc.gdoc.data.tabs);
+    const otherTabs = existingTabs.filter((t) => t.tabId !== targetTabId);
+    if (otherTabs.some((t) => t.title.trim().toLowerCase() === title.toLowerCase())) {
+      throw new Error(`Tab title "${title}" already exists in document "${targetDoc.alias}". Tab titles must be unique.`);
+    }
+  }
+  const force = runtime.force || Boolean(step.force);
+  const sourceSimulated = simulatedNodesOf(sourceDoc.gdoc, sourceTabId);
+  const parsedSource = sourceSimulated ? { nodes: sourceSimulated } : parseDocument(sourceDoc.gdoc.withTab(sourceTabId));
+  const lossyScan = detectLossyTabElements(parsedSource.nodes);
+  if (lossyScan.details.length > 0 && !force) {
+    throw new Error(lossyTabCopyError(stepIndex, resolvedSourceTab.title ?? fromTabHint, lossyScan, "tabPopulate"));
+  }
+  const copyWarnings = [...lossyScan.details];
+  const targetSimulated = simulatedNodesOf(targetDoc.gdoc, targetTabId);
+  const parsedTarget = targetSimulated ? { nodes: targetSimulated } : parseDocument(targetTabId ? targetDoc.gdoc.withTab(targetTabId) : targetDoc.gdoc);
+  const targetContentNodes = parsedTarget.nodes.filter((n) => n.kind !== "sectionBreak");
+  const isTargetEmpty = tabContentEmptyCheck(targetContentNodes);
+  if (!isTargetEmpty && !force) {
+    throw new Error(`steps[${stepIndex}] tabPopulate: target tab "${resolvedTargetTab.title ?? targetTabHint}" already contains content (${targetContentNodes.length} node(s)). Pass force: true to overwrite.`);
+  }
+  if (!runtime.dryRun && !targetDoc.docId.startsWith("virtual:")) {
+    if (title && title !== resolvedTargetTab.title) {
+      const req = RequestBuilder.renameTab(targetTabId, title);
+      await runtime.client.batchUpdate(targetDoc.docId, [req]);
+      docCache.invalidate(targetDoc.docId);
+      targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
+    }
+    if (!isTargetEmpty) {
+      const gdocTab = targetTabId ? targetDoc.gdoc.withTab(targetTabId) : targetDoc.gdoc;
+      const parsedToClear = parseDocument(gdocTab);
+      const writer = new DomWriter(parsedToClear.nodes, {
+        force: true,
+        lists: gdocTab.data.lists,
+        tabId: targetTabId
+      });
+      dangerousClearExecute(writer);
+      await applyDom(targetDoc.docId, writer, {
+        client: runtime.client,
+        doc: gdocTab.data,
+        force: true
+      });
+      docCache.invalidate(targetDoc.docId);
+      targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
+    }
+    const specs = parsedSource.nodes.filter((n) => n.kind !== "sectionBreak").map((n) => {
+      const spec = elementSpecFromNode(n);
+      if ("warnings" in spec && Array.isArray(spec.warnings)) {
+        copyWarnings.push(...spec.warnings);
+      }
+      return spec;
+    });
+    if (specs.length > 0) {
+      await elementsInsertExecute({
+        client: runtime.client,
+        documentId: targetDoc.docId,
+        elements: specs,
+        force,
+        tabHint: targetTabId
+      });
+    }
+    docCache.invalidate(targetDoc.docId);
+    targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
+  } else {
+    if (title && targetDoc.gdoc.data.tabs?.length) {
+      const tab = findTab(targetDoc.gdoc.data.tabs, targetTabId);
+      if (tab?.tabProperties) {
+        tab.tabProperties.title = title;
+      }
+    }
+    const sourceDocTab = sourceDoc.gdoc.data.tabs?.length ? findTab(sourceDoc.gdoc.data.tabs, sourceTabId) : null;
+    const sourceBody = sourceDocTab?.documentTab?.body ?? targetDoc.gdoc.data.body;
+    if (targetDoc.gdoc.data.tabs?.length) {
+      const tab = findTab(targetDoc.gdoc.data.tabs, targetTabId);
+      if (tab) {
+        if (!tab.documentTab)
+          tab.documentTab = {};
+        tab.documentTab.body = structuredClone(sourceBody);
+      }
+    }
+    simulatedNodesSet(targetDoc.gdoc, structuredClone(sourceSimulated ?? parsedSource.nodes), targetTabId);
+  }
+  const finalTitle = title ?? resolvedTargetTab.title ?? "Tab";
+  if (step.as) {
+    runtime.aliasMap.set(step.as, targetTabId);
+  }
+  const dumpPayload = {
+    alias: step.as,
+    id: targetTabId,
+    kind: "tab",
+    title: finalTitle,
+    ...copyWarnings.length > 0 ? { warnings: Array.from(new Set(copyWarnings)) } : {}
+  };
+  if (step.as) {
+    runtime.dumpStore.set(step.as, dumpPayload);
+  }
+  if (step.dump && step.as) {
+    runtime.dumped[step.as] = dumpPayload;
+  }
+  let highlight = runtime.createdHighlights.get(targetDoc.alias);
+  if (!highlight) {
+    highlight = {
+      as: targetDoc.alias,
+      id: targetDoc.docId,
+      tabs: [],
+      title: targetDoc.title
+    };
+    runtime.createdHighlights.set(targetDoc.alias, highlight);
+  }
+  if (!highlight.tabs)
+    highlight.tabs = [];
+  const existingHighlightTab = highlight.tabs.find((t) => t.id === targetTabId);
+  if (existingHighlightTab) {
+    existingHighlightTab.title = finalTitle;
+    if (step.as)
+      existingHighlightTab.as = step.as;
+  } else {
+    highlight.tabs.push({
+      as: step.as,
+      id: targetTabId,
+      title: finalTitle
+    });
+  }
+  runtime.stepsExecuted++;
+};
+function tabContentEmptyCheck(nodes) {
+  if (nodes.length === 0)
+    return true;
+  if (nodes.length === 1) {
+    const n = nodes[0];
+    return n.kind === "paragraph" && !n.text?.trim() && !n.images?.length && !n.chips?.length && !n.bullet;
+  }
+  return false;
+}
 
 // src/core/actions/tabRename.ts
 var tabRenameStep = async (runtime, stepIndex, step) => {
@@ -23657,6 +24014,7 @@ var STEP_HANDLERS = {
   tabCreate: tabCreateStep,
   tabDelete: tabDeleteStep,
   tabMove: tabMoveStep,
+  tabPopulate: tabPopulateStep,
   tabRename: tabRenameStep,
   tabReorder: tabMoveStep,
   textReplace: textReplaceStep
@@ -24034,6 +24392,9 @@ var GdocsmithDocumentSchema_default = {
           $ref: "#/definitions/StepTabModify"
         },
         {
+          $ref: "#/definitions/StepTabPopulate"
+        },
+        {
           $ref: "#/definitions/StepTabRename"
         },
         {
@@ -24057,9 +24418,17 @@ var GdocsmithDocumentSchema_default = {
           type: "boolean",
           description: "Dump document or tab metadata into `dumped[as]`."
         },
+        force: {
+          type: "boolean",
+          description: "Force tab copy even if source contains uncloneable elements (chips/images/equations)."
+        },
         fromDoc: {
           type: "string",
           description: "Optional source document ID or alias to copy from (creates blank document if omitted)."
+        },
+        fromTab: {
+          type: "string",
+          description: "Optional source tab ID or title to populate the initial tab from (requires fromDoc)."
         },
         kind: {
           type: "string",
@@ -24078,6 +24447,14 @@ var GdocsmithDocumentSchema_default = {
         pageless: {
           type: "boolean",
           description: 'Whether the document is in pageless mode (convenience alias for mode: "PAGELESS").'
+        },
+        tabAs: {
+          type: "string",
+          description: 'Optional alias to bind the initial tab ID ("t.0") to in the runtime session (when fromTab is provided).'
+        },
+        tabTitle: {
+          type: "string",
+          description: `Optional title for the initial tab (defaults to source tab's title when fromTab is provided, or "Main").`
         },
         title: {
           type: "string",
@@ -25410,6 +25787,51 @@ var GdocsmithDocumentSchema_default = {
       additionalProperties: false,
       description: 'Tab modification step (`kind: "tabDelete" | "tabMove" | "tabReorder"`).'
     },
+    StepTabPopulate: {
+      type: "object",
+      properties: {
+        as: {
+          type: "string",
+          description: "Target alias to bind this tab ID to in the runtime session."
+        },
+        doc: {
+          type: "string",
+          description: "Target document ID or alias."
+        },
+        dump: {
+          type: "boolean",
+          description: "Dump document or tab metadata into `dumped[as]`."
+        },
+        force: {
+          type: "boolean",
+          description: "Force overwrite if the target tab already contains content, or if source contains uncloneable elements."
+        },
+        fromDoc: {
+          type: "string",
+          description: "Source document ID or alias when copying a tab across documents (defaults to doc)."
+        },
+        fromTab: {
+          type: "string",
+          description: "Source tab ID or title to copy content from."
+        },
+        kind: {
+          type: "string",
+          const: "tabPopulate",
+          description: "Workflow step kind."
+        },
+        tab: {
+          type: "string",
+          description: 'Target tab ID, title, or alias to populate (e.g. "Tab 1" or "t.0").'
+        },
+        title: {
+          type: "string",
+          description: "Optional new title to rename the target tab in place."
+        }
+      },
+      required: ["doc", "fromTab", "kind", "tab"],
+      additionalProperties: false,
+      description: 'Whole-tab population step into an existing tab (`kind: "tabPopulate"`).'
+    },
     StepTabRename: {
       type: "object",
       properties: {
@@ -25635,7 +26057,7 @@ var runCommand = {
   inputSchema: GdocsmithDocumentSchema,
   key: "run",
   kind: "document",
-  notes: "• Pipe stdin or pass one JSON document. Knobs: `dryRun`, `force`, `quiet` on the document.\n" + "• Each step requires `kind` (e.g. docOpen|docClose|docCreate|tabCreate|query|markdownInsert|replaceSection|…).\n" + "• File-touching steps require `doc:` (raw id or open alias). `docCreate` binds `as` (optional `fromDoc:` to clone). There is no run-level documentId.\n" + "• Raw IDs only: extract between `/document/d/` and `/edit`. Full URLs are rejected.\n" + "• Surgical targeting: copy heading-scoped ids from `kind: query` into `nodeAt`, `nodeAfter`, or `nodeBefore` (e.g. `h.arch.9a1b`). NEVER compute startIndex/endIndex or write raw batchUpdate scripts.\n" + "• In-place updates: prefer `replaceSection`, `replaceMarkdown`, or `replace` over deleting and re-inserting content (no demolish-and-rebuild). `replaceSection` replaces all subsections under that heading (e.g. H1 replaces H2s, H2 replaces H3s); guards reject deleting child subsections without `force: true`. To update a placeholder or body paragraph under a parent heading while preserving child subsections, use `replaceMarkdown` with `find: <placeholder>` or `nodeAt: <scopedId|text>` to insert formatted markdown, or `textReplace` for plain string edits.\n" + "• Real headings only (`TITLE`, `HEADING_1`–`HEADING_3`). No bullet glyphs in surgical text; use run-in bold (`**Label**: value`).\n" + "• Bindings: `docOpen`, `docCreate`, and `tabCreate` set aliases. Always set final tab `title` in `tabCreate` (with `as:` and position) because tabRename fails on docs without root `t.0`. Every `run` call is stateless; aliases do not persist across multiple `run` invocations. `dump: true` on docOpen/docCreate/tabCreate dumps metadata into `dumped[as]`. `query` with `as:` writes matches into `dumped[as]` (`output: markdown` or `nodes`). Query aliases cannot be used as mutation anchors.\n" + "• Cross-doc transfers: use `kind: sectionCopy` with `fromDoc:` and `fromSection:` to transfer sections server-side without streaming markdown, or query source with `output: markdown` and write with `replaceSection`. Anchors must always belong to the target `doc:`.\n" + "• Symbolic links: use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown; gdocsmith automatically resolves them to native Docs deep links (`?tab=...#heading=...`).\n" + "• Prefer one `run` per phase until step kinds are proven; then batch related steps. Chip/table writes use `kind: surgical`.\n" + "• Dry run: optional `dryRun: true` returns a unified git diff without writing. Run mutations directly without requiring dry-run first; use dryRun only when you need to inspect an expected diff.",
+  notes: "• Pipe stdin or pass one JSON document. Knobs: `dryRun`, `force`, `quiet` on the document.\n" + "• Each step requires `kind` (e.g. docOpen|docClose|docCreate|tabCreate|query|markdownInsert|replaceSection|…).\n" + "• File-touching steps require `doc:` (raw id or open alias). `docCreate` binds `as` (optional `fromDoc:` to clone). There is no run-level documentId.\n" + "• Raw IDs only: extract between `/document/d/` and `/edit`. Full URLs are rejected.\n" + "• Surgical targeting: copy heading-scoped ids from `kind: query` into `nodeAt`, `nodeAfter`, or `nodeBefore` (e.g. `h.arch.9a1b`). NEVER compute startIndex/endIndex or write raw batchUpdate scripts.\n" + "• In-place updates: prefer `replaceSection`, `replaceMarkdown`, or `replace` over deleting and re-inserting content (no demolish-and-rebuild). `replaceSection` replaces all subsections under that heading (e.g. H1 replaces H2s, H2 replaces H3s); guards reject deleting child subsections without `force: true`. To update a placeholder or body paragraph under a parent heading while preserving child subsections, use `replaceMarkdown` with `find: <placeholder>` or `nodeAt: <scopedId|text>` to insert formatted markdown, or `textReplace` for plain string edits.\n" + "• Real headings only (`TITLE`, `HEADING_1`–`HEADING_3`). No bullet glyphs in surgical text; use run-in bold (`**Label**: value`).\n" + "• Tab setup & bindings: `docOpen`, `docCreate`, `tabCreate`, and `tabPopulate` set aliases. When creating documents with templates, use `docCreate` with `fromDoc` + `fromTab` to seed and rename the initial root `t.0` tab in one step (`docCreate: as, title, fromDoc, fromTab, tabTitle, tabAs`), leaving no orphan tabs and keeping root `t.0` intact. Use `tabCreate` for subsequent tabs (`title, as, afterTab, fromDoc, fromTab`). Always specify final tab `title` at creation time because tabRename fails on docs without root `t.0`. Every `run` call is stateless; aliases do not persist across multiple `run` invocations. `dump: true` dumps metadata into `dumped[as]`. `query` with `as:` writes matches into `dumped[as]`. Query aliases cannot be used as mutation anchors.\n" + "• Cross-doc transfers: use `kind: sectionCopy` with `fromDoc:` and `fromSection:` to transfer sections server-side without streaming markdown, or query source with `output: markdown` and write with `replaceSection`. Anchors must always belong to the target `doc:`.\n" + "• Symbolic links: use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown; gdocsmith automatically resolves them to native Docs deep links (`?tab=...#heading=...`).\n" + "• Prefer one `run` per phase until step kinds are proven; then batch related steps. Chip/table writes use `kind: surgical`.\n" + "• Dry run: optional `dryRun: true` returns a unified git diff without writing. Run mutations directly without requiring dry-run first; use dryRun only when you need to inspect an expected diff.",
   outputSchema: GdocsmithJsonOutputSchema
 };
 // src/commands/status/__generated__/StatusJsonOutputSchema.json

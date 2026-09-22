@@ -12,6 +12,8 @@
     "docs:gen": "bun src/index.ts docs cli --save",
     "start": "bun run src/index.ts",
     "test": "bun test src",
+    "test:live": "bun test tests/integration",
+    "test:wire": "bun test tests/integration/mcpWire.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

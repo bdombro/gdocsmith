@@ -5,6 +5,7 @@ import { compileDom, DomWriter, type ElementSpec, type ParagraphSpec, parseDocum
 import {
   buildChunkOps,
   chunkMarkdownElements,
+  executeElementsInsert,
   executeMarkdownInsert,
   markdownStylesParse,
   normalizeCustomStyle,
@@ -444,6 +445,45 @@ Final paragraph.
     expect(result.elementsInserted).toBe(4);
     expect(result.appliedChunks).toBe(3);
     expect(batchUpdateCalls).toBe(3);
+  });
+
+  test("executeElementsInsert maintains sequential chunk anchors when chunk ends with empty text", async () => {
+    const docState = {
+      body: {
+        content: [
+          {
+            endIndex: 2,
+            paragraph: {
+              elements: [{ textRun: { content: "\n" } }],
+            },
+            startIndex: 1,
+          },
+        ],
+      },
+      documentId: "doc-test-anchor",
+      revisionId: "rev-1",
+    };
+
+    const mockClient = {
+      batchUpdate: async () => JSON.stringify({ replies: [] }),
+      getDocument: async () => docState,
+      run: async () => JSON.stringify(docState),
+    };
+
+    const elements: ElementSpec[] = [
+      { kind: "paragraph", namedStyleType: "HEADING_1", text: "Heading" },
+      { kind: "paragraph", namedStyleType: "NORMAL_TEXT", text: "" },
+      { kind: "table", table: { rows: [["A", "B"]] } },
+      { kind: "paragraph", namedStyleType: "NORMAL_TEXT", text: "Trailing" },
+    ];
+
+    const result = await executeElementsInsert({
+      client: mockClient as any,
+      documentId: "doc-test-anchor",
+      elements,
+    });
+    expect(result.elementsInserted).toBe(4);
+    expect(result.appliedChunks).toBe(3);
   });
 
   test("markdownStylesParse reads a flattened named-style map", () => {

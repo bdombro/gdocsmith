@@ -866,7 +866,37 @@ export function domCompile(
       push([RequestBuilder.clearInlineStyles(writeAt, writeAt + parsed.plain.length, seg, tab)], op.mutationIndexes);
     }
 
-    const rangeEnd = writeAt + parsed.plain.length + 1;
+    const consumedLeadingTabs =
+      allBullets && !peerJoin ? op.specs.reduce((sum, s) => sum + (s.bullet ? s.bullet.nestingLevel : 0), 0) : 0;
+
+    const specialCount = op.specs.reduce((n, s) => n + (s.specials?.length ?? 0), 0);
+    if (specialCount > 0) {
+      let specialOffset = 0;
+      const specialStarts: Array<{ index: number; specials?: ParagraphInlineSpecial[] }> = [];
+      for (let i = 0; i < op.specs.length; i++) {
+        const spec = op.specs[i]!;
+        const bodyLen = parsed.bodies[i]?.length ?? 0;
+        const plainLen = parsed.plains[i]?.length ?? 0;
+        const currentLen = consumedLeadingTabs > 0 ? bodyLen : plainLen;
+        specialStarts.push({ index: writeAt + specialOffset, specials: spec.specials });
+        specialOffset += currentLen + 1;
+      }
+      for (let i = specialStarts.length - 1; i >= 0; i--) {
+        const item = specialStarts[i]!;
+        push(
+          RequestBuilder.insertInlineSpecials({
+            index: item.index,
+            segmentId: seg,
+            specials: item.specials,
+            tabId: tab,
+          }),
+          op.mutationIndexes,
+        );
+      }
+      insertChars += specialCount;
+    }
+
+    const rangeEnd = writeAt + parsed.plain.length + specialCount + 1;
     const style = op.specs[0]?.namedStyleType ?? "NORMAL_TEXT";
     push([RequestBuilder.namedStyle(writeAt, rangeEnd, style, seg, tab)], op.mutationIndexes);
     {
@@ -894,6 +924,7 @@ export function domCompile(
       // neighbor would flatten existing nested items (they have no tabs left).
       push([RequestBuilder.deleteParagraphBullets(writeAt, rangeEnd, seg, tab)], op.mutationIndexes);
       push([RequestBuilder.createParagraphBullets(writeAt, rangeEnd, preset, seg, tab)], op.mutationIndexes);
+      segmentEnd -= consumedLeadingTabs;
     } else if (!allBullets) {
       // splitAfter a list item continues the list. Headings and prose must not
       // keep the glyph.
@@ -904,8 +935,11 @@ export function domCompile(
       let offset = 0;
       for (let i = 0; i < op.specs.length; i++) {
         const spec = op.specs[i]!;
+        const bodyLen = parsed.bodies[i]?.length ?? 0;
+        const plainLen = parsed.plains[i]?.length ?? 0;
+        const currentLen = consumedLeadingTabs > 0 ? bodyLen : plainLen;
         const start = writeAt + offset;
-        const end = start + parsed.plains[i]?.length + 1;
+        const end = start + currentLen + 1;
         const indentPatch = indentPatchFromSpec(spec);
         if (hasIndent(indentPatch)) {
           push(
@@ -920,33 +954,8 @@ export function domCompile(
             op.mutationIndexes,
           );
         }
-        offset += parsed.plains[i]?.length + 1;
+        offset += currentLen + 1;
       }
-    }
-
-    const specialCount = op.specs.reduce((n, s) => n + (s.specials?.length ?? 0), 0);
-    if (specialCount > 0) {
-      let specialOffset = 0;
-      const specialStarts: Array<{ index: number; specials?: ParagraphInlineSpecial[] }> = [];
-      for (let i = 0; i < op.specs.length; i++) {
-        const spec = op.specs[i]!;
-        const tabs = allBullets && !peerJoin && spec.bullet ? spec.bullet.nestingLevel : 0;
-        specialStarts.push({ index: writeAt + specialOffset + tabs, specials: spec.specials });
-        specialOffset += parsed.plains[i]?.length + 1;
-      }
-      for (let i = specialStarts.length - 1; i >= 0; i--) {
-        const item = specialStarts[i]!;
-        push(
-          RequestBuilder.insertInlineSpecials({
-            index: item.index,
-            segmentId: seg,
-            specials: item.specials,
-            tabId: tab,
-          }),
-          op.mutationIndexes,
-        );
-      }
-      insertChars += specialCount;
     }
 
     const delta = 1 + parsed.bodies.join("\n").length + specialCount;

@@ -19,7 +19,7 @@ Declarative Google Docs authoring via the `run` MCP tool. No raw batchUpdate scr
 1. **Explicit document opening & statelessness:** `docOpen` with `doc: <rawId>` and `as: <alias>`. Document aliases exist only within that single `run` call. Every step touching a doc must specify `doc: <alias>` (`docCreate` binds `as`, with optional `fromDoc:` to clone).
 2. **Anchor scoping:** `nodeAt`, `nodeAfter`, `nodeBefore`, and `nodeUnder` ALWAYS reference headings or node IDs in the **target document** (`doc:`), never IDs from a source document.
 3. **Headings vs. sections:** Use `replace` (or `replaceMarkdown`) to rename a heading in place. By default, `replaceSection` replaces the *entire* outline tree under that heading (and guards reject deleting child subsections under any heading level without `force: true`). Use `replaceSection` on leaf headings (headings without child subsections, like `Overview & Problem Statement`, `Motivation`, `Decisions`) to diff and update section body. To update a specific paragraph or placeholder under a heading while preserving child subsections, use `replaceMarkdown` with `find: <placeholderText>` (or `nodeAt: <placeholderText|scopedId>`) to insert rich formatted markdown (lists, bold, links), or `textReplace` for plain string edits.
-4. **Creation-time tab positioning & fidelity:** Always specify final tab `title`, `as`, and position (`afterTab: <title|id>` or `beforeTab: <title|id>`) at creation time in `tabCreate` (optionally with `fromTab: <title|id>` to duplicate). Tab titles must be unique across the document. Avoid post-hoc `tabRename` or `tabMove` on cloned template docs due to Google Docs API 500 bugs on documents lacking a root `t.0` tab. Google Docs REST API has no native tab duplication request; `tabCreate` with `fromTab` transfers AST nodes with styles, headings, bullets, tables, person/date/richLink chips, and public/internal images. If leftovers cannot be reconstructed (Drive-only drawing objects, equations, footnotes, unsupported chips, TOC), `tabCreate` rejects by default and instructs duplicating in the Google Docs UI (right-click tab > Duplicate); pass `force: true` on `tabCreate` to proceed with lossy conversion (placeholders / omitted footnotes).
+4. **Creation-time tab positioning & fidelity:** When creating documents from a template tab, use `docCreate` with `fromDoc`, `fromTab`, `tabTitle`, and `tabAs` (e.g. `kind: "docCreate", title: "Project Specification", as: "plan", fromDoc: "template", fromTab: "Spec Template", tabTitle: "Overview", tabAs: "overviewTab"`). This seeds and renames the root `t.0` tab in a single step, leaves no orphan `Tab 1`, and permanently protects against Google Docs API 500 rename bugs. (For existing tabs in open documents, `tabPopulate` is also available). For subsequent tabs, use `tabCreate` with `title`, `as`, `afterTab: <title|id>`, and optional `fromTab`. Tab titles must be unique across the document. Avoid post-hoc `tabRename` or `tabMove` on cloned template docs due to Google Docs API 500 bugs on documents lacking a root `t.0` tab. Google Docs REST API has no native tab duplication request; `docCreate`, `tabCreate`, and `tabPopulate` transfer AST nodes with styles, headings, bullets, tables, person/date/richLink chips, and public/internal images. If leftovers cannot be reconstructed (Drive-only drawing objects, equations, footnotes, unsupported chips, TOC), they reject by default and instruct duplicating in the Google Docs UI (right-click tab > Duplicate); pass `force: true` to proceed with lossy conversion (placeholders / omitted footnotes).
 5. **Symbolic links:** Use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown. gdocsmith automatically compiles them to native Google Docs deep links.
 6. **Content field conventions:** Use `markdown: "..."` for markdown steps (`replaceSection`, `replaceMarkdown`, `markdownInsert`). Use `replace: "..."` (or `text: "..."`) for text steps (`replace`, `textReplace`). For querying document outlines, use `output: "outline"` or `output: "headings"`.
 7. **Execution & dry runs:** Execute mutations directly. `dryRun: true` is an optional diagnostic for previewing diffs when troubleshooting, not a required prerequisite before edits. Do not get stuck in repetitive dry-run loops. If Auto-review blocks an action, immediately retry with the standard approval flag (`requestSmartModeApproval: true` or `request_smart_mode_approval: true`).
@@ -27,7 +27,7 @@ Declarative Google Docs authoring via the `run` MCP tool. No raw batchUpdate scr
 9. **Template placeholders & child fixtures:** In cloned templates, sections often have placeholder paragraphs (e.g. `*Placeholder: ...*`) alongside child fixtures (subsections with tables or chips). In 2-phase workflows, query the outline or nodes first (`kind: query`), or target the placeholder text directly using `replaceMarkdown` (`kind: "replaceMarkdown", doc: "...", tab: "...", find: "Placeholder: ...", markdown: "..."`). This replaces the placeholder with rich formatted markdown (lists, bold, links) without modifying child subsections. Do not use `replaceSection` on a parent heading if you want to preserve its child subsections.
 10. **Workflow phase batching:** Minimize turn round-trips by batching steps into three focused phases:
     - **Phase 1: Discover:** Single `run` querying source outlines and notes (`kind: docOpen`, `kind: query`).
-    - **Phase 2: Create & Structure:** Single `run` creating the target doc and all tabs with final titles and positions (`kind: docCreate`, `kind: tabCreate` with `title`, `as`, `afterTab`).
+    - **Phase 2: Create & Structure:** Single `run` creating the target doc with its initial root tab seeded from a template (`kind: docCreate` with `fromDoc`, `fromTab`, `tabTitle`, `tabAs`) and creating remaining tabs with final titles and positions (`kind: tabCreate` with `title`, `as`, `afterTab`).
     - **Phase 3: Populate & Link:** Single `run` transferring sections, updating placeholders, and inserting cross-tab links (`kind: sectionCopy`, `kind: replaceMarkdown`, `kind: markdownInsert`).
 
 ## Canonical Recipes
@@ -109,6 +109,33 @@ Declarative Google Docs authoring via the `run` MCP tool. No raw batchUpdate scr
       "tab": "Spec",
       "find": "Placeholder: Replace with architectural specification and component breakdown.",
       "markdown": "### Architecture\n\n1. **Core Service**: Handles packet routing.\n2. **Beacon Array**: Calibrates quantum frequencies."
+    }
+  ]
+}
+```
+
+### 8. Multi-Tab Doc from Template Tabs (Single-Step Root Tab Seeding)
+```json
+{
+  "steps": [
+    { "kind": "docOpen", "doc": "<templateDocId>", "as": "template" },
+    {
+      "kind": "docCreate",
+      "title": "Project Specification",
+      "fromDoc": "template",
+      "fromTab": "Spec Template",
+      "tabTitle": "Overview",
+      "tabAs": "overviewTab",
+      "as": "plan"
+    },
+    {
+      "kind": "tabCreate",
+      "doc": "plan",
+      "title": "Architecture",
+      "fromDoc": "template",
+      "fromTab": "Spec Template",
+      "afterTab": "overviewTab",
+      "as": "archTab"
     }
   ]
 }

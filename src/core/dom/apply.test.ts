@@ -919,6 +919,37 @@ describe("DomWriter apply", () => {
     expect(requests.some((r) => r && typeof r === "object" && "insertInlineImage" in r)).toBe(true);
   });
 
+  test("paragraph with inline image special after heading emits namedStyle NORMAL_TEXT without clipping", () => {
+    const h = heading2();
+    const writer = new DomWriter([h]);
+    writer.insertAdjacentElement(h, "afterend", {
+      kind: "paragraph",
+      namedStyleType: "NORMAL_TEXT",
+      specials: [
+        {
+          heightPt: 50,
+          kind: "inlineImage",
+          offset: 0,
+          uri: "https://example.com/logo.png",
+          widthPt: 100,
+        },
+      ],
+      text: "",
+    });
+    const { requests } = compileDom(writer);
+    expect(requests.some((r) => r && typeof r === "object" && "insertInlineImage" in r)).toBe(true);
+    expect(
+      requests.some(
+        (r) =>
+          r &&
+          typeof r === "object" &&
+          "updateParagraphStyle" in r &&
+          (r as { updateParagraphStyle: { paragraphStyle?: { namedStyleType?: string } } }).updateParagraphStyle
+            .paragraphStyle?.namedStyleType === "NORMAL_TEXT",
+      ),
+    ).toBe(true);
+  });
+
   test("table grid operations compile to expected requests", () => {
     const table: DocNode = {
       end: 50,

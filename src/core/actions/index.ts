@@ -22,6 +22,7 @@ import { surgicalStep } from "./surgical.ts";
 import { tabCreateStep } from "./tabCreate.ts";
 import { tabDeleteStep } from "./tabDelete.ts";
 import { tabMoveStep } from "./tabMove.ts";
+import { tabPopulateStep } from "./tabPopulate.ts";
 import { tabRenameStep } from "./tabRename.ts";
 import { textReplaceStep } from "./textReplace.ts";
 import type { ApplyScriptRuntime, WorkflowStepHandler, WorkflowStepKind } from "./types.ts";
@@ -51,6 +52,7 @@ export const STEP_HANDLERS: Partial<Record<WorkflowStepKind, WorkflowStepHandler
   tabCreate: tabCreateStep,
   tabDelete: tabDeleteStep,
   tabMove: tabMoveStep,
+  tabPopulate: tabPopulateStep,
   tabRename: tabRenameStep,
   tabReorder: tabMoveStep,
   textReplace: textReplaceStep,

@@ -40,9 +40,11 @@ export const tabMoveStep: WorkflowStepHandler = async (
     throw new Error(`Cannot move tab "${tabHint}": resolved tab has no tabId`);
   }
 
+  const afterTabHint = step.afterTab ? runtime.aliasResolve(step.afterTab) : undefined;
+  const beforeTabHint = step.beforeTab ? runtime.aliasResolve(step.beforeTab) : undefined;
   const targetIndex = resolveRelativeTabIndex(targetDoc.gdoc.data, {
-    afterTab: step.afterTab,
-    beforeTab: step.beforeTab,
+    afterTab: afterTabHint,
+    beforeTab: beforeTabHint,
     index: step.index,
     movingTabId: resolved.tabId,
   });

@@ -1501,6 +1501,227 @@ describe("applyScriptExecute", () => {
     expect(imageNode?.image?.widthPt).toBe(200);
   });
 
+  test("tabPopulate populates the initial empty tab, renames it, and avoids stray Tab 1", async () => {
+    const res = await applyScriptExecute({
+      dryRun: true,
+      steps: [
+        {
+          as: "templateDoc",
+          kind: "docCreate",
+          title: "Template Doc",
+        },
+        {
+          doc: "templateDoc",
+          kind: "markdownInsert",
+          markdown: "# Spec Template\n\n## Overview\n\nCore spec content.",
+        },
+        {
+          as: "targetDoc",
+          kind: "docCreate",
+          title: "New Spec Doc",
+        },
+        {
+          as: "parentTab",
+          doc: "targetDoc",
+          fromDoc: "templateDoc",
+          fromTab: "Main",
+          kind: "tabPopulate",
+          tab: "Main",
+          title: "Intergalactic Pigeon Post",
+        },
+        {
+          as: "dumpOutline",
+          doc: "targetDoc",
+          kind: "query",
+          output: "outline",
+        },
+        {
+          as: "dumpMd",
+          doc: "targetDoc",
+          kind: "query",
+          output: "markdown",
+          tab: "parentTab",
+        },
+      ],
+    });
+
+    expect(res.ok).toBe(true);
+    const outline = res.dumped.dumpOutline as { tabs: Array<{ tabTitle?: string }> };
+    expect(outline.tabs.length).toBe(1);
+    expect(outline.tabs[0]?.tabTitle).toBe("Intergalactic Pigeon Post");
+
+    const md = (res.dumped.dumpMd as { markdown: string }).markdown;
+    expect(md).toContain("# Spec Template");
+    expect(md).toContain("Core spec content.");
+  });
+
+  test("tabPopulate rejects overwriting a non-empty tab without force: true", async () => {
+    await expect(
+      applyScriptExecute({
+        dryRun: true,
+        steps: [
+          {
+            as: "sourceDoc",
+            kind: "docCreate",
+            title: "Source",
+          },
+          {
+            doc: "sourceDoc",
+            kind: "markdownInsert",
+            markdown: "# Source Content",
+          },
+          {
+            as: "targetDoc",
+            kind: "docCreate",
+            title: "Target",
+          },
+          {
+            doc: "targetDoc",
+            kind: "markdownInsert",
+            markdown: "# Existing Target Content",
+          },
+          {
+            doc: "targetDoc",
+            fromDoc: "sourceDoc",
+            fromTab: "Main",
+            kind: "tabPopulate",
+            tab: "Main",
+          },
+        ],
+      }),
+    ).rejects.toThrow(/already contains content.*Pass force: true to overwrite/);
+  });
+
+  test("tabPopulate overwrites a non-empty tab when force: true is provided", async () => {
+    const res = await applyScriptExecute({
+      dryRun: true,
+      steps: [
+        {
+          as: "sourceDoc",
+          kind: "docCreate",
+          title: "Source",
+        },
+        {
+          doc: "sourceDoc",
+          kind: "markdownInsert",
+          markdown: "# Brand New Source Content",
+        },
+        {
+          as: "targetDoc",
+          kind: "docCreate",
+          title: "Target",
+        },
+        {
+          doc: "targetDoc",
+          kind: "markdownInsert",
+          markdown: "# Old Target Content To Overwrite",
+        },
+        {
+          doc: "targetDoc",
+          force: true,
+          fromDoc: "sourceDoc",
+          fromTab: "Main",
+          kind: "tabPopulate",
+          tab: "Main",
+          title: "Overwritten Tab",
+        },
+        {
+          as: "dumpMd",
+          doc: "targetDoc",
+          kind: "query",
+          output: "markdown",
+          tab: "Overwritten Tab",
+        },
+      ],
+    });
+
+    expect(res.ok).toBe(true);
+    const md = (res.dumped.dumpMd as { markdown: string }).markdown;
+    expect(md).toContain("Brand New Source Content");
+    expect(md).not.toContain("Old Target Content To Overwrite");
+  });
+
+  test("docCreate with fromTab seeds root tab t.0, renames it via tabTitle, sets tabAs alias, and avoids stray Tab 1", async () => {
+    const res = await applyScriptExecute({
+      dryRun: true,
+      steps: [
+        {
+          as: "templateDoc",
+          kind: "docCreate",
+          title: "Template Doc",
+        },
+        {
+          doc: "templateDoc",
+          kind: "markdownInsert",
+          markdown: "# Spec Template\n\n## Overview\n\nCore spec content.",
+        },
+        {
+          as: "plan",
+          dump: true,
+          fromDoc: "templateDoc",
+          fromTab: "Main",
+          kind: "docCreate",
+          tabAs: "overviewTab",
+          tabTitle: "Overview",
+          title: "My Spec Doc",
+        },
+        {
+          as: "archTab",
+          doc: "plan",
+          kind: "tabCreate",
+          title: "Architecture",
+          afterTab: "overviewTab",
+        },
+        {
+          as: "dumpOutline",
+          doc: "plan",
+          kind: "query",
+          output: "outline",
+        },
+        {
+          as: "dumpMd",
+          doc: "plan",
+          kind: "query",
+          output: "markdown",
+          tab: "overviewTab",
+        },
+      ],
+    });
+
+    expect(res.ok).toBe(true);
+    const outline = res.dumped.dumpOutline as { tabs: Array<{ tabTitle?: string }> };
+    expect(outline.tabs.length).toBe(2);
+    expect(outline.tabs[0]?.tabTitle).toBe("Overview");
+    expect(outline.tabs[1]?.tabTitle).toBe("Architecture");
+
+    const md = (res.dumped.dumpMd as { markdown: string }).markdown;
+    expect(md).toContain("# Spec Template");
+    expect(md).toContain("Core spec content.");
+
+    expect(res.dumped.overviewTab).toEqual({
+      alias: "overviewTab",
+      id: "t.0",
+      kind: "tab",
+      title: "Overview",
+    });
+  });
+
+  test("docCreate throws when fromTab is specified without fromDoc", async () => {
+    await expect(
+      applyScriptExecute({
+        dryRun: true,
+        steps: [
+          {
+            as: "plan",
+            fromTab: "Main",
+            kind: "docCreate",
+            title: "Invalid Doc",
+          },
+        ],
+      }),
+    ).rejects.toThrow(/"fromTab" requires "fromDoc"/);
+  });
+
   test("eager preflight pre-validates all docOpen targets before applying mutations", async () => {
     let batchUpdateCalls = 0;
     const mockClient = {
@@ -2109,6 +2330,49 @@ describe("applyScriptExecute", () => {
     );
     expect(res.ok).toBe(true);
     expect(createCalled).toBe(true);
+  });
+
+  test("blank docCreate renames root tab and binds tabAs", async () => {
+    let batchRequests: object[] = [];
+    const mockDocData = {
+      body: { content: [] },
+      documentId: "doc-blank-tab",
+      tabs: [{ tabProperties: { tabId: "t.0", title: "Architecture" } }],
+      title: "New Spec",
+    };
+    const mockClient = {
+      batchUpdate: async (_docId: string, reqs: object[]) => {
+        batchRequests = reqs;
+        return JSON.stringify({ replies: [] });
+      },
+      createDocument: async (title: string) => ({ documentId: "doc-blank-tab", title }),
+      getDocument: async () => structuredClone(mockDocData),
+      run: async () => JSON.stringify(mockDocData),
+    };
+
+    const res = await applyScriptExecute(
+      {
+        steps: [
+          {
+            as: "plan",
+            dump: true,
+            kind: "docCreate",
+            tabAs: "archTab",
+            tabTitle: "Architecture",
+            title: "New Spec",
+          },
+        ],
+      },
+      { client: mockClient },
+    );
+
+    expect(res.ok).toBe(true);
+    expect(batchRequests.some((r) => "updateDocumentTabProperties" in r)).toBe(true);
+    const dumpedPlan = res.dumped.plan as { tabs: Array<{ id: string; title: string }> };
+    expect(dumpedPlan.tabs[0]?.title).toBe("Architecture");
+    const dumpedTab = res.dumped.archTab as { id: string; title: string };
+    expect(dumpedTab.id).toBe("t.0");
+    expect(dumpedTab.title).toBe("Architecture");
   });
 
   test("textReplace with nodeAt replaces substring without wiping the paragraph", async () => {

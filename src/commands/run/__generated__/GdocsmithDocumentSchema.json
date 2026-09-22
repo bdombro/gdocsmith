@@ -136,6 +136,9 @@
           "$ref": "#/definitions/StepTabModify"
         },
         {
+          "$ref": "#/definitions/StepTabPopulate"
+        },
+        {
           "$ref": "#/definitions/StepTabRename"
         },
         {
@@ -159,9 +162,17 @@
           "type": "boolean",
           "description": "Dump document or tab metadata into `dumped[as]`."
         },
+        "force": {
+          "type": "boolean",
+          "description": "Force tab copy even if source contains uncloneable elements (chips/images/equations)."
+        },
         "fromDoc": {
           "type": "string",
           "description": "Optional source document ID or alias to copy from (creates blank document if omitted)."
+        },
+        "fromTab": {
+          "type": "string",
+          "description": "Optional source tab ID or title to populate the initial tab from (requires fromDoc)."
         },
         "kind": {
           "type": "string",
@@ -180,6 +191,14 @@
         "pageless": {
           "type": "boolean",
           "description": "Whether the document is in pageless mode (convenience alias for mode: \"PAGELESS\")."
+        },
+        "tabAs": {
+          "type": "string",
+          "description": "Optional alias to bind the initial tab ID (\"t.0\") to in the runtime session (when fromTab is provided)."
+        },
+        "tabTitle": {
+          "type": "string",
+          "description": "Optional title for the initial tab (defaults to source tab's title when fromTab is provided, or \"Main\")."
         },
         "title": {
           "type": "string",
@@ -1511,6 +1530,51 @@
       "required": ["doc", "kind", "tab"],
       "additionalProperties": false,
       "description": "Tab modification step (`kind: \"tabDelete\" | \"tabMove\" | \"tabReorder\"`)."
+    },
+    "StepTabPopulate": {
+      "type": "object",
+      "properties": {
+        "as": {
+          "type": "string",
+          "description": "Target alias to bind this tab ID to in the runtime session."
+        },
+        "doc": {
+          "type": "string",
+          "description": "Target document ID or alias."
+        },
+        "dump": {
+          "type": "boolean",
+          "description": "Dump document or tab metadata into `dumped[as]`."
+        },
+        "force": {
+          "type": "boolean",
+          "description": "Force overwrite if the target tab already contains content, or if source contains uncloneable elements."
+        },
+        "fromDoc": {
+          "type": "string",
+          "description": "Source document ID or alias when copying a tab across documents (defaults to doc)."
+        },
+        "fromTab": {
+          "type": "string",
+          "description": "Source tab ID or title to copy content from."
+        },
+        "kind": {
+          "type": "string",
+          "const": "tabPopulate",
+          "description": "Workflow step kind."
+        },
+        "tab": {
+          "type": "string",
+          "description": "Target tab ID, title, or alias to populate (e.g. \"Tab 1\" or \"t.0\")."
+        },
+        "title": {
+          "type": "string",
+          "description": "Optional new title to rename the target tab in place."
+        }
+      },
+      "required": ["doc", "fromTab", "kind", "tab"],
+      "additionalProperties": false,
+      "description": "Whole-tab population step into an existing tab (`kind: \"tabPopulate\"`)."
     },
     "StepTabRename": {
       "type": "object",

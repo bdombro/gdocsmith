@@ -90,15 +90,6 @@ Avoid needless extraction: keep single-use helpers in the calling file by defaul
 - Domain engine lives in `src/core/`; `dump: true` and `kind: query` extract metadata and matches into `dumped`.
 - Auth is `gws auth export` credentials; do not invent Google OAuth in this app.
 
-## Memory
-
-Durable context (decisions, rejections, footguns, open items, glossary) is stored in SQLite via the `thread-memory` MCP plugin.
-
-Before substantive work on scoped paths:
-- Call MCP `recall` with the file path (e.g. `path: "src/core/applyScript.ts"`) or a query.
-- Review returned decisions and footguns before implementing changes.
-- If a memory proved helpful or stale, call MCP `feedback` with its `id`.
-
 ## Engineering & Triage Principles
 
 ### 1. Not All Failures Need Fixing
@@ -156,4 +147,9 @@ Stop immediately and report to the user without attempting in-repo workarounds, 
   - ✅ inline helper in that command file
 - When moving features in/out of import barrels, update importers instead of import+export (re-exporting) from the former barrel
 - This app is not released yet so do not ever add backwards compat when making breaking changes
+
+<!-- thread-memory:managed -->
+Before substantive changes or architectural work, use `/thread-memory` to recall repository context.
+If this session is a disposable experiment, call `/thread-memory-ignore` once.
+<!-- /thread-memory:managed -->
 

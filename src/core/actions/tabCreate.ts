@@ -2,9 +2,7 @@
 
 import { docCache } from "~/core/cache/docCache.ts";
 import { elementSpecFromNode } from "~/core/dom/clone.ts";
-import { unclonableFromNode } from "~/core/dom/inlineSpecials.ts";
 import { parseDocument } from "~/core/dom/parse.ts";
-import type { DocNode } from "~/core/dom/types.ts";
 import { Gdoc } from "~/core/gdoc.ts";
 import { elementsInsertExecute } from "~/core/markdown.ts";
 import { RequestBuilder } from "~/core/requests.ts";
@@ -12,6 +10,7 @@ import { findTab, flattenTabs, resolveRelativeTabIndex, resolveTab } from "~/cor
 import type { DocTab } from "~/core/types.ts";
 import { pendingWritersFlush } from "./flush.ts";
 import { simulatedNodesOf, simulatedNodesSet } from "./simulated.ts";
+import { detectLossyTabElements, lossyTabCopyError } from "./tabLossyScan.ts";
 import type { WorkflowStepHandler } from "./types.ts";
 
 /** Adds a new document tab or copies an existing tab with its content. */
@@ -38,9 +37,11 @@ export const tabCreateStep: WorkflowStepHandler = async (
     throw new Error(`Tab title "${title}" already exists in document "${targetDoc.alias}". Tab titles must be unique.`);
   }
 
+  const afterTabHint = step.afterTab ? runtime.aliasResolve(step.afterTab) : undefined;
+  const beforeTabHint = step.beforeTab ? runtime.aliasResolve(step.beforeTab) : undefined;
   const targetIndex = resolveRelativeTabIndex(targetDoc.gdoc.data, {
-    afterTab: step.afterTab,
-    beforeTab: step.beforeTab,
+    afterTab: afterTabHint,
+    beforeTab: beforeTabHint,
     index: step.index,
   });
 
@@ -277,95 +278,3 @@ export const tabCreateStep: WorkflowStepHandler = async (
 
   runtime.stepsExecuted++;
 };
-
-/** Counts of REST-uncreatable primitives found while scanning a source tab. */
-type LossyTabCounts = {
-  /** Display titles of smart chips in scan order. */
-  chipTitles: string[];
-  /** Number of math equations. */
-  equations: number;
-  /** Number of footnote references. */
-  footnotes: number;
-  /** Number of horizontal rules. */
-  horizontalRules: number;
-  /** Number of inline images. */
-  images: number;
-  /** Number of Table of Contents nodes. */
-  toc: number;
-};
-
-/** Per-node issue list plus a one-line summary for MCP first-line truncation. */
-type LossyTabScan = {
-  /** Human-readable per-node issue lines. */
-  details: string[];
-  /** Compact count summary safe to put on the error's first line. */
-  summary: string;
-};
-
-/** Detects elements in source tab nodes that cannot be losslessly recreated by the Google Docs REST API. */
-function detectLossyTabElements(
-  /** Parsed source document tab nodes. */
-  nodes: DocNode[],
-): LossyTabScan {
-  const counts: LossyTabCounts = {
-    chipTitles: [],
-    equations: 0,
-    footnotes: 0,
-    horizontalRules: 0,
-    images: 0,
-    toc: 0,
-  };
-  const details: string[] = [];
-  for (const node of nodes) {
-    const msgs = unclonableFromNode(node);
-    details.push(...msgs);
-    for (const msg of msgs) {
-      const chip = msg.match(/(?:person chip|date chip|rich link chip|unsupported smart chip) "([^"]*)"/);
-      if (chip) counts.chipTitles.push(chip[1] || "chip");
-      else if (msg.includes("inline image")) counts.images++;
-      else if (msg.includes("math equation")) counts.equations++;
-      else if (msg.includes("footnote")) counts.footnotes++;
-      else if (msg.includes("Table of Contents")) counts.toc++;
-      else if (msg.includes("horizontal rule")) counts.horizontalRules++;
-    }
-  }
-  return { details, summary: lossyTabScanSummary(counts, details.length) };
-}
-
-/** Builds the fail-closed tabCreate error; first line stays actionable after MCP first-line truncation. */
-function lossyTabCopyError(
-  /** Zero-based workflow step index. */
-  stepIndex: number,
-  /** Source tab title shown to the caller. */
-  sourceTitle: string,
-  /** Scan of uncreatable primitives. */
-  scan: LossyTabScan,
-): string {
-  const issueList = scan.details.map((msg) => `  • ${msg}`).join("\n");
-  return (
-    `steps[${stepIndex}] tabCreate: cannot copy tab "${sourceTitle}" losslessly (${scan.summary}). Use the Google Docs UI (right-click the tab > Duplicate) or pass force: true for lossy conversion.\n` +
-    `${issueList}\n\n` +
-    `Google Docs REST API has no native tab duplication endpoint. Person, date, and rich-link chips and public https images are reconstructed; Drive-only images, footnotes, equations, unsupported chips, TOC, and horizontal rules cannot.`
-  );
-}
-
-/** Formats a compact one-line summary of uncreatable primitives. */
-function lossyTabScanSummary(
-  /** Accumulated counts from the source-tab scan. */
-  counts: LossyTabCounts,
-  /** Total unclonable detail lines, used when no category matched. */
-  detailCount: number,
-): string {
-  const parts: string[] = [];
-  if (counts.chipTitles.length > 0) {
-    const titles = counts.chipTitles.map((t) => `"${t}"`).join(", ");
-    parts.push(`${counts.chipTitles.length} smart chip(s): ${titles}`);
-  }
-  if (counts.images > 0) parts.push(`${counts.images} inline image(s)`);
-  if (counts.equations > 0) parts.push(`${counts.equations} math equation(s)`);
-  if (counts.footnotes > 0) parts.push(`${counts.footnotes} footnote(s)`);
-  if (counts.horizontalRules > 0) parts.push(`${counts.horizontalRules} horizontal rule(s)`);
-  if (counts.toc > 0) parts.push(`${counts.toc} table of contents`);
-  if (parts.length === 0 && detailCount > 0) parts.push(`${detailCount} uncreatable element(s)`);
-  return parts.join("; ");
-}

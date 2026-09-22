@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- E2E Scenario Catalog (`.cursor/skills/gdocsmith-e2e/scenarios.md`) defining focused prompt variations (`full-workflow`, `placeholder-preservation`, `leaf-section-transfer`, `multi-tab-structure`, `symbolic-linking`, `child-heading-guard`, `table-mutation`, `dry-run-inspection`), target turn budgets, and explicit success criteria.
+- Dev tooling scenario prompt resolver (`scripts/e2ePrompt.ts`) enabling targeted headless E2E testing of individual primitives and negative safety guard assertions.
+- Offline MCP JSON-RPC wire integration test suite (`tests/integration/mcpWire.test.ts`), `test-wire` justfile recipe, and `npm run test:wire` script verifying initialize/handshake, tool/resource discovery schemas, offline run/status execution, and fail-closed error framing over stdio without requiring Google API credentials or agent-e2e LLM tokens.
+- Single-step root tab initialization in `kind: "docCreate"` via `fromTab`, `tabTitle`, `tabAs`, and `force`, allowing agents to create a new document and seed its initial root `t.0` tab with content from a template tab in one step, eliminating orphan default tabs and protecting against Google Docs API 500 rename/move bugs.
+- Alias resolution for `afterTab` and `beforeTab` positioning in `tabCreate` and `tabMove`.
+- Dedicated `kind: "tabPopulate"` workflow step for whole-tab server-side cloning into an existing tab (e.g. populating and renaming a tab with content from another tab), protecting documents from upstream Google Docs API HTTP 500 rename/move errors.
+- Canonical Recipe 8 ("Multi-Tab Doc from Template Tabs (Single-Step Root Tab Seeding)") in `skills/gdocsmith/SKILL.md`.
+- Live API integration test suite (`tests/integration/fixtureWorkflow.test.ts`) cloning the canonical fixture template document (`1QuCvvolxaAVZ6DroVAxAoO7ClZFiPUOp7453MN7l-Yc`), validating document query AST export, surgical in-place section replacement, tab creation with cross-tab symbolic links, CLI stdin execution, and guaranteed Drive file cleanup.
+- Dedicated `just test-live` (alias `test-integration`) recipe and `npm run test:live` script for on-demand live Google Docs integration testing.
 - Direct placeholder targeting in `replace` and `replaceMarkdown` via `find:` (or text snippets in `nodeAt:`), allowing agents to replace placeholder paragraphs with rich formatted Markdown (lists, formatting, bold) while preserving child subsections.
 - Turn budget, batching ratio, recovery loops, and dry-run thrashing metrics tracking in `.cursor/skills/gdocsmith-e2e/SKILL.md`.
 - Extended cache usage: table-fill paths in `applyBatch` use `Gdoc.load` with revision-locked fills; lifecycle steps invalidate cache on delete/trash/rename; live `replace` clears cache after mutations; cross-doc clone resolution forwards the runtime client; dry-run workflows preload `docOpen` targets in parallel; `DriveClient.userDomainGet` memoizes workspace domain.
@@ -24,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Merged document cloning into `docCreate` via optional `fromDoc:` parameter, deprecating separate `docCopy` step.
 - In-memory `DomWriter` mutation accumulation across sequential workflow steps in `applyScriptExecute`, batching surgical mutations into a single `batchUpdate` request per document at script completion and eliminating N+1 API round trips.
 - Fail-closed validation on `tabCreate` with `fromTab:` when copying tabs containing leftovers the Docs REST API cannot reconstruct (Drive-only images, math equations, footnotes, unsupported chips, TOC), requiring `force: true` to proceed with lossy conversion and providing actionable instructions for Google Docs UI duplication. Recreatable person/date/richLink chips and public https images copy natively.
-- Automatic local plugin synchronization in `agent-e2e` recipe (`just install-plugin-cursor`).
+- Automatic local plugin synchronization for E2E runs (`just install-plugin-cursor`).
 - Document layout mode (`mode: "PAGES" | "PAGELESS"` and `pageless: boolean`) support in `PageSetup`, `buildDocumentStyleRequest`, and `pageSetupExtract`.
 - New `kind: "pageSetup"` workflow step supporting whole-doc and per-tab layout mode toggling and geometry updates.
 - Automatic layout mode detection in `query` dumps for single tabs and multi-tab documents.
@@ -36,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documented Cursor Auto-review guidelines for dry-run inspection in `run` operational notes and agent skill rules.
 
 ### Changed
+- Expanded `.cursor/skills/gdocsmith-e2e` to encapsulate standalone execution instructions via `reference.md` and direct `agent` command invocation, removing `agent-e2e` and `agent-e2e-list` from `justfile`.
+- Extracted shared REST uncreatable primitive scanning and actionable error formatting into `src/core/actions/tabLossyScan.ts`, reused across `tabCreate` and `tabPopulate`.
 - Upgraded `sectionCopy` to transfer AST node specs (`elementSpecFromNode`) directly between documents and tabs instead of round-tripping through Markdown export, losslessly preserving images, chips, styles, and tables.
 - Generalized `replaceSection` and `replaceMarkdown` to accept AST `ElementSpec[]` arrays directly alongside Markdown text.
 - Generalized child heading deletion protection in `replaceSection` across all heading levels (`TITLE`, `HEADING_1` through `HEADING_6`) instead of restricting to top-level headings, failing upfront with a descriptive error naming the child headings when a caller attempts to overwrite a parent section without `force: true` and ending with an explicit bypass instruction (`To bypass, pass force: true.`).
@@ -45,6 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tabCreate` with `fromTab` / `cloneNode` now reconstructs person, date, and rich-link chips plus public https images via native insert requests. Fail-closed still blocks Drive-only images, footnotes, equations, unsupported chips, TOC, and horizontal rules unless `force: true`.
 
 ### Fixed
+- Fixed blank `docCreate` to honor `tabTitle` (renaming the root `t.0` tab immediately via `updateDocumentTabProperties` on creation) and bind `tabAs`, matching the root tab initialization behavior of template-cloned document creation.
+- Fixed multi-chunk insertion sequential anchor tracking in `elementsInsertExecute` (`src/core/markdown.ts`), determining the next chunk insertion anchor by computing the tail offset in reloaded nodes instead of scanning with `parsedDoc.nodes.find(...)` which erroneously matched earlier empty paragraphs when a chunk ended with empty text `""`, preventing tables and subsequent sections from being misplaced.
+- Fixed `applyCompile` paragraph style clipping for empty paragraphs with inline specials (images and smart chips), inserting inline specials before emitting paragraph style requests and including `specialCount` in `rangeEnd` so `clipStyleRangeToSegment` no longer drops `updateParagraphStyle` requests, preventing inserted image paragraphs after headings from incorrectly inheriting `HEADING_*` styles and becoming empty child headings.
+- Fixed paragraph style range and segment end tracking in `applyCompile.ts` when compiling nested bullet lists: accounts for Google Docs API `createParagraphBullets` consuming leading indentation tabs (`\t`), preventing out-of-bounds `updateParagraphStyle` requests past the end of the segment.
 - Preserved bullet preset and numbering type when reconstructing `DocNode` from `ParagraphSpec` in `write.ts`, ensuring numbered decimal lists serialize properly.
 - Replaced paragraphs in `diffAndApplyMarkdown` when special content (images, smart chips) changes, preventing image loss during diff replacement.
 - Fixed `insertRichLink` request payload to omit `mimeType` and `title`, complying with Google Docs API requirements that rich link insertion requests must only specify `uri`.

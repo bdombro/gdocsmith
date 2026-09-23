@@ -12,7 +12,7 @@ import {
 } from "./element.ts";
 import { assertWritable } from "./guards.ts";
 import { createSymbolicLinkResolver } from "./linkResolver.ts";
-import { hasStyle, hasTableChrome, type StylePatch } from "./style.ts";
+import { hasStyle, hasTableChrome, queryTextStyleNormalize, type StylePatch } from "./style.ts";
 import {
   type CellParagraph,
   type DocNode,
@@ -21,6 +21,7 @@ import {
   isHeadingStyle,
   type NamedStyle,
   type ParagraphAlignment,
+  type QueryTextStyle,
   type TableCell,
 } from "./types.ts";
 
@@ -912,9 +913,14 @@ function applyPatchToTable(node: DocNode, patch: StylePatch): void {
   if (patch.minRowHeight != null) node.table.minRowHeight = patch.minRowHeight;
   if (patch.pinnedHeaderRows != null) node.table.pinnedHeaderRows = patch.pinnedHeaderRows;
   if (patch.preventOverflow != null) node.table.preventOverflow = patch.preventOverflow;
+  if (patch.cellBackground) {
+    // `cellBackground` on a table node fills every cell, per its StylePatch contract.
+    for (const row of node.table.cells) {
+      for (const cell of row) cell.backgroundColor = patch.cellBackground;
+    }
+  }
 }
 
-/** Applies paragraph layout and spacing style patch properties to target object. */
 /**
  * Builds a fabricated cell for a mirrored grid insert, borrowing offsets from a sibling.
  *
@@ -931,6 +937,54 @@ function gridClamp(at: number, length: number): number {
   return Math.min(Math.max(at, 0), length);
 }
 
+/**
+ * Mirrors the uniform run chrome (`italic` / `fontSize` / `foregroundColor`) of a style patch onto
+ * the target's `style`, so a later step in the same batch reads the restyled state.
+ *
+ * Default-dropping is delegated to {@link queryTextStyleNormalize}, the same rules the parser
+ * applies when reading a document, so a mirrored patch cannot disagree with a re-read. The rest of
+ * the character styling a patch can carry (bold, underline, strikethrough, fontFamily,
+ * backgroundColor) lives in `markup` as inline runs and is not mirrored — see `TAPE_INVISIBLE_KEYS`.
+ */
+function applyPatchToRunChrome(
+  /** Paragraph or cell paragraph receiving the patch. */
+  target: { style?: QueryTextStyle },
+  /** Style patch being applied. */
+  patch: StylePatch,
+): void {
+  const chrome = patchRunChrome(patch);
+  if (!Object.keys(chrome).length) return;
+  const merged = queryTextStyleNormalize({ ...target.style, ...chrome });
+  if (merged) target.style = merged;
+  else delete target.style;
+}
+
+/** Run-chrome properties a style patch sets, ignoring the ones it leaves alone. */
+function patchRunChrome(
+  /** Style patch being applied. */
+  patch: StylePatch,
+): QueryTextStyle {
+  const out: QueryTextStyle = {};
+  for (const key of RUN_CHROME_PATCH_KEYS) {
+    const value = patch[key];
+    if (value !== undefined) (out as Record<string, unknown>)[key] = value;
+  }
+  return out;
+}
+
+/** Style-patch keys that compile to run styling and are mirrored onto `DocNode.style`. */
+const RUN_CHROME_PATCH_KEYS = [
+  "backgroundColor",
+  "bold",
+  "fontFamily",
+  "fontSize",
+  "foregroundColor",
+  "italic",
+  "strikethrough",
+  "underline",
+] as const satisfies readonly (keyof StylePatch & keyof QueryTextStyle)[];
+
+/** Applies paragraph layout, spacing, and uniform run-chrome style patch properties to a target. */
 function applyPatchToPara(
   target: {
     alignment?: ParagraphAlignment;
@@ -941,9 +995,11 @@ function applyPatchToPara(
     shading?: string;
     spaceAbove?: number;
     spaceBelow?: number;
+    style?: QueryTextStyle;
   },
   patch: StylePatch,
 ): void {
+  applyPatchToRunChrome(target, patch);
   if (patch.alignment) target.alignment = patch.alignment;
   if (patch.lineSpacing != null) target.lineSpacing = patch.lineSpacing;
   if (patch.shading) target.shading = patch.shading;

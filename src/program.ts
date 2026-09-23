@@ -19,5 +19,5 @@ export const program = {
   },
   key: createIdentity.key,
   mcpServer: { enabled: true },
-  version: "1.0.5",
+  version: "1.0.6",
 } satisfies CliProgram;

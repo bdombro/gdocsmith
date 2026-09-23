@@ -44,7 +44,8 @@ export const textReplaceStep: WorkflowStepHandler = async (runtime, stepIndex, s
       if (targetNodes.length === 0) {
         throw new Error(`textReplace anchor "${anchorResolved}" did not match any nodes`);
       }
-      simulatedNodesTextReplace(targetNodes, step.find, replaceStr, step.matchCase ?? true);
+      const hits = simulatedNodesTextReplace(targetNodes, step.find, replaceStr, step.matchCase ?? true);
+      assertReplaced(hits, step, stepIndex);
       if (simulated) {
         simulatedNodesSet(targetDoc.gdoc, nodes, targetTabId);
       }
@@ -53,7 +54,7 @@ export const textReplaceStep: WorkflowStepHandler = async (runtime, stepIndex, s
     }
 
     await pendingWritersFlush(runtime, targetDoc.alias);
-    await regexReplaceExecute(targetDoc.docId, {
+    const scopedSummary = await regexReplaceExecute(targetDoc.docId, {
       at: anchorResolved,
       client: runtime.client,
       dryRun: false,
@@ -63,6 +64,7 @@ export const textReplaceStep: WorkflowStepHandler = async (runtime, stepIndex, s
       replace: replaceStr,
       tabHint: targetTabId,
     });
+    assertReplaced(scopedSummary.occurrencesChanged, step, stepIndex);
     targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
     runtime.stepsExecuted++;
     return;
@@ -78,28 +80,29 @@ export const textReplaceStep: WorkflowStepHandler = async (runtime, stepIndex, s
     const targetTabId = tabResolution?.tabId;
 
     if (runtime.dryRun || targetDoc.docId.startsWith("virtual:")) {
-      gdocTextReplace(targetDoc.gdoc.data, step.find, replaceStr, targetTabId, step.matchCase ?? true);
+      let hits = gdocTextReplace(targetDoc.gdoc.data, step.find, replaceStr, targetTabId, step.matchCase ?? true);
       const simGdoc = targetDoc.gdoc as SimulatedGdoc;
       if (targetTabId) {
         const simulated = simulatedNodesOf(targetDoc.gdoc, targetTabId);
         if (simulated) {
-          simulatedNodesTextReplace(simulated, step.find, replaceStr, step.matchCase ?? true);
+          hits += simulatedNodesTextReplace(simulated, step.find, replaceStr, step.matchCase ?? true);
         }
       } else {
         if (simGdoc.simulatedNodes) {
-          simulatedNodesTextReplace(simGdoc.simulatedNodes, step.find, replaceStr, step.matchCase ?? true);
+          hits += simulatedNodesTextReplace(simGdoc.simulatedNodes, step.find, replaceStr, step.matchCase ?? true);
         }
         if (simGdoc.simulatedTabs) {
           for (const tabNodes of simGdoc.simulatedTabs.values()) {
-            simulatedNodesTextReplace(tabNodes, step.find, replaceStr, step.matchCase ?? true);
+            hits += simulatedNodesTextReplace(tabNodes, step.find, replaceStr, step.matchCase ?? true);
           }
         }
       }
+      assertReplaced(hits, step, stepIndex);
       runtime.stepsExecuted++;
       return;
     }
 
-    await batchReplaceExecute(targetDoc.docId, {
+    const summary = await batchReplaceExecute(targetDoc.docId, {
       allTabs: step.allTabs ?? (!targetTabId ? true : undefined),
       client: runtime.client,
       dryRun: false,
@@ -107,6 +110,7 @@ export const textReplaceStep: WorkflowStepHandler = async (runtime, stepIndex, s
       replacements: [{ find: step.find, replace: replaceStr }],
       tabHint: targetTabId,
     });
+    assertReplaced(summary.occurrencesChanged, step, stepIndex);
     targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
     runtime.stepsExecuted++;
     return;
@@ -117,22 +121,50 @@ export const textReplaceStep: WorkflowStepHandler = async (runtime, stepIndex, s
   await surgicalMutationExecute(runtime, step, mutation, stepIndex);
 };
 
+/**
+ * Rejects a `find` that matched nothing, the way a mutation that changes nothing is rejected.
+ *
+ * A find string that never occurs means the caller's model of the document was wrong, so reporting
+ * success would hide the mistake behind `ok: true`.
+ */
+function assertReplaced(
+  /** Occurrences actually replaced. */
+  count: number,
+  /** Workflow step being executed. */
+  step: { find?: string },
+  /** Index of the step in the script. */
+  stepIndex: number,
+): void {
+  if (count > 0) return;
+  throw new Error(
+    `steps[${stepIndex}] textReplace: find "${step.find}" matched nothing, so nothing was replaced. ` +
+      "find is exact and case-sensitive unless matchCase: false.",
+  );
+}
+
 /** Escapes special regex characters in a literal string. */
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** In-memory plain text replacement on a GoogleDoc AST. */
-function gdocTextReplace(data: GoogleDoc, find: string, replace: string, tabId?: string, matchCase = true): void {
+/** In-memory plain text replacement on a GoogleDoc AST. Returns the number of occurrences replaced. */
+function gdocTextReplace(data: GoogleDoc, find: string, replace: string, tabId?: string, matchCase = true): number {
   const flags = matchCase ? "g" : "gi";
   const regex = new RegExp(escapeRegExp(find), flags);
+  let count = 0;
+  /** Replaces every hit in one string, tallying occurrences. */
+  const swap = (value: string): string =>
+    value.replace(regex, () => {
+      count++;
+      return replace;
+    });
 
   function replaceInElements(elements: DocElement[] | undefined): void {
     for (const el of elements ?? []) {
       if (el.paragraph?.elements) {
         for (const pe of el.paragraph.elements) {
           if (pe.textRun?.content) {
-            pe.textRun.content = pe.textRun.content.replace(regex, replace);
+            pe.textRun.content = swap(pe.textRun.content);
           }
         }
       }
@@ -160,29 +192,39 @@ function gdocTextReplace(data: GoogleDoc, find: string, replace: string, tabId?:
   } else if (data.body?.content) {
     replaceInElements(data.body.content as DocElement[]);
   }
+  return count;
 }
 
-/** In-memory plain text replacement on simulated DocNodes. */
-function simulatedNodesTextReplace(nodes: DocNode[], find: string, replace: string, matchCase = true): void {
+/** In-memory plain text replacement on simulated DocNodes. Returns the number of occurrences replaced. */
+function simulatedNodesTextReplace(nodes: DocNode[], find: string, replace: string, matchCase = true): number {
   const flags = matchCase ? "g" : "gi";
   const regex = new RegExp(escapeRegExp(find), flags);
+  let count = 0;
+  /** Replaces every hit in one string, tallying occurrences. */
+  const swap = (value: string): string =>
+    value.replace(regex, () => {
+      count++;
+      return replace;
+    });
+
   for (const node of nodes) {
     if (node.text) {
-      node.text = node.text.replace(regex, replace);
+      node.text = swap(node.text);
     }
     if (node.markup) {
+      // Markup carries the same text, so its hits are not counted a second time.
       node.markup = node.markup.replace(regex, replace);
     }
     if (node.table?.cells) {
       for (const row of node.table.cells) {
         for (const cell of row) {
           if (cell.text) {
-            cell.text = cell.text.replace(regex, replace);
+            cell.text = swap(cell.text);
           }
           if (cell.paragraphs) {
             for (const p of cell.paragraphs) {
               if (p.text) {
-                p.text = p.text.replace(regex, replace);
+                p.text = swap(p.text);
               }
             }
           }
@@ -190,4 +232,5 @@ function simulatedNodesTextReplace(nodes: DocNode[], find: string, replace: stri
       }
     }
   }
+  return count;
 }

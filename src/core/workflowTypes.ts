@@ -248,8 +248,6 @@ export interface StepQuery extends BaseStepInput {
 
 /** Node or section removal step (`kind: "remove" | "dangerousRemoveSection"`). */
 export interface StepRemove extends BaseStepInput {
-  /** Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake. */
-  allowNoop?: boolean;
   /** Remove entire section below heading. */
   dangerousRemoveSection?: boolean;
   /** Target document ID or alias. */
@@ -268,8 +266,6 @@ export interface StepRemove extends BaseStepInput {
 
 /** In-place text replacement step (`kind: "replace" | "innerText"`). */
 export interface StepReplace extends BaseStepInput {
-  /** Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake. */
-  allowNoop?: boolean;
   /** Paragraph or table-cell alignment (START / CENTER / END / JUSTIFIED). */
   alignment?: TapeMutation["alignment"];
   /** Target document ID or alias. */
@@ -298,8 +294,6 @@ export interface StepReplace extends BaseStepInput {
 
 /** Single-node markdown replacement step (`kind: "replaceMarkdown"`). */
 export interface StepReplaceMarkdown extends BaseStepInput {
-  /** Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake. */
-  allowNoop?: boolean;
   /** Anchor alias or binding for newly created elements. */
   as?: string;
   /** Target document ID or alias. */
@@ -326,8 +320,6 @@ export interface StepReplaceMarkdown extends BaseStepInput {
 
 /** Section-level auto-diffing replacement step (`kind: "replaceSection"`). */
 export interface StepReplaceSection extends BaseStepInput {
-  /** Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake. */
-  allowNoop?: boolean;
   /** Anchor alias or binding for newly created elements. */
   as?: string;
   /** Target document ID or alias. */
@@ -358,8 +350,6 @@ export interface StepReplaceSection extends BaseStepInput {
 
 /** Server-side section transfer step across documents or tabs (`kind: "sectionCopy"`). */
 export interface StepSectionCopy extends BaseStepInput {
-  /** Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake. */
-  allowNoop?: boolean;
   /** Anchor alias or binding for newly created elements. */
   as?: string;
   /** Target document ID or alias. */
@@ -386,8 +376,6 @@ export interface StepSectionCopy extends BaseStepInput {
 
 /** Surgical DOM and tape mutation step (`kind: "surgical"`). */
 export interface StepSurgical extends BaseStepInput {
-  /** Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake. */
-  allowNoop?: boolean;
   /** Paragraph or table-cell alignment (START / CENTER / END / JUSTIFIED). */
   alignment?: TapeMutation["alignment"];
   /** Anchor alias or binding for newly created elements. */
@@ -528,8 +516,6 @@ export interface StepTabRename extends BaseStepInput {
 
 /** Plain find-and-replace text step (`kind: "textReplace"`). */
 export interface StepTextReplace extends BaseStepInput {
-  /** Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake. */
-  allowNoop?: boolean;
   /** Replace all occurrences across all tabs. */
   allTabs?: boolean;
   /** Target document ID or alias. */

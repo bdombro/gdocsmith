@@ -399,7 +399,7 @@ describe("applyScriptExecute", () => {
     };
 
     // `full: true` bypasses the unfiltered node cap, so only the size guard catches this.
-    await expect(applyScriptExecute(doc)).rejects.toThrow(/serializing to ~[\d,]+ characters/);
+    await expect(applyScriptExecute(doc)).rejects.toThrow(/~[\d,]+ characters \(cap [\d,]+\)/);
     await expect(applyScriptExecute(doc)).rejects.toThrow("effi[ci]ent");
   });
 
@@ -436,20 +436,6 @@ describe("applyScriptExecute", () => {
           }),
         ),
       ).rejects.toThrow("changed nothing");
-    });
-
-    test("allowNoop accepts an intentional no-op", async () => {
-      await expect(
-        applyScriptExecute(
-          script({
-            allowNoop: true,
-            doc: "doc1",
-            kind: "replace",
-            nodeAt: "Unchanged line.",
-            replace: "Unchanged line.",
-          }),
-        ),
-      ).resolves.toBeDefined();
     });
 
     test("accepts a replaceMarkdown that changes only inline styling", async () => {
@@ -497,6 +483,26 @@ describe("applyScriptExecute", () => {
   });
 
   test("docOpen, docClose, and nodeAt/nodeAfter/nodeBefore work in workflow steps", async () => {
+    // Served from memory: docOpen fetches even under dryRun, so a real id here would make this
+    // test depend on the network (and time out when it is slow or unavailable).
+    const mockClient = {
+      batchUpdate: async () => "{}",
+      getDocument: async () => ({
+        documentId: "openCloseDoc",
+        tabs: [
+          {
+            documentTab: {
+              body: {
+                content: [{ endIndex: 1, paragraph: { elements: [{ textRun: { content: "\n" } }] }, startIndex: 0 }],
+              },
+            },
+            tabProperties: { tabId: "t.0", title: "Main" },
+          },
+        ],
+        title: "Doc Open Close Test",
+      }),
+    } as unknown as import("./gws.ts").GwsClient;
+
     const doc: GdocsmithDocument = {
       dryRun: true,
       steps: [
@@ -511,7 +517,7 @@ describe("applyScriptExecute", () => {
         },
         {
           as: "doc1",
-          doc: "fake-doc-id-12345",
+          doc: "openCloseDoc",
           kind: "docOpen",
         },
         {
@@ -528,7 +534,7 @@ describe("applyScriptExecute", () => {
       ],
     };
 
-    const res = await applyScriptExecute(doc);
+    const res = await applyScriptExecute(doc, { client: mockClient });
     expect(res.ok).toBe(true);
     expect(res.stepsCount).toBe(5);
     const nodes = res.dumped.statusQuery as Array<{ id: string; text?: string }>;
@@ -540,7 +546,7 @@ describe("applyScriptExecute", () => {
       steps: [
         {
           as: "doc1",
-          doc: "fake-doc-id-12345",
+          doc: "openCloseDoc",
           kind: "docOpen",
         },
         {
@@ -563,7 +569,7 @@ describe("applyScriptExecute", () => {
       ],
     };
 
-    const mutateRes = await applyScriptExecute(mutateDoc);
+    const mutateRes = await applyScriptExecute(mutateDoc, { client: mockClient });
     expect(mutateRes.ok).toBe(true);
     expect(mutateRes.stepsCount).toBe(4);
     expect(mutateRes.diff).toContain("+Status: DONE");
@@ -612,6 +618,34 @@ describe("applyScriptExecute", () => {
 
   test("resolves raw doc ID if document is already open in session", async () => {
     const rawDocId = "1Gp-Qqt5sv4KUucL__-rYEoSXBrHLtku9g8AF8peK-FU";
+    // Alias resolution is pure session bookkeeping; served from memory so the test stays offline.
+    const mockClient = {
+      batchUpdate: async () => "{}",
+      getDocument: async () => ({
+        documentId: rawDocId,
+        tabs: [
+          {
+            documentTab: {
+              body: {
+                content: [
+                  {
+                    endIndex: 9,
+                    paragraph: {
+                      elements: [{ textRun: { content: "Overview\n" } }],
+                      paragraphStyle: { namedStyleType: "HEADING_1" },
+                    },
+                    startIndex: 0,
+                  },
+                ],
+              },
+            },
+            tabProperties: { tabId: "t.0", title: "Main" },
+          },
+        ],
+        title: "Raw Doc Id Test",
+      }),
+    } as unknown as import("./gws.ts").GwsClient;
+
     const doc: GdocsmithDocument = {
       dryRun: true,
       steps: [
@@ -627,7 +661,7 @@ describe("applyScriptExecute", () => {
         },
       ],
     };
-    const result = await applyScriptExecute(doc);
+    const result = await applyScriptExecute(doc, { client: mockClient });
     expect(result.ok).toBe(true);
   });
 
@@ -1038,6 +1072,37 @@ describe("applyScriptExecute", () => {
     const checkResult = res.dumped.checkResult as { markdown: string };
     expect(checkResult.markdown).toContain("Upgrade legacy automations");
     expect(checkResult.markdown).not.toContain("<Project Spec Title in 3-8 words>");
+  });
+
+  describe("textReplace rejects a find that matched nothing", () => {
+    const script = (last: GdocsmithStepInput): GdocsmithDocument => ({
+      dryRun: true,
+      steps: [
+        { as: "doc1", kind: "docCreate", title: "Absent Find" },
+        { doc: "doc1", kind: "markdownInsert", markdown: "# Overview\n\nBody text here." },
+        last,
+      ],
+    });
+
+    test("document-wide", async () => {
+      await expect(
+        applyScriptExecute(script({ doc: "doc1", find: "zzz-absent", kind: "textReplace", replace: "x" })),
+      ).rejects.toThrow('find "zzz-absent" matched nothing');
+    });
+
+    test("scoped to an anchor that exists", async () => {
+      await expect(
+        applyScriptExecute(
+          script({ doc: "doc1", find: "zzz-absent", kind: "textReplace", nodeAt: "Overview", replace: "x" }),
+        ),
+      ).rejects.toThrow('find "zzz-absent" matched nothing');
+    });
+
+    test("a find that does match still succeeds", async () => {
+      await expect(
+        applyScriptExecute(script({ doc: "doc1", find: "Body text", kind: "textReplace", replace: "New text" })),
+      ).resolves.toBeDefined();
+    });
   });
 
   test("docCreate with fromDoc in dryRun clones multi-tab doc and allows chained edits", async () => {

@@ -257,12 +257,30 @@ export type ParagraphAlignment = "START" | "CENTER" | "END" | "JUSTIFIED";
  * Uniform run chrome dumped on query when it is not Docs defaults.
  */
 export type QueryTextStyle = {
+  /** Hex text highlight color string. */
+  backgroundColor?: string;
+  /** Superscript or subscript offset; omitted when text sits on the baseline. */
+  baselineOffset?: "SUBSCRIPT" | "SUPERSCRIPT";
+  /** Bold formatting flag. */
+  bold?: boolean;
+  /** Font family name. */
+  fontFamily?: string;
   /** Font size in points. */
   fontSize?: number;
+  /** Font weight (100–900) when the document sets one explicitly. */
+  fontWeight?: number;
   /** Hex foreground color string. */
   foregroundColor?: string;
   /** Italic formatting flag. */
   italic?: boolean;
+  /** Link destination URL. */
+  link?: string;
+  /** Small-caps formatting flag. */
+  smallCaps?: boolean;
+  /** Strikethrough formatting flag. */
+  strikethrough?: boolean;
+  /** Underline formatting flag. */
+  underline?: boolean;
 };
 
 /**

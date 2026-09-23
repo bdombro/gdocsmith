@@ -388,15 +388,54 @@ export function queryTextStyleUniform(
 ): QueryTextStyle | undefined {
   if (!styles.length) return undefined;
   const chromes = styles.map(readRunChrome);
+  /** The shared value of a property across every run, or undefined when runs disagree. */
+  const uniform = <K extends keyof QueryTextStyle>(key: K): QueryTextStyle[K] | undefined => {
+    const values = chromes.map((c) => c[key]);
+    return values.every((v) => v === values[0]) ? values[0] : undefined;
+  };
+  return queryTextStyleNormalize({
+    backgroundColor: uniform("backgroundColor"),
+    baselineOffset: uniform("baselineOffset"),
+    bold: uniform("bold"),
+    fontFamily: uniform("fontFamily"),
+    fontSize: uniform("fontSize"),
+    fontWeight: uniform("fontWeight"),
+    foregroundColor: uniform("foregroundColor"),
+    italic: uniform("italic"),
+    link: uniform("link"),
+    smallCaps: uniform("smallCaps"),
+    strikethrough: uniform("strikethrough"),
+    underline: uniform("underline"),
+  });
+}
+
+/** Boolean run properties recorded only when true, since false is the document default. */
+const QUERY_TEXT_STYLE_FLAGS = ["bold", "italic", "smallCaps", "strikethrough", "underline"] as const;
+
+/**
+ * Drops document defaults from candidate run chrome, yielding the `QueryTextStyle` a node carries.
+ *
+ * The single place these rules live: flags are recorded only when true, and size and foreground
+ * color only when they differ from the document default. Both the parser (reading a document) and
+ * the writer (mirroring a style patch onto the tape) normalize through here, so a mirrored patch
+ * and a re-read of the same document cannot disagree.
+ */
+export function queryTextStyleNormalize(
+  /** Candidate uniform run styling, before defaults are dropped. */
+  chrome: QueryTextStyle,
+): QueryTextStyle | undefined {
   const out: QueryTextStyle = {};
-  if (chromes.every((c) => c.italic)) out.italic = true;
-  const sizes = chromes.map((c) => c.fontSize);
-  if (sizes.every((s) => s === sizes[0]) && sizes[0] != null && sizes[0] !== DEFAULT_FONT_SIZE_PT) {
-    out.fontSize = sizes[0];
+  for (const flag of QUERY_TEXT_STYLE_FLAGS) {
+    if (chrome[flag]) out[flag] = true;
   }
-  const colors = chromes.map((c) => c.foregroundColor);
-  if (colors.every((c) => c === colors[0]) && colors[0] && colors[0].toUpperCase() !== DEFAULT_FOREGROUND) {
-    out.foregroundColor = colors[0];
+  if (chrome.baselineOffset) out.baselineOffset = chrome.baselineOffset;
+  if (chrome.fontFamily) out.fontFamily = chrome.fontFamily;
+  if (chrome.fontWeight != null) out.fontWeight = chrome.fontWeight;
+  if (chrome.link) out.link = chrome.link;
+  if (chrome.backgroundColor) out.backgroundColor = chrome.backgroundColor;
+  if (chrome.fontSize != null && chrome.fontSize !== DEFAULT_FONT_SIZE_PT) out.fontSize = chrome.fontSize;
+  if (chrome.foregroundColor && chrome.foregroundColor.toUpperCase() !== DEFAULT_FOREGROUND) {
+    out.foregroundColor = chrome.foregroundColor;
   }
   return Object.keys(out).length ? out : undefined;
 }
@@ -407,38 +446,60 @@ export function queryTextStyleUniform(
 export const uniformQueryTextStyle = queryTextStyleUniform;
 
 /**
- * Extracts non-default run styling (fontSize, foregroundColor, italic) from a Docs textStyle object.
+ * Extracts every run styling property a Docs `textStyle` can carry.
+ *
+ * Mirrors the Docs `TextStyle` resource one-for-one so a query reports what the document actually
+ * says. Defaults are kept here and dropped later by {@link queryTextStyleNormalize}.
  */
 export function runChromeRead(
   /** Raw textStyle dictionary from a Docs textRun. */
   style: Record<string, unknown> | undefined,
-): {
-  fontSize?: number;
-  foregroundColor?: string;
-  italic: boolean;
-} {
+): QueryTextStyle {
   const s = style ?? {};
-  const font = s.fontSize;
-  let fontSize: number | undefined;
-  if (font && typeof font === "object" && font !== null && "magnitude" in font) {
-    const mag = (font as { magnitude?: unknown }).magnitude;
-    if (typeof mag === "number") fontSize = mag;
-  }
-  const fg = s.foregroundColor;
-  let foregroundColor: string | undefined;
-  if (fg && typeof fg === "object" && fg !== null) {
-    const rgb = (
-      fg as {
-        color?: { rgbColor?: { blue?: number; green?: number; red?: number } };
-      }
-    ).color?.rgbColor;
-    foregroundColor = colorHex(rgb);
-  }
+  const offset = s.baselineOffset;
+  const weighted = s.weightedFontFamily as { fontFamily?: unknown; weight?: unknown } | undefined;
+  const fontFamily = typeof weighted?.fontFamily === "string" ? weighted.fontFamily : undefined;
+  const fontWeight = typeof weighted?.weight === "number" ? weighted.weight : undefined;
+  const link = (s.link as { url?: unknown } | undefined)?.url;
   return {
-    italic: s.italic === true,
-    ...(fontSize != null ? { fontSize } : {}),
-    ...(foregroundColor ? { foregroundColor } : {}),
+    ...(s.bold === true ? { bold: true } : {}),
+    ...(s.italic === true ? { italic: true } : {}),
+    ...(s.smallCaps === true ? { smallCaps: true } : {}),
+    ...(s.strikethrough === true ? { strikethrough: true } : {}),
+    ...(s.underline === true ? { underline: true } : {}),
+    ...(offset === "SUBSCRIPT" || offset === "SUPERSCRIPT" ? { baselineOffset: offset } : {}),
+    ...(fontFamily ? { fontFamily } : {}),
+    ...(fontWeight != null ? { fontWeight } : {}),
+    ...(typeof link === "string" && link ? { link } : {}),
+    ...optionalDimension("fontSize", s.fontSize),
+    ...optionalColorHex("backgroundColor", s.backgroundColor),
+    ...optionalColorHex("foregroundColor", s.foregroundColor),
   };
+}
+
+/** Reads a Docs `Dimension` magnitude into a named field, or nothing when absent. */
+function optionalDimension(
+  /** Field name to emit. */
+  key: "fontSize",
+  /** Raw Docs Dimension value. */
+  raw: unknown,
+): { fontSize?: number } {
+  if (!raw || typeof raw !== "object" || !("magnitude" in raw)) return {};
+  const mag = (raw as { magnitude?: unknown }).magnitude;
+  return typeof mag === "number" ? { [key]: mag } : {};
+}
+
+/** Reads a Docs `OptionalColor` into a named hex field, or nothing when absent. */
+function optionalColorHex<K extends "backgroundColor" | "foregroundColor">(
+  /** Field name to emit. */
+  key: K,
+  /** Raw Docs OptionalColor value. */
+  raw: unknown,
+): Partial<Record<K, string>> {
+  if (!raw || typeof raw !== "object") return {};
+  const rgb = (raw as { color?: { rgbColor?: { blue?: number; green?: number; red?: number } } }).color?.rgbColor;
+  const hex = colorHex(rgb);
+  return hex ? ({ [key]: hex } as Record<K, string>) : {};
 }
 
 /**

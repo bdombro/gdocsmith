@@ -1,10 +1,10 @@
-/* Pins TAPE_INVISIBLE_KEYS to measured writer behavior so the no-op check cannot silently drift. */
+/* Pins the no-op check exemption lists to measured DomWriter behavior so they cannot silently drift. */
 
 import { describe, expect, test } from "bun:test";
 import { applyOps, summarizeNode } from "~/core/dom/ops.ts";
 import type { DocNode } from "~/core/dom/types.ts";
 import { DomWriter } from "~/core/dom/write.ts";
-import { TAPE_INVISIBLE_KEYS } from "./surgicalMutation.ts";
+import { STYLE_PROPS_INVISIBLE, TAPE_INVISIBLE_KEYS } from "./surgicalMutation.ts";
 
 /** Fixture tape: a heading, a paragraph, and a 2x2 table. */
 const tapeFixture = (): DocNode[] => [
@@ -66,6 +66,64 @@ describe("tapeInvisibleKeysMatchReality", () => {
   test("runs stays exempt: it rides along with content and still never reaches the tape", () => {
     expect(tapeReflects(20, { replace: "Hello world", runs: [{ bold: true, end: 5, start: 0 }] })).toBe(false);
     expect(TAPE_INVISIBLE_KEYS.has("runs")).toBe(true);
+  });
+});
+
+/** Every `StylePatch` property, with a sample value and the fixture node it applies to. */
+const STYLE_PROPS: Array<{ at: number; prop: string; value: unknown }> = [
+  { at: 20, prop: "alignment", value: "CENTER" },
+  { at: 20, prop: "backgroundColor", value: "#ffff00" },
+  { at: 20, prop: "bold", value: true },
+  { at: 20, prop: "fontFamily", value: "Courier New" },
+  { at: 20, prop: "fontSize", value: 18 },
+  { at: 20, prop: "foregroundColor", value: "#ff0000" },
+  { at: 20, prop: "indentEnd", value: 9 },
+  { at: 20, prop: "indentFirstLine", value: 0 },
+  { at: 20, prop: "indentStart", value: 18 },
+  { at: 20, prop: "italic", value: true },
+  { at: 20, prop: "lineSpacing", value: 150 },
+  { at: 20, prop: "shading", value: "#eeeeee" },
+  { at: 20, prop: "spaceAbove", value: 6 },
+  { at: 20, prop: "spaceBelow", value: 6 },
+  { at: 20, prop: "strikethrough", value: true },
+  { at: 20, prop: "underline", value: true },
+  { at: 30, prop: "borderColor", value: "#ff0000" },
+  { at: 30, prop: "borderWidth", value: 2 },
+  { at: 30, prop: "cellBackground", value: "#eeeeee" },
+  { at: 30, prop: "cellPadding", value: 4 },
+  { at: 30, prop: "columnWidth", value: 100 },
+  { at: 30, prop: "contentAlignment", value: "MIDDLE" },
+  { at: 30, prop: "minRowHeight", value: 20 },
+  { at: 30, prop: "pinnedHeaderRows", value: 1 },
+  { at: 30, prop: "preventOverflow", value: true },
+];
+
+describe("styleInvisiblePropsMatchReality", () => {
+  for (const { at, prop, value } of STYLE_PROPS) {
+    test(`style.${prop} exemption matches whether it reaches the tape`, () => {
+      expect(STYLE_PROPS_INVISIBLE.has(prop)).toBe(!tapeReflects(at, { style: { [prop]: value } }));
+    });
+  }
+
+  test("mirrored run chrome follows the parser's rules for defaults", () => {
+    const writer = new DomWriter(tapeFixture());
+    applyOps(writer, [{ at: 20, style: { bold: true, fontSize: 18, underline: true } }] as never);
+    expect(summarizeNode(writer.nodes[1]!, { full: true }).style).toEqual({
+      bold: true,
+      fontSize: 18,
+      underline: true,
+    });
+
+    // The parser records neither a false flag nor the default size, so neither is mirrored.
+    applyOps(writer, [{ at: 20, style: { bold: false, fontSize: 11, underline: false } }] as never);
+    expect(summarizeNode(writer.nodes[1]!, { full: true }).style).toBeUndefined();
+  });
+
+  test("cellBackground on a table node fills every cell", () => {
+    const writer = new DomWriter(tapeFixture());
+    applyOps(writer, [{ at: 30, style: { cellBackground: "#eeeeee" } }] as never);
+    const cells = summarizeNode(writer.nodes[2]!, { full: true }).table?.cells;
+    expect(cells?.flat().map((c) => c.backgroundColor)).toEqual(["#eeeeee", "#eeeeee", "#eeeeee", "#eeeeee"]);
   });
 });
 

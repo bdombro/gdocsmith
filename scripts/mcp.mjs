@@ -13451,40 +13451,84 @@ function queryTextStyleUniform(styles) {
   if (!styles.length)
     return;
   const chromes = styles.map(readRunChrome);
+  const uniform = (key) => {
+    const values = chromes.map((c) => c[key]);
+    return values.every((v) => v === values[0]) ? values[0] : undefined;
+  };
+  return queryTextStyleNormalize({
+    backgroundColor: uniform("backgroundColor"),
+    baselineOffset: uniform("baselineOffset"),
+    bold: uniform("bold"),
+    fontFamily: uniform("fontFamily"),
+    fontSize: uniform("fontSize"),
+    fontWeight: uniform("fontWeight"),
+    foregroundColor: uniform("foregroundColor"),
+    italic: uniform("italic"),
+    link: uniform("link"),
+    smallCaps: uniform("smallCaps"),
+    strikethrough: uniform("strikethrough"),
+    underline: uniform("underline")
+  });
+}
+var QUERY_TEXT_STYLE_FLAGS = ["bold", "italic", "smallCaps", "strikethrough", "underline"];
+function queryTextStyleNormalize(chrome) {
   const out = {};
-  if (chromes.every((c) => c.italic))
-    out.italic = true;
-  const sizes = chromes.map((c) => c.fontSize);
-  if (sizes.every((s) => s === sizes[0]) && sizes[0] != null && sizes[0] !== DEFAULT_FONT_SIZE_PT) {
-    out.fontSize = sizes[0];
+  for (const flag of QUERY_TEXT_STYLE_FLAGS) {
+    if (chrome[flag])
+      out[flag] = true;
   }
-  const colors = chromes.map((c) => c.foregroundColor);
-  if (colors.every((c) => c === colors[0]) && colors[0] && colors[0].toUpperCase() !== DEFAULT_FOREGROUND) {
-    out.foregroundColor = colors[0];
+  if (chrome.baselineOffset)
+    out.baselineOffset = chrome.baselineOffset;
+  if (chrome.fontFamily)
+    out.fontFamily = chrome.fontFamily;
+  if (chrome.fontWeight != null)
+    out.fontWeight = chrome.fontWeight;
+  if (chrome.link)
+    out.link = chrome.link;
+  if (chrome.backgroundColor)
+    out.backgroundColor = chrome.backgroundColor;
+  if (chrome.fontSize != null && chrome.fontSize !== DEFAULT_FONT_SIZE_PT)
+    out.fontSize = chrome.fontSize;
+  if (chrome.foregroundColor && chrome.foregroundColor.toUpperCase() !== DEFAULT_FOREGROUND) {
+    out.foregroundColor = chrome.foregroundColor;
   }
   return Object.keys(out).length ? out : undefined;
 }
 var uniformQueryTextStyle = queryTextStyleUniform;
 function runChromeRead(style) {
   const s = style ?? {};
-  const font = s.fontSize;
-  let fontSize;
-  if (font && typeof font === "object" && font !== null && "magnitude" in font) {
-    const mag = font.magnitude;
-    if (typeof mag === "number")
-      fontSize = mag;
-  }
-  const fg = s.foregroundColor;
-  let foregroundColor;
-  if (fg && typeof fg === "object" && fg !== null) {
-    const rgb = fg.color?.rgbColor;
-    foregroundColor = colorHex(rgb);
-  }
+  const offset = s.baselineOffset;
+  const weighted = s.weightedFontFamily;
+  const fontFamily = typeof weighted?.fontFamily === "string" ? weighted.fontFamily : undefined;
+  const fontWeight = typeof weighted?.weight === "number" ? weighted.weight : undefined;
+  const link = s.link?.url;
   return {
-    italic: s.italic === true,
-    ...fontSize != null ? { fontSize } : {},
-    ...foregroundColor ? { foregroundColor } : {}
+    ...s.bold === true ? { bold: true } : {},
+    ...s.italic === true ? { italic: true } : {},
+    ...s.smallCaps === true ? { smallCaps: true } : {},
+    ...s.strikethrough === true ? { strikethrough: true } : {},
+    ...s.underline === true ? { underline: true } : {},
+    ...offset === "SUBSCRIPT" || offset === "SUPERSCRIPT" ? { baselineOffset: offset } : {},
+    ...fontFamily ? { fontFamily } : {},
+    ...fontWeight != null ? { fontWeight } : {},
+    ...typeof link === "string" && link ? { link } : {},
+    ...optionalDimension("fontSize", s.fontSize),
+    ...optionalColorHex("backgroundColor", s.backgroundColor),
+    ...optionalColorHex("foregroundColor", s.foregroundColor)
   };
+}
+function optionalDimension(key, raw) {
+  if (!raw || typeof raw !== "object" || !("magnitude" in raw))
+    return {};
+  const mag = raw.magnitude;
+  return typeof mag === "number" ? { [key]: mag } : {};
+}
+function optionalColorHex(key, raw) {
+  if (!raw || typeof raw !== "object")
+    return {};
+  const rgb = raw.color?.rgbColor;
+  const hex = colorHex(rgb);
+  return hex ? { [key]: hex } : {};
 }
 var readRunChrome = runChromeRead;
 function styleHas(patch) {
@@ -18392,6 +18436,8 @@ function tapeFingerprint(nodes) {
 }
 function summarizeCell(cell, id) {
   const out = { id: cell.scopedId ?? id, text: cell.text };
+  if ("backgroundColor" in cell && cell.backgroundColor)
+    out.backgroundColor = cell.backgroundColor;
   if (cell.fontColors?.length)
     out.fontColors = cell.fontColors;
   if (cell.alignment)
@@ -20595,6 +20641,12 @@ function applyPatchToTable(node, patch) {
     node.table.pinnedHeaderRows = patch.pinnedHeaderRows;
   if (patch.preventOverflow != null)
     node.table.preventOverflow = patch.preventOverflow;
+  if (patch.cellBackground) {
+    for (const row of node.table.cells) {
+      for (const cell of row)
+        cell.backgroundColor = patch.cellBackground;
+    }
+  }
 }
 function gridCell(source, text) {
   return { end: source?.end ?? 0, start: source?.start ?? 0, text };
@@ -20602,7 +20654,37 @@ function gridCell(source, text) {
 function gridClamp(at, length) {
   return Math.min(Math.max(at, 0), length);
 }
+function applyPatchToRunChrome(target, patch) {
+  const chrome = patchRunChrome(patch);
+  if (!Object.keys(chrome).length)
+    return;
+  const merged = queryTextStyleNormalize({ ...target.style, ...chrome });
+  if (merged)
+    target.style = merged;
+  else
+    delete target.style;
+}
+function patchRunChrome(patch) {
+  const out = {};
+  for (const key of RUN_CHROME_PATCH_KEYS) {
+    const value = patch[key];
+    if (value !== undefined)
+      out[key] = value;
+  }
+  return out;
+}
+var RUN_CHROME_PATCH_KEYS = [
+  "backgroundColor",
+  "bold",
+  "fontFamily",
+  "fontSize",
+  "foregroundColor",
+  "italic",
+  "strikethrough",
+  "underline"
+];
 function applyPatchToPara(target, patch) {
+  applyPatchToRunChrome(target, patch);
   if (patch.alignment)
     target.alignment = patch.alignment;
   if (patch.lineSpacing != null)
@@ -22249,7 +22331,7 @@ async function surgicalMutationExecute(runtime, step, mutation, stepIndex) {
   }
   const force = runtime.force || Boolean(op.force);
   if (mutationHasWrite(op)) {
-    const noopCheck = !step.allowNoop && mutationIsTapeVisible(op);
+    const noopCheck = mutationIsTapeVisible(op);
     const before = noopCheck ? tapeFingerprint(pending.writer.nodes) : "";
     const plans = tapeMutationsApply(pending.writer, [op], pending.writer.mutations().length, {
       afterendTails: pending.afterendTails,
@@ -22297,12 +22379,19 @@ async function surgicalMutationExecute(runtime, step, mutation, stepIndex) {
 }
 function noopMessage(step, stepIndex) {
   const at = stepIndex == null ? "" : `steps[${stepIndex}] `;
-  return `${at}${step.kind ?? "mutation"} changed nothing — the document already matches what this step asked for.
-` + "Usually the anchor resolved to the wrong node, the content is byte-identical to what is already " + "there, or an earlier step in this batch applied it. Nothing in this run was written (batches are " + "atomic). Query the anchor to confirm what it points at, or pass allowNoop: true if a no-op is expected.";
+  return `${at}${step.kind ?? "mutation"} changed nothing: the anchor resolved elsewhere, the content already ` + "matches, or an earlier step applied it. Nothing was written (batches are atomic).";
 }
-var TAPE_INVISIBLE_KEYS = new Set(["runs", "style"]);
+var TAPE_INVISIBLE_KEYS = new Set(["runs"]);
+var STYLE_PROPS_INVISIBLE = new Set(["borderWidth"]);
 function mutationIsTapeVisible(mutation) {
-  return !Object.entries(mutation).some(([key, val]) => val !== undefined && TAPE_INVISIBLE_KEYS.has(key));
+  return !Object.entries(mutation).some(([key, val]) => {
+    if (val === undefined)
+      return false;
+    if (key === "style") {
+      return Object.entries(val).some(([prop, propVal]) => propVal !== undefined && STYLE_PROPS_INVISIBLE.has(prop));
+    }
+    return TAPE_INVISIBLE_KEYS.has(key);
+  });
 }
 function mutationHasWrite(mutation) {
   return Object.entries(mutation).some(([key, val]) => key !== "as" && val !== undefined);
@@ -22752,13 +22841,13 @@ function queryPayloadSizeGuard(opts) {
     return;
   const where = opts.crossTab ? " across all tabs" : "";
   const lines = [
-    `steps[${opts.stepIndex}] query: ${opts.nodes.length} nodes matched${where}, serializing to ` + `~${size.toLocaleString()} characters (cap ${QUERY_PAYLOAD_CHAR_CAP.toLocaleString()}).`
+    `steps[${opts.stepIndex}] query: ${opts.nodes.length} nodes matched${where}, ` + `~${size.toLocaleString()} characters (cap ${QUERY_PAYLOAD_CHAR_CAP.toLocaleString()}).`
   ];
   if (opts.contains) {
     const samples = opts.nodes.map((n) => matchSnippet(n.text ?? "", opts.contains)).filter((s) => Boolean(s)).slice(0, SNIPPET_SAMPLES);
-    lines.push(`contains: "${opts.contains}" is a case-insensitive substring match with no word boundaries, ` + `so short or common terms overmatch. It matched:`, ...samples.map((s) => `  • ${s}`));
+    lines.push(`contains "${opts.contains}" is an unanchored substring match — it hit:`, ...samples.map((s) => `  • ${s}`));
   }
-  lines.push("Narrow with `tab`, `nodeUnder`, `nodeKinds`, or a longer/more specific `contains`; " + 'drop `full` for summaries; or use output: "markdown" for a broad read.');
+  lines.push('Narrow with tab, nodeUnder, nodeKinds, or a longer contains; or output: "markdown" for a broad read.');
   throw new Error(lines.join(`
 `));
 }
@@ -24016,7 +24105,8 @@ var textReplaceStep = async (runtime, stepIndex, step) => {
       if (targetNodes.length === 0) {
         throw new Error(`textReplace anchor "${anchorResolved}" did not match any nodes`);
       }
-      simulatedNodesTextReplace(targetNodes, step.find, replaceStr, step.matchCase ?? true);
+      const hits = simulatedNodesTextReplace(targetNodes, step.find, replaceStr, step.matchCase ?? true);
+      assertReplaced(hits, step, stepIndex);
       if (simulated) {
         simulatedNodesSet(targetDoc.gdoc, nodes, targetTabId);
       }
@@ -24024,7 +24114,7 @@ var textReplaceStep = async (runtime, stepIndex, step) => {
       return;
     }
     await pendingWritersFlush(runtime, targetDoc.alias);
-    await regexReplaceExecute(targetDoc.docId, {
+    const scopedSummary = await regexReplaceExecute(targetDoc.docId, {
       at: anchorResolved,
       client: runtime.client,
       dryRun: false,
@@ -24034,6 +24124,7 @@ var textReplaceStep = async (runtime, stepIndex, step) => {
       replace: replaceStr,
       tabHint: targetTabId
     });
+    assertReplaced(scopedSummary.occurrencesChanged, step, stepIndex);
     targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
     runtime.stepsExecuted++;
     return;
@@ -24046,27 +24137,28 @@ var textReplaceStep = async (runtime, stepIndex, step) => {
     const tabResolution = targetDoc.gdoc.data.tabs?.length && tabHint ? resolveTab(targetDoc.gdoc.data, tabHint) : undefined;
     const targetTabId = tabResolution?.tabId;
     if (runtime.dryRun || targetDoc.docId.startsWith("virtual:")) {
-      gdocTextReplace(targetDoc.gdoc.data, step.find, replaceStr, targetTabId, step.matchCase ?? true);
+      let hits = gdocTextReplace(targetDoc.gdoc.data, step.find, replaceStr, targetTabId, step.matchCase ?? true);
       const simGdoc = targetDoc.gdoc;
       if (targetTabId) {
         const simulated = simulatedNodesOf(targetDoc.gdoc, targetTabId);
         if (simulated) {
-          simulatedNodesTextReplace(simulated, step.find, replaceStr, step.matchCase ?? true);
+          hits += simulatedNodesTextReplace(simulated, step.find, replaceStr, step.matchCase ?? true);
         }
       } else {
         if (simGdoc.simulatedNodes) {
-          simulatedNodesTextReplace(simGdoc.simulatedNodes, step.find, replaceStr, step.matchCase ?? true);
+          hits += simulatedNodesTextReplace(simGdoc.simulatedNodes, step.find, replaceStr, step.matchCase ?? true);
         }
         if (simGdoc.simulatedTabs) {
           for (const tabNodes of simGdoc.simulatedTabs.values()) {
-            simulatedNodesTextReplace(tabNodes, step.find, replaceStr, step.matchCase ?? true);
+            hits += simulatedNodesTextReplace(tabNodes, step.find, replaceStr, step.matchCase ?? true);
           }
         }
       }
+      assertReplaced(hits, step, stepIndex);
       runtime.stepsExecuted++;
       return;
     }
-    await batchReplaceExecute(targetDoc.docId, {
+    const summary = await batchReplaceExecute(targetDoc.docId, {
       allTabs: step.allTabs ?? (!targetTabId ? true : undefined),
       client: runtime.client,
       dryRun: false,
@@ -24074,6 +24166,7 @@ var textReplaceStep = async (runtime, stepIndex, step) => {
       replacements: [{ find: step.find, replace: replaceStr }],
       tabHint: targetTabId
     });
+    assertReplaced(summary.occurrencesChanged, step, stepIndex);
     targetDoc.gdoc = await Gdoc.load(targetDoc.docId, runtime.client, { forceFetch: true });
     runtime.stepsExecuted++;
     return;
@@ -24082,18 +24175,28 @@ var textReplaceStep = async (runtime, stepIndex, step) => {
   mutation.replace = step.replace ?? step.text;
   await surgicalMutationExecute(runtime, step, mutation, stepIndex);
 };
+function assertReplaced(count, step, stepIndex) {
+  if (count > 0)
+    return;
+  throw new Error(`steps[${stepIndex}] textReplace: find "${step.find}" matched nothing, so nothing was replaced. ` + "find is exact and case-sensitive unless matchCase: false.");
+}
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function gdocTextReplace(data, find, replace, tabId, matchCase = true) {
   const flags = matchCase ? "g" : "gi";
   const regex = new RegExp(escapeRegExp(find), flags);
+  let count = 0;
+  const swap = (value) => value.replace(regex, () => {
+    count++;
+    return replace;
+  });
   function replaceInElements(elements) {
     for (const el of elements ?? []) {
       if (el.paragraph?.elements) {
         for (const pe of el.paragraph.elements) {
           if (pe.textRun?.content) {
-            pe.textRun.content = pe.textRun.content.replace(regex, replace);
+            pe.textRun.content = swap(pe.textRun.content);
           }
         }
       }
@@ -24120,13 +24223,19 @@ function gdocTextReplace(data, find, replace, tabId, matchCase = true) {
   } else if (data.body?.content) {
     replaceInElements(data.body.content);
   }
+  return count;
 }
 function simulatedNodesTextReplace(nodes, find, replace, matchCase = true) {
   const flags = matchCase ? "g" : "gi";
   const regex = new RegExp(escapeRegExp(find), flags);
+  let count = 0;
+  const swap = (value) => value.replace(regex, () => {
+    count++;
+    return replace;
+  });
   for (const node of nodes) {
     if (node.text) {
-      node.text = node.text.replace(regex, replace);
+      node.text = swap(node.text);
     }
     if (node.markup) {
       node.markup = node.markup.replace(regex, replace);
@@ -24135,12 +24244,12 @@ function simulatedNodesTextReplace(nodes, find, replace, matchCase = true) {
       for (const row of node.table.cells) {
         for (const cell of row) {
           if (cell.text) {
-            cell.text = cell.text.replace(regex, replace);
+            cell.text = swap(cell.text);
           }
           if (cell.paragraphs) {
             for (const p of cell.paragraphs) {
               if (p.text) {
-                p.text = p.text.replace(regex, replace);
+                p.text = swap(p.text);
               }
             }
           }
@@ -24148,6 +24257,7 @@ function simulatedNodesTextReplace(nodes, find, replace, matchCase = true) {
       }
     }
   }
+  return count;
 }
 
 // src/core/actions/index.ts
@@ -24473,12 +24583,18 @@ var GdocsmithDocumentSchema_default = {
         },
         mode: {
           type: "string",
-          enum: ["PAGES", "PAGELESS"],
+          enum: [
+            "PAGES",
+            "PAGELESS"
+          ],
           description: "Document layout mode (PAGES or PAGELESS)."
         },
         orientation: {
           type: "string",
-          enum: ["LANDSCAPE", "PORTRAIT"],
+          enum: [
+            "LANDSCAPE",
+            "PORTRAIT"
+          ],
           description: "Page orientation for paged documents."
         },
         pageHeight: {
@@ -24491,7 +24607,15 @@ var GdocsmithDocumentSchema_default = {
         },
         pageSize: {
           type: "string",
-          enum: ["LETTER", "LEGAL", "TABLOID", "A3", "A4", "A5", "CUSTOM"],
+          enum: [
+            "LETTER",
+            "LEGAL",
+            "TABLOID",
+            "A3",
+            "A4",
+            "A5",
+            "CUSTOM"
+          ],
           description: "Standard paper size preset."
         },
         pageWidth: {
@@ -24602,7 +24726,10 @@ var GdocsmithDocumentSchema_default = {
         },
         mode: {
           type: "string",
-          enum: ["PAGES", "PAGELESS"],
+          enum: [
+            "PAGES",
+            "PAGELESS"
+          ],
           description: 'Document layout mode: "PAGES" or "PAGELESS".'
         },
         pageSetup: {
@@ -24626,7 +24753,11 @@ var GdocsmithDocumentSchema_default = {
           description: "Document title."
         }
       },
-      required: ["as", "kind", "title"],
+      required: [
+        "as",
+        "kind",
+        "title"
+      ],
       additionalProperties: false,
       description: 'Document creation or cloning step (`kind: "docCreate"`).'
     },
@@ -24647,7 +24778,11 @@ var GdocsmithDocumentSchema_default = {
         },
         kind: {
           type: "string",
-          enum: ["docClose", "docDelete", "docTrash"],
+          enum: [
+            "docClose",
+            "docDelete",
+            "docTrash"
+          ],
           description: "Workflow step kind."
         },
         permanent: {
@@ -24655,7 +24790,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Permanently delete document from Drive (docDelete)."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Document lifecycle step (`kind: "docClose" | "docDelete" | "docTrash"`).'
     },
@@ -24684,7 +24822,11 @@ var GdocsmithDocumentSchema_default = {
           description: "Workflow step kind."
         }
       },
-      required: ["as", "doc", "kind"],
+      required: [
+        "as",
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Open an existing document step (`kind: "docOpen"`).'
     },
@@ -24713,7 +24855,11 @@ var GdocsmithDocumentSchema_default = {
           description: "New title for the document."
         }
       },
-      required: ["doc", "kind", "title"],
+      required: [
+        "doc",
+        "kind",
+        "title"
+      ],
       additionalProperties: false,
       description: 'Rename an open document step (`kind: "docRename"`).'
     },
@@ -24775,7 +24921,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text content (fallback alias for canonical markdown:)."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Insert rendered markdown step (`kind: "markdownInsert"`).'
     },
@@ -24801,7 +24950,10 @@ var GdocsmithDocumentSchema_default = {
         },
         mode: {
           type: "string",
-          enum: ["PAGES", "PAGELESS"],
+          enum: [
+            "PAGES",
+            "PAGELESS"
+          ],
           description: 'Document layout mode: "PAGES" or "PAGELESS".'
         },
         pageSetup: {
@@ -24817,7 +24969,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Target tab ID or title."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Document page geometry / layout mode step (`kind: "pageSetup"`).'
     },
@@ -24850,7 +25005,11 @@ var GdocsmithDocumentSchema_default = {
         },
         kind: {
           type: "string",
-          enum: ["docPermissionAdd", "docPermissionList", "docPermissionRemove"],
+          enum: [
+            "docPermissionAdd",
+            "docPermissionList",
+            "docPermissionRemove"
+          ],
           description: "Workflow step kind."
         },
         moveToNewOwnersRoot: {
@@ -24878,18 +25037,34 @@ var GdocsmithDocumentSchema_default = {
           description: "Whether to transfer file ownership to the grantee on docPermissionAdd."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Document permission step (`kind: "docPermissionAdd" | "docPermissionList" | "docPermissionRemove"`).'
     },
     DrivePermissionRole: {
       type: "string",
-      enum: ["commenter", "fileOrganizer", "organizer", "owner", "reader", "writer"],
+      enum: [
+        "commenter",
+        "fileOrganizer",
+        "organizer",
+        "owner",
+        "reader",
+        "writer"
+      ],
       description: "Role assigned to a Drive file permission."
     },
     DrivePermissionScope: {
       type: "string",
-      enum: ["anyone", "domain", "group", "internal", "user"],
+      enum: [
+        "anyone",
+        "domain",
+        "group",
+        "internal",
+        "user"
+      ],
       description: "Grantee access scope for a Drive file permission."
     },
     StepQuery: {
@@ -24987,18 +25162,33 @@ var GdocsmithDocumentSchema_default = {
           description: "Scope query to fragile nodes only."
         }
       },
-      required: ["as", "doc", "kind"],
+      required: [
+        "as",
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Document inspection / query step (`kind: "query"`).'
     },
     NodeKind: {
       type: "string",
-      enum: ["paragraph", "table", "tableOfContents", "sectionBreak", "pageBreak"],
+      enum: [
+        "paragraph",
+        "table",
+        "tableOfContents",
+        "sectionBreak",
+        "pageBreak"
+      ],
       description: "Structural element kinds on the body tape."
     },
     QueryOutputFormat: {
       type: "string",
-      enum: ["headings", "markdown", "nodes", "outline"],
+      enum: [
+        "headings",
+        "markdown",
+        "nodes",
+        "outline"
+      ],
       description: 'Serializer for `kind: query` matches written to `dumped` ("headings" is an alias for "outline").'
     },
     StepRemove: {
@@ -25016,10 +25206,6 @@ var GdocsmithDocumentSchema_default = {
           type: "boolean",
           description: "Dump document or tab metadata into `dumped[as]`."
         },
-        allowNoop: {
-          type: "boolean",
-          description: "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
-        },
         dangerousRemoveSection: {
           type: "boolean",
           description: "Remove entire section below heading."
@@ -25030,7 +25216,10 @@ var GdocsmithDocumentSchema_default = {
         },
         kind: {
           type: "string",
-          enum: ["dangerousRemoveSection", "remove"],
+          enum: [
+            "dangerousRemoveSection",
+            "remove"
+          ],
           description: "Workflow step kind."
         },
         nodeAt: {
@@ -25046,7 +25235,11 @@ var GdocsmithDocumentSchema_default = {
           description: "Target tab ID or title."
         }
       },
-      required: ["doc", "kind", "nodeAt"],
+      required: [
+        "doc",
+        "kind",
+        "nodeAt"
+      ],
       additionalProperties: false,
       description: 'Node or section removal step (`kind: "remove" | "dangerousRemoveSection"`).'
     },
@@ -25065,10 +25258,6 @@ var GdocsmithDocumentSchema_default = {
           type: "boolean",
           description: "Dump document or tab metadata into `dumped[as]`."
         },
-        allowNoop: {
-          type: "boolean",
-          description: "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
-        },
         alignment: {
           $ref: "#/definitions/ParagraphAlignment",
           description: "Paragraph or table-cell alignment (START / CENTER / END / JUSTIFIED)."
@@ -25083,7 +25272,10 @@ var GdocsmithDocumentSchema_default = {
         },
         kind: {
           type: "string",
-          enum: ["innerText", "replace"],
+          enum: [
+            "innerText",
+            "replace"
+          ],
           description: "Workflow step kind."
         },
         namedStyleType: {
@@ -25118,13 +25310,21 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text content (fallback alias for canonical replace:)."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'In-place text replacement step (`kind: "replace" | "innerText"`).'
     },
     ParagraphAlignment: {
       type: "string",
-      enum: ["START", "CENTER", "END", "JUSTIFIED"],
+      enum: [
+        "START",
+        "CENTER",
+        "END",
+        "JUSTIFIED"
+      ],
       description: "Docs paragraph alignment (updateParagraphStyle.alignment)."
     },
     NamedStyle: {
@@ -25305,7 +25505,11 @@ var GdocsmithDocumentSchema_default = {
     },
     CellContentAlignment: {
       type: "string",
-      enum: ["TOP", "MIDDLE", "BOTTOM"],
+      enum: [
+        "TOP",
+        "MIDDLE",
+        "BOTTOM"
+      ],
       description: "Vertical alignment inside a table cell (updateTableCellStyle.contentAlignment)."
     },
     StepReplaceMarkdown: {
@@ -25322,10 +25526,6 @@ var GdocsmithDocumentSchema_default = {
         dump: {
           type: "boolean",
           description: "Dump document or tab metadata into `dumped[as]`."
-        },
-        allowNoop: {
-          type: "boolean",
-          description: "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
         },
         file: {
           type: "string",
@@ -25354,7 +25554,10 @@ var GdocsmithDocumentSchema_default = {
           description: 'Heading-scoped id from query or text snippet to replace (e.g. h.arch.9a1b or "Placeholder: ...").'
         },
         replaceMarkdown: {
-          type: ["string", "boolean"],
+          type: [
+            "string",
+            "boolean"
+          ],
           description: "Markdown content or boolean flag when file: is specified."
         },
         tab: {
@@ -25366,7 +25569,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text content (fallback alias for canonical markdown:)."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Single-node markdown replacement step (`kind: "replaceMarkdown"`).'
     },
@@ -25384,10 +25590,6 @@ var GdocsmithDocumentSchema_default = {
         dump: {
           type: "boolean",
           description: "Dump document or tab metadata into `dumped[as]`."
-        },
-        allowNoop: {
-          type: "boolean",
-          description: "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
         },
         file: {
           type: "string",
@@ -25424,7 +25626,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Anchor node to insert before when inserting adjacent rather than replacing."
         },
         replaceSection: {
-          type: ["string", "boolean"],
+          type: [
+            "string",
+            "boolean"
+          ],
           description: "Markdown content or boolean flag when file: is specified."
         },
         tab: {
@@ -25436,7 +25641,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text content (fallback alias for canonical markdown:)."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Section-level auto-diffing replacement step (`kind: "replaceSection"`).'
     },
@@ -25454,10 +25662,6 @@ var GdocsmithDocumentSchema_default = {
         dump: {
           type: "boolean",
           description: "Dump document or tab metadata into `dumped[as]`."
-        },
-        allowNoop: {
-          type: "boolean",
-          description: "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
         },
         fromDoc: {
           type: "string",
@@ -25497,7 +25701,11 @@ var GdocsmithDocumentSchema_default = {
           description: "Target tab ID or title."
         }
       },
-      required: ["doc", "fromSection", "kind"],
+      required: [
+        "doc",
+        "fromSection",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Server-side section transfer step across documents or tabs (`kind: "sectionCopy"`).'
     },
@@ -25515,10 +25723,6 @@ var GdocsmithDocumentSchema_default = {
         dump: {
           type: "boolean",
           description: "Dump document or tab metadata into `dumped[as]`."
-        },
-        allowNoop: {
-          type: "boolean",
-          description: "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
         },
         alignment: {
           $ref: "#/definitions/ParagraphAlignment",
@@ -25675,7 +25879,9 @@ var GdocsmithDocumentSchema_default = {
               type: "number"
             }
           },
-          required: ["uri"],
+          required: [
+            "uri"
+          ],
           additionalProperties: false,
           description: "Insert a public HTTPS inline image."
         },
@@ -25686,7 +25892,9 @@ var GdocsmithDocumentSchema_default = {
               type: "string"
             }
           },
-          required: ["email"],
+          required: [
+            "email"
+          ],
           additionalProperties: false,
           description: "Insert a person mention chip."
         },
@@ -25703,7 +25911,9 @@ var GdocsmithDocumentSchema_default = {
               type: "string"
             }
           },
-          required: ["uri"],
+          required: [
+            "uri"
+          ],
           additionalProperties: false,
           description: "Insert a rich link chip."
         },
@@ -25717,7 +25927,10 @@ var GdocsmithDocumentSchema_default = {
               properties: {
                 sectionType: {
                   type: "string",
-                  enum: ["CONTINUOUS", "NEXT_PAGE"]
+                  enum: [
+                    "CONTINUOUS",
+                    "NEXT_PAGE"
+                  ]
                 }
               },
               additionalProperties: false
@@ -25812,7 +26025,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Table styling (pinnedHeaderRows, preventOverflow, columnWidth, etc.)."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Surgical DOM and tape mutation step (`kind: "surgical"`).'
     },
@@ -25867,7 +26083,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Optional document ID to clone from."
         },
         fromNode: {
-          type: ["number", "string"],
+          type: [
+            "number",
+            "string"
+          ],
           description: "Alias for nodeId."
         },
         fromTab: {
@@ -25879,7 +26098,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Replacement text content."
         },
         nodeId: {
-          type: ["number", "string"],
+          type: [
+            "number",
+            "string"
+          ],
           description: "Scoped ID or tape index of the node to clone."
         }
       },
@@ -25935,7 +26157,12 @@ var GdocsmithDocumentSchema_default = {
           description: "Title for the new tab. Note: supply final title directly at creation to avoid HTTP 500 on template copies."
         }
       },
-      required: ["as", "doc", "kind", "title"],
+      required: [
+        "as",
+        "doc",
+        "kind",
+        "title"
+      ],
       additionalProperties: false,
       description: 'Tab creation or cloning step (`kind: "tabCreate"`).'
     },
@@ -25968,7 +26195,11 @@ var GdocsmithDocumentSchema_default = {
         },
         kind: {
           type: "string",
-          enum: ["tabDelete", "tabMove", "tabReorder"],
+          enum: [
+            "tabDelete",
+            "tabMove",
+            "tabReorder"
+          ],
           description: "Workflow step kind."
         },
         tab: {
@@ -25976,7 +26207,11 @@ var GdocsmithDocumentSchema_default = {
           description: "Target tab ID or title."
         }
       },
-      required: ["doc", "kind", "tab"],
+      required: [
+        "doc",
+        "kind",
+        "tab"
+      ],
       additionalProperties: false,
       description: 'Tab modification step (`kind: "tabDelete" | "tabMove" | "tabReorder"`).'
     },
@@ -26021,7 +26256,12 @@ var GdocsmithDocumentSchema_default = {
           description: "Optional new title to rename the target tab in place."
         }
       },
-      required: ["doc", "fromTab", "kind", "tab"],
+      required: [
+        "doc",
+        "fromTab",
+        "kind",
+        "tab"
+      ],
       additionalProperties: false,
       description: 'Whole-tab population step into an existing tab (`kind: "tabPopulate"`).'
     },
@@ -26054,7 +26294,12 @@ var GdocsmithDocumentSchema_default = {
           description: "New title for the tab. Note: tabRename 500s on docs lacking root 't.0' (set title directly on tabCreate)."
         }
       },
-      required: ["doc", "kind", "tab", "title"],
+      required: [
+        "doc",
+        "kind",
+        "tab",
+        "title"
+      ],
       additionalProperties: false,
       description: 'Tab renaming step (`kind: "tabRename"`).'
     },
@@ -26072,10 +26317,6 @@ var GdocsmithDocumentSchema_default = {
         dump: {
           type: "boolean",
           description: "Dump document or tab metadata into `dumped[as]`."
-        },
-        allowNoop: {
-          type: "boolean",
-          description: "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
         },
         allTabs: {
           type: "boolean",
@@ -26123,7 +26364,12 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text replacement (fallback alias for replace:)."
         }
       },
-      required: ["doc", "find", "kind", "replace"],
+      required: [
+        "doc",
+        "find",
+        "kind",
+        "replace"
+      ],
       additionalProperties: false,
       description: 'Plain find-and-replace text step (`kind: "textReplace"`).'
     }
@@ -26184,7 +26430,9 @@ var GdocsmithJsonOutputSchema_default = {
           type: "string"
         }
       },
-      required: ["id"],
+      required: [
+        "id"
+      ],
       additionalProperties: false,
       description: "Document item in highlights."
     },
@@ -26207,7 +26455,9 @@ var GdocsmithJsonOutputSchema_default = {
           type: "string"
         }
       },
-      required: ["id"],
+      required: [
+        "id"
+      ],
       additionalProperties: false,
       description: "Tab item in highlights."
     },
@@ -26221,7 +26471,10 @@ var GdocsmithJsonOutputSchema_default = {
           type: "string"
         }
       },
-      required: ["id", "text"],
+      required: [
+        "id",
+        "text"
+      ],
       additionalProperties: false,
       description: "Newly created heading item in highlights."
     }
@@ -26267,7 +26520,9 @@ var StatusJsonOutputSchema_default = {
       description: "App version from program root."
     }
   },
-  required: ["version"],
+  required: [
+    "version"
+  ],
   additionalProperties: false,
   definitions: {}
 };
@@ -26314,7 +26569,7 @@ var program = {
   },
   key: createIdentity.key,
   mcpServer: { enabled: true },
-  version: "1.0.5"
+  version: "1.0.6"
 };
 
 // src/index.ts

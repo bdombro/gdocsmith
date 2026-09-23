@@ -198,7 +198,7 @@ function queryPayloadSizeGuard(opts: {
 
   const where = opts.crossTab ? " across all tabs" : "";
   const lines = [
-    `steps[${opts.stepIndex}] query: ${opts.nodes.length} nodes matched${where}, serializing to ` +
+    `steps[${opts.stepIndex}] query: ${opts.nodes.length} nodes matched${where}, ` +
       `~${size.toLocaleString()} characters (cap ${QUERY_PAYLOAD_CHAR_CAP.toLocaleString()}).`,
   ];
   if (opts.contains) {
@@ -207,15 +207,11 @@ function queryPayloadSizeGuard(opts: {
       .filter((s): s is string => Boolean(s))
       .slice(0, SNIPPET_SAMPLES);
     lines.push(
-      `contains: "${opts.contains}" is a case-insensitive substring match with no word boundaries, ` +
-        `so short or common terms overmatch. It matched:`,
+      `contains "${opts.contains}" is an unanchored substring match — it hit:`,
       ...samples.map((s) => `  • ${s}`),
     );
   }
-  lines.push(
-    "Narrow with `tab`, `nodeUnder`, `nodeKinds`, or a longer/more specific `contains`; " +
-      'drop `full` for summaries; or use output: "markdown" for a broad read.',
-  );
+  lines.push('Narrow with tab, nodeUnder, nodeKinds, or a longer contains; or output: "markdown" for a broad read.');
   throw new Error(lines.join("\n"));
 }
 

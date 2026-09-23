@@ -296,6 +296,8 @@ export type AppliedOpPlanPreview = Pick<AppliedOpPlan, "action" | "index" | "tar
 /** Compact cell row for `query --full` (no API indexes). */
 export type CellSummary = {
   alignment?: ParagraphAlignment;
+  /** Hex cell fill color. */
+  backgroundColor?: string;
   /** Foreground hex colors found across text runs in this cell. */
   fontColors?: string[];
   /** `"h.arch.table.0.1.3c8f"` — copy into write `at`. */
@@ -2213,6 +2215,7 @@ export function tapeFingerprint(
 /** Formats a compact summary of a table cell or cell paragraph for diagnostic output. */
 function summarizeCell(cell: TableCell | CellParagraph, id: string): CellSummary {
   const out: CellSummary = { id: cell.scopedId ?? id, text: cell.text };
+  if ("backgroundColor" in cell && cell.backgroundColor) out.backgroundColor = cell.backgroundColor;
   if (cell.fontColors?.length) out.fontColors = cell.fontColors;
   if (cell.alignment) out.alignment = cell.alignment;
   if (cell.indentStart) out.indentStart = cell.indentStart.magnitude;

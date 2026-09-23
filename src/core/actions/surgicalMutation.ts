@@ -11,8 +11,6 @@ import type { ApplyScriptRuntime, SimulatedGdoc } from "./types.ts";
 
 /** Document target context required for surgical mutation execution. */
 export type SurgicalStepTarget = {
-  /** Accept a step that changes nothing instead of rejecting it. */
-  allowNoop?: boolean;
   /** Anchor alias or binding for newly created elements. */
   as?: string;
   /** Clear document or tab before mutations. */
@@ -102,7 +100,7 @@ export async function surgicalMutationExecute(
 
   const force = runtime.force || Boolean(op.force);
   if (mutationHasWrite(op)) {
-    const noopCheck = !step.allowNoop && mutationIsTapeVisible(op);
+    const noopCheck = mutationIsTapeVisible(op);
     const before = noopCheck ? tapeFingerprint(pending.writer.nodes) : "";
     const plans = tapeMutationsApply(pending.writer, [op], pending.writer.mutations().length, {
       afterendTails: pending.afterendTails,
@@ -171,10 +169,8 @@ function noopMessage(
 ): string {
   const at = stepIndex == null ? "" : `steps[${stepIndex}] `;
   return (
-    `${at}${step.kind ?? "mutation"} changed nothing — the document already matches what this step asked for.\n` +
-    "Usually the anchor resolved to the wrong node, the content is byte-identical to what is already " +
-    "there, or an earlier step in this batch applied it. Nothing in this run was written (batches are " +
-    "atomic). Query the anchor to confirm what it points at, or pass allowNoop: true if a no-op is expected."
+    `${at}${step.kind ?? "mutation"} changed nothing: the anchor resolved elsewhere, the content already ` +
+    "matches, or an earlier step applied it. Nothing was written (batches are atomic)."
   );
 }
 
@@ -189,23 +185,40 @@ function noopMessage(
  * This is a gap in how faithfully the tape models the document, not a Google Docs API limit — the
  * requests themselves are emitted correctly, and the exemption suppresses only the check.
  *
- * What remains here is character-level styling. `applyPatchToPara` already mirrors paragraph-level
- * properties (alignment, spacing, indents, shading), but `DocNode.style` is a deliberately narrow
- * `QueryTextStyle` (italic / fontSize / foregroundColor) with nowhere to record bold, underline, or
- * font family, and the parser carries mixed inline styling in `markup` instead. Closing this needs
- * either a wider `QueryTextStyle` or run-level re-serialization through `InlineMarkup`, both of
- * which change query output — a separate change from this check.
+ * Only `runs` remains: per-range inline styling is carried in `markup`, and there is no
+ * runs-to-markup serializer (`InlineMarkup.serialize` consumes Docs elements, not the run model).
+ * Writing one means guaranteeing it inverts `InlineMarkup.parse`, which `effectiveRuns` in
+ * checksum.ts depends on — a separate change from this check.
  *
  * `tapeVisibility.test.ts` pins every entry to measured behavior, so the list cannot drift.
  */
-export const TAPE_INVISIBLE_KEYS: ReadonlySet<string> = new Set(["runs", "style"]);
+export const TAPE_INVISIBLE_KEYS: ReadonlySet<string> = new Set(["runs"]);
+
+/**
+ * Style-patch properties that reach the document without leaving a trace on the tape.
+ *
+ * Every other property of a `style` patch now mirrors — character styling onto `DocNode.style`,
+ * paragraph styling onto the node, table chrome onto `table`. `borderWidth` is the last holdout:
+ * the tape's table model has no field for it. It is also the least exposed, since a border width is
+ * only accepted alongside `borderColor`, which does mirror — so in practice the patch is checked
+ * anyway and only a `borderWidth` sent on its own escapes.
+ */
+export const STYLE_PROPS_INVISIBLE: ReadonlySet<string> = new Set(["borderWidth"]);
 
 /** True when every effect this mutation can have would show up on the working node tape. */
 function mutationIsTapeVisible(
   /** Tape mutation to check. */
   mutation: TapeMutation,
 ): boolean {
-  return !Object.entries(mutation).some(([key, val]) => val !== undefined && TAPE_INVISIBLE_KEYS.has(key));
+  return !Object.entries(mutation).some(([key, val]) => {
+    if (val === undefined) return false;
+    if (key === "style") {
+      return Object.entries(val as Record<string, unknown>).some(
+        ([prop, propVal]) => propVal !== undefined && STYLE_PROPS_INVISIBLE.has(prop),
+      );
+    }
+    return TAPE_INVISIBLE_KEYS.has(key);
+  });
 }
 
 /** True when a mutation still has a write besides alias metadata. */

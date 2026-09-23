@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-09-23
+
+### Removed
+- `allowNoop` on mutation steps. It was added alongside the no-op rejection as an escape hatch for re-running a partially applied script, but batches are atomic — a failed batch writes nothing, so a re-run starts clean and produces no no-ops. The case it existed for cannot occur, and it cost seven schema fields (~2% of the input schema, paid on every tool-schema load) to suppress the very signal the rejection exists to give. A step that changes nothing is now always an error
+
+### Changed
+- `textReplace` returned `ok: true` when its `find` string was absent, having replaced nothing — the one missing-target case that stayed silent while `query`, `replace`, and `replaceMarkdown` all rejected. It now rejects on zero occurrences, using the `occurrencesChanged` count the replace helpers already returned and the handler discarded
+- `QueryTextStyle` now covers the whole Docs `TextStyle` resource — `backgroundColor`, `baselineOffset`, `bold`, `fontFamily`, `fontWeight`, `link`, `smallCaps`, `strikethrough`, and `underline` join the original `fontSize`/`foregroundColor`/`italic`. It previously reported three properties, so a query could not tell a caller that a paragraph was bold, and `DomWriter.setStyle` had nowhere to record one. Queries are correspondingly more faithful, and node checksums (hence `scopedId` values) shift for styled nodes; ids are recomputed per parse and never persisted, so nothing needs migrating
+- `DomWriter.setStyle` now mirrors every run-chrome property onto the working tape, and `cellBackground` on a table node fills every cell per its documented contract, so a later step in the same batch reads the restyled state. Default-dropping moved into a shared `queryTextStyleNormalize` used by both the parser and the writer, so a mirrored patch and a re-read cannot disagree
+- Table cell summaries report `backgroundColor`; cell fill was previously invisible to queries
+
+### Fixed
+- Two more `applyScript.test.ts` cases reached the network under `dryRun` and intermittently timed out after 5s — `docOpen`/`docClose` opened a nonexistent document id, and the raw-doc-ID resolution case opened a live hardcoded document (the same hazard 1.0.4 fixed for a sibling test, missed here). Both now use in-memory fixtures and run in ~27ms
+
 ## [1.0.5] - 2026-09-23
 
 ### Fixed

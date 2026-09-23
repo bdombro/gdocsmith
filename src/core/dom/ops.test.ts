@@ -14,6 +14,7 @@ import {
   extractPageSetup,
   formatUnrecoverableWarning,
   liveDump,
+  matchSnippet,
   parseDomOps,
   parseWriteAt,
   resolveTarget,
@@ -301,6 +302,30 @@ describe("summarizeNode", () => {
     expect(dump.truncated).toBeUndefined();
     expect(dump.tabs[0]?.nodes).toHaveLength(TAPE_ECHO_CAP + 1);
     expect(dump.tabs[0]?.nodes[1]?.text).toBe("p2");
+  });
+
+  describe("matchSnippet", () => {
+    test("brackets the hit so an over-broad term is visible", () => {
+      expect(matchSnippet("Batching is more efficient.", "ci")).toBe("Batching is more effi[ci]ent.");
+    });
+
+    test("is case-insensitive and reports the text as written", () => {
+      expect(matchSnippet("See Decisions D1-D5.", "decisions")).toBe("See [Decisions] D1-D5.");
+    });
+
+    test("windows long text around the hit", () => {
+      const snippet = matchSnippet(`${"a".repeat(80)} needle ${"b".repeat(80)}`, "needle");
+      expect(snippet?.startsWith("…")).toBe(true);
+      expect(snippet?.endsWith("…")).toBe(true);
+      expect(snippet).toContain("[needle]");
+      expect(snippet?.length).toBeLessThan(80);
+    });
+
+    test("collapses whitespace and returns undefined when absent or empty", () => {
+      expect(matchSnippet("wrapped\n  text", "wrapped text")).toBe("[wrapped text]");
+      expect(matchSnippet("hello", "zzz")).toBeUndefined();
+      expect(matchSnippet("hello", "")).toBeUndefined();
+    });
   });
 
   test("summarizeNode --full keeps empty and long text", () => {

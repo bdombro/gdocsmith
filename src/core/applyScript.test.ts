@@ -355,6 +355,119 @@ describe("applyScriptExecute", () => {
     expect(applyScriptExecute(doc)).rejects.toThrow("no nodes matched");
   });
 
+  test("kind query brackets the contains hit on every match", async () => {
+    const doc: GdocsmithDocument = {
+      dryRun: true,
+      steps: [
+        {
+          as: "doc1",
+          kind: "docCreate",
+          title: "Snippet Query",
+        },
+        {
+          doc: "doc1",
+          kind: "markdownInsert",
+          markdown: "# Overview\n\nBatching is more efficient than verifying.",
+        },
+        {
+          as: "hits",
+          contains: "ci",
+          doc: "doc1",
+          kind: "query",
+        },
+      ],
+    };
+
+    const res = await applyScriptExecute(doc);
+    const hits = res.dumped.hits as Array<{ match?: string }>;
+    // The caller searched for "ci" but hit the middle of "efficient" — the bracket makes that plain.
+    expect(hits.some((n) => n.match?.includes("effi[ci]ent"))).toBe(true);
+  });
+
+  test("kind query rejects a filtered payload too large to read, naming the overmatch", async () => {
+    const paragraphs = Array.from(
+      { length: 400 },
+      (_, i) => `Paragraph ${i} argues that batching is more efficient than repeated verification passes.`,
+    ).join("\n\n");
+    const doc: GdocsmithDocument = {
+      dryRun: true,
+      steps: [
+        { as: "doc1", kind: "docCreate", title: "Overmatch Query" },
+        { doc: "doc1", kind: "markdownInsert", markdown: `# Overview\n\n${paragraphs}` },
+        { as: "hits", contains: "ci", doc: "doc1", full: true, kind: "query" },
+      ],
+    };
+
+    // `full: true` bypasses the unfiltered node cap, so only the size guard catches this.
+    await expect(applyScriptExecute(doc)).rejects.toThrow(/serializing to ~[\d,]+ characters/);
+    await expect(applyScriptExecute(doc)).rejects.toThrow("effi[ci]ent");
+  });
+
+  describe("no-op mutation rejection", () => {
+    const script = (last: GdocsmithStepInput): GdocsmithDocument => ({
+      dryRun: true,
+      steps: [
+        { as: "doc1", kind: "docCreate", title: "Noop Probe" },
+        {
+          doc: "doc1",
+          kind: "markdownInsert",
+          markdown: "# Overview\n\nUnchanged line.\n\n## Motivation\n\nBody text here.",
+        },
+        last,
+      ],
+    });
+
+    test("rejects a replace whose text already matches", async () => {
+      await expect(
+        applyScriptExecute(
+          script({ doc: "doc1", kind: "replace", nodeAt: "Unchanged line.", replace: "Unchanged line." }),
+        ),
+      ).rejects.toThrow("changed nothing");
+    });
+
+    test("rejects a replaceSection whose markdown already matches", async () => {
+      await expect(
+        applyScriptExecute(
+          script({
+            doc: "doc1",
+            kind: "replaceSection",
+            markdown: "## Motivation\n\nBody text here.",
+            nodeAt: "Motivation",
+          }),
+        ),
+      ).rejects.toThrow("changed nothing");
+    });
+
+    test("allowNoop accepts an intentional no-op", async () => {
+      await expect(
+        applyScriptExecute(
+          script({
+            allowNoop: true,
+            doc: "doc1",
+            kind: "replace",
+            nodeAt: "Unchanged line.",
+            replace: "Unchanged line.",
+          }),
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    test("accepts a replaceMarkdown that changes only inline styling", async () => {
+      // The LCS diff once skipped these silently; the tape fingerprint must see the markup change.
+      await expect(
+        applyScriptExecute(
+          script({ doc: "doc1", kind: "replaceMarkdown", markdown: "`Unchanged line.`", nodeAt: "Unchanged line." }),
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    test("exempts style-only ops, whose effect never reaches the tape", async () => {
+      await expect(
+        applyScriptExecute(script({ doc: "doc1", kind: "surgical", nodeAt: "Unchanged line.", style: { bold: true } })),
+      ).resolves.toBeDefined();
+    });
+  });
+
   test("kind surgical insertPerson dry-run applies after a queried heading", async () => {
     const doc: GdocsmithDocument = {
       dryRun: true,

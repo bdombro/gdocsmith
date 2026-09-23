@@ -340,6 +340,8 @@ export type NodeSummary = {
   lineSpacing?: number;
   /** Explains why this node is fragile or immutable before mutations are attempted. */
   lossWarning?: string;
+  /** Text window around the `contains:` hit, with the matched substring bracketed. */
+  match?: string;
   markup?: string;
   namedStyleType?: DocNode["namedStyleType"];
   /** Row index if inside a table. */
@@ -387,6 +389,35 @@ export type LiveDump = {
 };
 
 export const TAPE_ECHO_CAP = 80;
+
+/**
+ * Character budget for a serialized filtered query payload. Filtered queries have no node-count
+ * cap (unlike the unfiltered {@link liveDump} path), so an over-broad filter can serialize far more
+ * than a caller can read. Size is the real constraint — node count is a poor proxy because a
+ * summarized bullet and a `full` table cell differ by orders of magnitude.
+ */
+export const QUERY_PAYLOAD_CHAR_CAP = 20_000;
+
+/** Characters of context kept either side of a `contains:` hit in {@link matchSnippet}. */
+const SNIPPET_PAD = 30;
+
+/**
+ * Windows `text` around the first case-insensitive occurrence of `needle`, bracketing the match so
+ * an over-broad search term is visible at a glance (`contains: "ci"` → `…is more effi[ci]ent…`).
+ * Returns undefined when `needle` is empty or absent from `text`.
+ */
+export function matchSnippet(text: string, needle: string): string | undefined {
+  if (!needle) return undefined;
+  const flat = text.split(/\s+/).join(" ").trim();
+  const at = flat.toLowerCase().indexOf(needle.toLowerCase());
+  if (at < 0) return undefined;
+  const end = at + needle.length;
+  const from = Math.max(0, at - SNIPPET_PAD);
+  const to = Math.min(flat.length, end + SNIPPET_PAD);
+  return `${from > 0 ? "…" : ""}${flat.slice(from, at)}[${flat.slice(at, end)}]${flat.slice(end, to)}${
+    to < flat.length ? "…" : ""
+  }`;
+}
 
 /** Compact tape dump. Large docs echo headings only (`truncated: true`). `--full` keeps every node. */
 export function liveDump(opts: {
@@ -2060,7 +2091,7 @@ export function dangerousClearExecute(writer: DomWriter): DocNode[] {
 export const executeDangerousClear = dangerousClearExecute;
 
 /** Compact summary: id first. Never prints API startIndex. */
-export function nodeSummarize(node: DocNode, opts: { full?: boolean } = {}): NodeSummary {
+export function nodeSummarize(node: DocNode, opts: { contains?: string; full?: boolean } = {}): NodeSummary {
   const out: NodeSummary = {
     id: node.scopedId ?? node.tapeIndex,
     kind: node.kind,
@@ -2148,11 +2179,36 @@ export function nodeSummarize(node: DocNode, opts: { full?: boolean } = {}): Nod
     else if (text !== "") out.text = preview(text);
     if (node.markup) out.markup = node.markup;
   }
+  if (opts.contains) {
+    const snippet = matchSnippet(node.text ?? "", opts.contains);
+    if (snippet) out.match = snippet;
+  }
   return out;
 }
 
 /** Compact summary of node (alias for nodeSummarize). */
 export const summarizeNode = nodeSummarize;
+
+/**
+ * Content fingerprint of a node tape, used to tell a mutation that changed something from one that
+ * changed nothing.
+ *
+ * Built from the `full` node summary so it covers text, inline markup, paragraph styling, spacing,
+ * indentation, bullets, and table cells. The 4-char scoped-id checksum is deliberately not reused:
+ * it omits spacing and indentation, so a spacing-only edit would fingerprint as unchanged and be
+ * rejected as a false no-op. Node identity is stripped because ids are derived from content.
+ */
+export function tapeFingerprint(
+  /** Working node tape to fingerprint. */
+  nodes: DocNode[],
+): string {
+  return JSON.stringify(
+    nodes.map((node) => {
+      const { id: _id, ...rest } = nodeSummarize(node, { full: true });
+      return rest;
+    }),
+  );
+}
 
 /** Formats a compact summary of a table cell or cell paragraph for diagnostic output. */
 function summarizeCell(cell: TableCell | CellParagraph, id: string): CellSummary {

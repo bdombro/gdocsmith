@@ -3,6 +3,7 @@
 import type { InlineRunInput } from "~/core/inline.ts";
 import type { GoogleDoc } from "~/core/types.ts";
 import {
+  asBulletPreset,
   createElement,
   type ElementSpec,
   type InsertPosition,
@@ -386,6 +387,14 @@ export class DomWriter {
       throw new Error("bullet restyle is only valid on a paragraph");
     }
     this.#push({ nodeId: live.tapeIndex, preset, type: "bullets" });
+    // Mirror onto the tape, as setNamedStyleType does, so later steps in the same batch read the
+    // post-bullet state rather than the pre-bullet one.
+    live.bullet = {
+      ...live.bullet,
+      nestingLevel: live.bullet?.nestingLevel ?? 0,
+      preset: asBulletPreset(preset) ?? undefined,
+      type: preset.startsWith("NUMBERED") ? "NUMBERED" : "BULLET",
+    };
   }
 
   /** Deletes that node only. */
@@ -413,6 +422,13 @@ export class DomWriter {
       nodeId: live.tapeIndex,
       type: "insertTableRow",
     });
+    const rows = live.table?.cells;
+    if (rows) {
+      const width = rows.length ? Math.max(...rows.map((r) => r.length)) : (cells?.length ?? 0);
+      const source = rows[cell[0]];
+      const row = Array.from({ length: width }, (_, i) => gridCell(source?.[i], cells?.[i] ?? ""));
+      rows.splice(gridClamp(cell[0] + (insertBelow ? 1 : 0), rows.length), 0, row);
+    }
   }
 
   /** Deletes a row from a table at the given cell coordinates. */
@@ -427,6 +443,8 @@ export class DomWriter {
       nodeId: live.tapeIndex,
       type: "deleteTableRow",
     });
+    const rows = live.table?.cells;
+    if (rows && cell[0] >= 0 && cell[0] < rows.length) rows.splice(cell[0], 1);
   }
 
   /** Inserts a column into a table at the given cell coordinates. */
@@ -442,6 +460,9 @@ export class DomWriter {
       nodeId: live.tapeIndex,
       type: "insertTableColumn",
     });
+    for (const row of live.table?.cells ?? []) {
+      row.splice(gridClamp(cell[1] + (insertRight ? 1 : 0), row.length), 0, gridCell(row[cell[1]], ""));
+    }
   }
 
   /** Deletes a column from a table at the given cell coordinates. */
@@ -456,6 +477,9 @@ export class DomWriter {
       nodeId: live.tapeIndex,
       type: "deleteTableColumn",
     });
+    for (const row of live.table?.cells ?? []) {
+      if (cell[1] >= 0 && cell[1] < row.length) row.splice(cell[1], 1);
+    }
   }
 
   #push(mutation: DomMutation): void {
@@ -891,6 +915,22 @@ function applyPatchToTable(node: DocNode, patch: StylePatch): void {
 }
 
 /** Applies paragraph layout and spacing style patch properties to target object. */
+/**
+ * Builds a fabricated cell for a mirrored grid insert, borrowing offsets from a sibling.
+ *
+ * Offsets are cosmetic here: {@link compileDom} resolves every range from `originalNodes()`, and
+ * neither node summaries nor cell scoped ids (content checksums) read them. Keeping a sibling's
+ * values just preserves plausible ordering on the working tape.
+ */
+function gridCell(source: TableCell | undefined, text: string): TableCell {
+  return { end: source?.end ?? 0, start: source?.start ?? 0, text };
+}
+
+/** Clamps a mirrored insert position into a splice-safe range. */
+function gridClamp(at: number, length: number): number {
+  return Math.min(Math.max(at, 0), length);
+}
+
 function applyPatchToPara(
   target: {
     alignment?: ParagraphAlignment;

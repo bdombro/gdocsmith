@@ -2,6 +2,7 @@
 
 import { cloneNodeOpsResolve } from "~/core/dom/clone.ts";
 import { DomWriter, dangerousClearExecute, type TapeMutation, tapeMutationsApply } from "~/core/dom/index.ts";
+import { tapeFingerprint } from "~/core/dom/ops.ts";
 import { assignScopedIds, parseDocument } from "~/core/dom/parse.ts";
 import { findTab, resolveTab } from "~/core/tabs.ts";
 import { pendingWritersFlush } from "./flush.ts";
@@ -10,12 +11,16 @@ import type { ApplyScriptRuntime, SimulatedGdoc } from "./types.ts";
 
 /** Document target context required for surgical mutation execution. */
 export type SurgicalStepTarget = {
+  /** Accept a step that changes nothing instead of rejecting it. */
+  allowNoop?: boolean;
   /** Anchor alias or binding for newly created elements. */
   as?: string;
   /** Clear document or tab before mutations. */
   dangerousClear?: boolean;
   /** Target document ID or alias. */
   doc: string;
+  /** Workflow step kind, used for diagnostics. */
+  kind?: string;
   /** Target tab ID or title. */
   tab?: string;
 };
@@ -28,6 +33,8 @@ export async function surgicalMutationExecute(
   step: SurgicalStepTarget,
   /** Tape mutation to apply. */
   mutation: TapeMutation,
+  /** Index of the step in the script, used for diagnostics. */
+  stepIndex?: number,
 ): Promise<void> {
   const targetDoc = runtime.openDocResolve(step.doc);
   const tabHint = runtime.aliasResolve(step.tab);
@@ -95,6 +102,8 @@ export async function surgicalMutationExecute(
 
   const force = runtime.force || Boolean(op.force);
   if (mutationHasWrite(op)) {
+    const noopCheck = !step.allowNoop && mutationIsTapeVisible(op);
+    const before = noopCheck ? tapeFingerprint(pending.writer.nodes) : "";
     const plans = tapeMutationsApply(pending.writer, [op], pending.writer.mutations().length, {
       afterendTails: pending.afterendTails,
       force,
@@ -103,6 +112,9 @@ export async function surgicalMutationExecute(
     });
     if (plans?.length) {
       pending.plans.push(...plans);
+    }
+    if (noopCheck && tapeFingerprint(pending.writer.nodes) === before) {
+      throw new Error(noopMessage(step, stepIndex));
     }
   }
 
@@ -140,6 +152,60 @@ export async function surgicalMutationExecute(
   }
 
   runtime.stepsExecuted++;
+}
+
+/**
+ * Explains a mutation step that produced no change.
+ *
+ * A write step that leaves the node tape byte-identical means the caller's model of the document
+ * was wrong — the anchor resolved elsewhere, the content already matched, or an earlier step in
+ * this batch already applied it. Reporting `ok: true` for that would make success indistinguishable
+ * from a silent miss, which is what forces callers into read-back-after-every-write. Batches are
+ * atomic, so rejecting here leaves the document untouched.
+ */
+function noopMessage(
+  /** Workflow step that changed nothing. */
+  step: SurgicalStepTarget,
+  /** Index of the step in the script, when known. */
+  stepIndex?: number,
+): string {
+  const at = stepIndex == null ? "" : `steps[${stepIndex}] `;
+  return (
+    `${at}${step.kind ?? "mutation"} changed nothing — the document already matches what this step asked for.\n` +
+    "Usually the anchor resolved to the wrong node, the content is byte-identical to what is already " +
+    "there, or an earlier step in this batch applied it. Nothing in this run was written (batches are " +
+    "atomic). Query the anchor to confirm what it points at, or pass allowNoop: true if a no-op is expected."
+  );
+}
+
+/**
+ * Mutation keys whose effect never reaches the in-memory tape.
+ *
+ * These compile straight into batchUpdate requests without being written back onto the working
+ * nodes, so {@link tapeFingerprint} cannot see them and would report a real edit as a no-op.
+ * Carrying any of them exempts the step from the no-op check: a missed no-op is merely the old
+ * behavior, while a false rejection would break a working script.
+ *
+ * This is a gap in how faithfully the tape models the document, not a Google Docs API limit — the
+ * requests themselves are emitted correctly, and the exemption suppresses only the check.
+ *
+ * What remains here is character-level styling. `applyPatchToPara` already mirrors paragraph-level
+ * properties (alignment, spacing, indents, shading), but `DocNode.style` is a deliberately narrow
+ * `QueryTextStyle` (italic / fontSize / foregroundColor) with nowhere to record bold, underline, or
+ * font family, and the parser carries mixed inline styling in `markup` instead. Closing this needs
+ * either a wider `QueryTextStyle` or run-level re-serialization through `InlineMarkup`, both of
+ * which change query output — a separate change from this check.
+ *
+ * `tapeVisibility.test.ts` pins every entry to measured behavior, so the list cannot drift.
+ */
+export const TAPE_INVISIBLE_KEYS: ReadonlySet<string> = new Set(["runs", "style"]);
+
+/** True when every effect this mutation can have would show up on the working node tape. */
+function mutationIsTapeVisible(
+  /** Tape mutation to check. */
+  mutation: TapeMutation,
+): boolean {
+  return !Object.entries(mutation).some(([key, val]) => val !== undefined && TAPE_INVISIBLE_KEYS.has(key));
 }
 
 /** True when a mutation still has a write besides alias metadata. */

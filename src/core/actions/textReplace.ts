@@ -14,7 +14,7 @@ import { surgicalMutationExecute } from "./surgicalMutation.ts";
 import type { SimulatedGdoc, WorkflowStepHandler } from "./types.ts";
 
 /** Replaces matched text via plain find-and-replace or surgical tape mutation. */
-export const textReplaceStep: WorkflowStepHandler = async (runtime, _stepIndex, step) => {
+export const textReplaceStep: WorkflowStepHandler = async (runtime, stepIndex, step) => {
   const targetDoc = runtime.openDocResolve(step.doc);
   const tabHint = runtime.aliasResolve(step.tab);
   const hasAnchor = step.nodeAt != null || step.nodeAfter != null || step.nodeBefore != null || step.nodeUnder != null;
@@ -114,7 +114,7 @@ export const textReplaceStep: WorkflowStepHandler = async (runtime, _stepIndex, 
 
   const mutation = domOpFromStep(step, runtime.aliasResolve);
   mutation.replace = step.replace ?? step.text;
-  await surgicalMutationExecute(runtime, step, mutation);
+  await surgicalMutationExecute(runtime, step, mutation, stepIndex);
 };
 
 /** Escapes special regex characters in a literal string. */

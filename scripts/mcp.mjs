@@ -16577,6 +16577,7 @@ function elementCreate(kind, props = {}, opts) {
       nestingLevel: bulletObj.nestingLevel ?? 0,
       preset
     };
+    spec.style = { spaceAbove: 0, spaceBelow: 0, ...spec.style };
   }
   const indent = indentNormalize(p.indentStart) ?? indentNormalize(p.style?.indentStart);
   if (indent)
@@ -17087,6 +17088,20 @@ var TAPE_MUTATION_KEYS = [
   "tableStyle"
 ];
 var TAPE_ECHO_CAP = 80;
+var QUERY_PAYLOAD_CHAR_CAP = 20000;
+var SNIPPET_PAD = 30;
+function matchSnippet(text, needle) {
+  if (!needle)
+    return;
+  const flat = text.split(/\s+/).join(" ").trim();
+  const at = flat.toLowerCase().indexOf(needle.toLowerCase());
+  if (at < 0)
+    return;
+  const end = at + needle.length;
+  const from = Math.max(0, at - SNIPPET_PAD);
+  const to = Math.min(flat.length, end + SNIPPET_PAD);
+  return `${from > 0 ? "…" : ""}${flat.slice(from, at)}[${flat.slice(at, end)}]${flat.slice(end, to)}${to < flat.length ? "…" : ""}`;
+}
 function liveDump(opts) {
   const overCap = opts.nodes.length > TAPE_ECHO_CAP;
   const truncated = overCap && !opts.full;
@@ -18361,9 +18376,20 @@ function nodeSummarize(node, opts = {}) {
     if (node.markup)
       out.markup = node.markup;
   }
+  if (opts.contains) {
+    const snippet = matchSnippet(node.text ?? "", opts.contains);
+    if (snippet)
+      out.match = snippet;
+  }
   return out;
 }
 var summarizeNode = nodeSummarize;
+function tapeFingerprint(nodes) {
+  return JSON.stringify(nodes.map((node) => {
+    const { id: _id, ...rest } = nodeSummarize(node, { full: true });
+    return rest;
+  }));
+}
 function summarizeCell(cell, id) {
   const out = { id: cell.scopedId ?? id, text: cell.text };
   if (cell.fontColors?.length)
@@ -20117,6 +20143,12 @@ class DomWriter {
       throw new Error("bullet restyle is only valid on a paragraph");
     }
     this.#push({ nodeId: live.tapeIndex, preset, type: "bullets" });
+    live.bullet = {
+      ...live.bullet,
+      nestingLevel: live.bullet?.nestingLevel ?? 0,
+      preset: asBulletPreset(preset) ?? undefined,
+      type: preset.startsWith("NUMBERED") ? "NUMBERED" : "BULLET"
+    };
   }
   remove(node) {
     const live = this.#find(node.tapeIndex);
@@ -20139,6 +20171,13 @@ class DomWriter {
       nodeId: live.tapeIndex,
       type: "insertTableRow"
     });
+    const rows = live.table?.cells;
+    if (rows) {
+      const width = rows.length ? Math.max(...rows.map((r) => r.length)) : cells?.length ?? 0;
+      const source = rows[cell[0]];
+      const row = Array.from({ length: width }, (_, i) => gridCell(source?.[i], cells?.[i] ?? ""));
+      rows.splice(gridClamp(cell[0] + (insertBelow ? 1 : 0), rows.length), 0, row);
+    }
   }
   deleteTableRow(tableNode, cell) {
     const live = this.#find(tableNode.tapeIndex);
@@ -20152,6 +20191,9 @@ class DomWriter {
       nodeId: live.tapeIndex,
       type: "deleteTableRow"
     });
+    const rows = live.table?.cells;
+    if (rows && cell[0] >= 0 && cell[0] < rows.length)
+      rows.splice(cell[0], 1);
   }
   insertTableColumn(tableNode, cell, insertRight = true) {
     const live = this.#find(tableNode.tapeIndex);
@@ -20166,6 +20208,9 @@ class DomWriter {
       nodeId: live.tapeIndex,
       type: "insertTableColumn"
     });
+    for (const row of live.table?.cells ?? []) {
+      row.splice(gridClamp(cell[1] + (insertRight ? 1 : 0), row.length), 0, gridCell(row[cell[1]], ""));
+    }
   }
   deleteTableColumn(tableNode, cell) {
     const live = this.#find(tableNode.tapeIndex);
@@ -20179,6 +20224,10 @@ class DomWriter {
       nodeId: live.tapeIndex,
       type: "deleteTableColumn"
     });
+    for (const row of live.table?.cells ?? []) {
+      if (cell[1] >= 0 && cell[1] < row.length)
+        row.splice(cell[1], 1);
+    }
   }
   #push(mutation) {
     this.#mutations.push(this.#nextOpIndex != null ? { ...mutation, opIndex: this.#nextOpIndex } : mutation);
@@ -20546,6 +20595,12 @@ function applyPatchToTable(node, patch) {
     node.table.pinnedHeaderRows = patch.pinnedHeaderRows;
   if (patch.preventOverflow != null)
     node.table.preventOverflow = patch.preventOverflow;
+}
+function gridCell(source, text) {
+  return { end: source?.end ?? 0, start: source?.start ?? 0, text };
+}
+function gridClamp(at, length) {
+  return Math.min(Math.max(at, 0), length);
 }
 function applyPatchToPara(target, patch) {
   if (patch.alignment)
@@ -22138,7 +22193,7 @@ function insertAdjacentResolve(adj, aliasResolve) {
 }
 
 // src/core/actions/surgicalMutation.ts
-async function surgicalMutationExecute(runtime, step, mutation) {
+async function surgicalMutationExecute(runtime, step, mutation, stepIndex) {
   const targetDoc = runtime.openDocResolve(step.doc);
   const tabHint = runtime.aliasResolve(step.tab);
   const liveTab = targetDoc.gdoc.data.tabs?.length ? resolveTab(targetDoc.gdoc.data, tabHint) : { tabId: undefined, title: targetDoc.title };
@@ -22194,6 +22249,8 @@ async function surgicalMutationExecute(runtime, step, mutation) {
   }
   const force = runtime.force || Boolean(op.force);
   if (mutationHasWrite(op)) {
+    const noopCheck = !step.allowNoop && mutationIsTapeVisible(op);
+    const before = noopCheck ? tapeFingerprint(pending.writer.nodes) : "";
     const plans = tapeMutationsApply(pending.writer, [op], pending.writer.mutations().length, {
       afterendTails: pending.afterendTails,
       force,
@@ -22202,6 +22259,9 @@ async function surgicalMutationExecute(runtime, step, mutation) {
     });
     if (plans?.length) {
       pending.plans.push(...plans);
+    }
+    if (noopCheck && tapeFingerprint(pending.writer.nodes) === before) {
+      throw new Error(noopMessage(step, stepIndex));
     }
   }
   pending.steps.push({ op, step, stepIndex: runtime.stepsExecuted });
@@ -22234,6 +22294,15 @@ async function surgicalMutationExecute(runtime, step, mutation) {
     await pendingWritersFlush(runtime, targetDoc.alias);
   }
   runtime.stepsExecuted++;
+}
+function noopMessage(step, stepIndex) {
+  const at = stepIndex == null ? "" : `steps[${stepIndex}] `;
+  return `${at}${step.kind ?? "mutation"} changed nothing — the document already matches what this step asked for.
+` + "Usually the anchor resolved to the wrong node, the content is byte-identical to what is already " + "there, or an earlier step in this batch applied it. Nothing in this run was written (batches are " + "atomic). Query the anchor to confirm what it points at, or pass allowNoop: true if a no-op is expected.";
+}
+var TAPE_INVISIBLE_KEYS = new Set(["runs", "style"]);
+function mutationIsTapeVisible(mutation) {
+  return !Object.entries(mutation).some(([key, val]) => val !== undefined && TAPE_INVISIBLE_KEYS.has(key));
 }
 function mutationHasWrite(mutation) {
   return Object.entries(mutation).some(([key, val]) => key !== "as" && val !== undefined);
@@ -22273,13 +22342,13 @@ function mutationFoldClones(mutation) {
 }
 
 // src/core/actions/innerText.ts
-var innerTextStep = async (runtime, _stepIndex, step) => {
+var innerTextStep = async (runtime, stepIndex, step) => {
   const mutation = domOpFromStep(step, runtime.aliasResolve);
   if (step.innerText !== undefined)
     mutation.innerText = step.innerText;
   if (step.text !== undefined && mutation.innerText === undefined)
     mutation.innerText = step.text;
-  await surgicalMutationExecute(runtime, step, mutation);
+  await surgicalMutationExecute(runtime, step, mutation, stepIndex);
 };
 
 // src/core/actions/markdownInsert.ts
@@ -22627,6 +22696,7 @@ var queryStep = async (runtime, stepIndex, step) => {
   const effectiveDocStyle = (activeTabId ? targetDoc.gdoc.withTab(activeTabId).data.documentStyle : undefined) ?? targetDoc.gdoc.data.documentStyle ?? targetDoc.gdoc.data.tabs?.[0]?.documentTab?.documentStyle;
   const payload = queryPayloadBuild({
     alias: as,
+    contains: step.contains,
     documentId: targetDoc.docId,
     full,
     nodes,
@@ -22634,6 +22704,15 @@ var queryStep = async (runtime, stepIndex, step) => {
     pageSetup: pageSetupExtract(effectiveDocStyle),
     tabInputs,
     unfiltered: !filtered
+  });
+  queryPayloadSizeGuard({
+    contains: step.contains,
+    crossTab: isMultiTab && !targetTabId,
+    filtered,
+    nodes,
+    output,
+    payload,
+    stepIndex
   });
   runtime.dumpStore.set(as, payload);
   runtime.dumped[as] = payload;
@@ -22665,6 +22744,25 @@ function documentTabsParse(gdoc, title) {
 function nodeIsUnsafe(node) {
   return Boolean(node.hasEquation) || Boolean(node.chips?.length) || Boolean(node.hasHorizontalRule) || node.kind === "tableOfContents";
 }
+function queryPayloadSizeGuard(opts) {
+  if (!opts.filtered || opts.output !== "nodes")
+    return;
+  const size = JSON.stringify(opts.payload)?.length ?? 0;
+  if (size <= QUERY_PAYLOAD_CHAR_CAP)
+    return;
+  const where = opts.crossTab ? " across all tabs" : "";
+  const lines = [
+    `steps[${opts.stepIndex}] query: ${opts.nodes.length} nodes matched${where}, serializing to ` + `~${size.toLocaleString()} characters (cap ${QUERY_PAYLOAD_CHAR_CAP.toLocaleString()}).`
+  ];
+  if (opts.contains) {
+    const samples = opts.nodes.map((n) => matchSnippet(n.text ?? "", opts.contains)).filter((s) => Boolean(s)).slice(0, SNIPPET_SAMPLES);
+    lines.push(`contains: "${opts.contains}" is a case-insensitive substring match with no word boundaries, ` + `so short or common terms overmatch. It matched:`, ...samples.map((s) => `  • ${s}`));
+  }
+  lines.push("Narrow with `tab`, `nodeUnder`, `nodeKinds`, or a longer/more specific `contains`; " + 'drop `full` for summaries; or use output: "markdown" for a broad read.');
+  throw new Error(lines.join(`
+`));
+}
+var SNIPPET_SAMPLES = 5;
 function queryPayloadBuild(opts) {
   if (opts.output === "markdown") {
     const exp = exportDocumentToMarkdown(opts.tabInputs, { documentId: opts.documentId, includeStyles: false });
@@ -22715,7 +22813,7 @@ function queryPayloadBuild(opts) {
       tabTitle: first?.tabTitle
     });
   }
-  return opts.nodes.map((n) => nodeSummarize(n, { full: opts.full }));
+  return opts.nodes.map((n) => nodeSummarize(n, { contains: opts.contains, full: opts.full }));
 }
 function queryOutputRead(raw, stepIndex) {
   if (raw == null || raw === "")
@@ -22769,7 +22867,7 @@ function queryNodesFilter(nodes, step, aliasResolve) {
 }
 
 // src/core/actions/remove.ts
-var removeStep = async (runtime, _stepIndex, step) => {
+var removeStep = async (runtime, stepIndex, step) => {
   const mutation = domOpFromStep(step, runtime.aliasResolve);
   if (step.dangerousRemoveSection || step.kind === "dangerousRemoveSection") {
     mutation.dangerousRemoveSection = true;
@@ -22778,14 +22876,14 @@ var removeStep = async (runtime, _stepIndex, step) => {
     mutation.remove = true;
     delete mutation.dangerousRemoveSection;
   }
-  await surgicalMutationExecute(runtime, step, mutation);
+  await surgicalMutationExecute(runtime, step, mutation, stepIndex);
 };
 
 // src/core/actions/replace.ts
-var replaceStep = async (runtime, _stepIndex, step) => {
+var replaceStep = async (runtime, stepIndex, step) => {
   const mutation = domOpFromStep(step, runtime.aliasResolve);
   mutation.replace = step.replace ?? step.text ?? step.innerText;
-  await surgicalMutationExecute(runtime, step, mutation);
+  await surgicalMutationExecute(runtime, step, mutation, stepIndex);
 };
 
 // src/core/actions/sectionCopy.ts
@@ -22829,12 +22927,12 @@ var sectionCopyStep = async (runtime, stepIndex, step) => {
     mutation.at = runtime.aliasResolve(at);
     mutation.replaceSection = specs;
   }
-  await surgicalMutationExecute(runtime, step, mutation);
+  await surgicalMutationExecute(runtime, step, mutation, stepIndex);
 };
 
 // src/core/actions/surgical.ts
-var surgicalStep = async (runtime, _stepIndex, step) => {
-  await surgicalMutationExecute(runtime, step, domOpFromStep(step, runtime.aliasResolve));
+var surgicalStep = async (runtime, stepIndex, step) => {
+  await surgicalMutationExecute(runtime, step, domOpFromStep(step, runtime.aliasResolve), stepIndex);
 };
 
 // src/core/actions/tabCreate.ts
@@ -23893,7 +23991,7 @@ function extractSnippet(text, matchIdx, matchLen) {
 }
 
 // src/core/actions/textReplace.ts
-var textReplaceStep = async (runtime, _stepIndex, step) => {
+var textReplaceStep = async (runtime, stepIndex, step) => {
   const targetDoc = runtime.openDocResolve(step.doc);
   const tabHint = runtime.aliasResolve(step.tab);
   const hasAnchor = step.nodeAt != null || step.nodeAfter != null || step.nodeBefore != null || step.nodeUnder != null;
@@ -23982,7 +24080,7 @@ var textReplaceStep = async (runtime, _stepIndex, step) => {
   }
   const mutation = domOpFromStep(step, runtime.aliasResolve);
   mutation.replace = step.replace ?? step.text;
-  await surgicalMutationExecute(runtime, step, mutation);
+  await surgicalMutationExecute(runtime, step, mutation, stepIndex);
 };
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -24918,6 +25016,10 @@ var GdocsmithDocumentSchema_default = {
           type: "boolean",
           description: "Dump document or tab metadata into `dumped[as]`."
         },
+        allowNoop: {
+          type: "boolean",
+          description: "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
+        },
         dangerousRemoveSection: {
           type: "boolean",
           description: "Remove entire section below heading."
@@ -24962,6 +25064,10 @@ var GdocsmithDocumentSchema_default = {
         dump: {
           type: "boolean",
           description: "Dump document or tab metadata into `dumped[as]`."
+        },
+        allowNoop: {
+          type: "boolean",
+          description: "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
         },
         alignment: {
           $ref: "#/definitions/ParagraphAlignment",
@@ -25217,6 +25323,10 @@ var GdocsmithDocumentSchema_default = {
           type: "boolean",
           description: "Dump document or tab metadata into `dumped[as]`."
         },
+        allowNoop: {
+          type: "boolean",
+          description: "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
+        },
         file: {
           type: "string",
           description: "Local markdown or text file path to read (or '-' for stdin)."
@@ -25274,6 +25384,10 @@ var GdocsmithDocumentSchema_default = {
         dump: {
           type: "boolean",
           description: "Dump document or tab metadata into `dumped[as]`."
+        },
+        allowNoop: {
+          type: "boolean",
+          description: "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
         },
         file: {
           type: "string",
@@ -25341,6 +25455,10 @@ var GdocsmithDocumentSchema_default = {
           type: "boolean",
           description: "Dump document or tab metadata into `dumped[as]`."
         },
+        allowNoop: {
+          type: "boolean",
+          description: "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
+        },
         fromDoc: {
           type: "string",
           description: "Source document ID or alias (defaults to target doc)."
@@ -25397,6 +25515,10 @@ var GdocsmithDocumentSchema_default = {
         dump: {
           type: "boolean",
           description: "Dump document or tab metadata into `dumped[as]`."
+        },
+        allowNoop: {
+          type: "boolean",
+          description: "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
         },
         alignment: {
           $ref: "#/definitions/ParagraphAlignment",
@@ -25951,6 +26073,10 @@ var GdocsmithDocumentSchema_default = {
           type: "boolean",
           description: "Dump document or tab metadata into `dumped[as]`."
         },
+        allowNoop: {
+          type: "boolean",
+          description: "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
+        },
         allTabs: {
           type: "boolean",
           description: "Replace all occurrences across all tabs."
@@ -26188,7 +26314,7 @@ var program = {
   },
   key: createIdentity.key,
   mcpServer: { enabled: true },
-  version: "1.0.4"
+  version: "1.0.5"
 };
 
 // src/index.ts

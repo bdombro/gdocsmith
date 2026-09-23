@@ -74,5 +74,5 @@ export const sectionCopyStep: WorkflowStepHandler = async (
     mutation.replaceSection = specs as Array<Record<string, unknown>>;
   }
 
-  await surgicalMutationExecute(runtime, step, mutation);
+  await surgicalMutationExecute(runtime, step, mutation, stepIndex);
 };

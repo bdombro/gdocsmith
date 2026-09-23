@@ -101,6 +101,30 @@ describe("createElement", () => {
     });
   });
 
+  test("bullet paragraphs default to tight spaceAbove/spaceBelow", () => {
+    // Regression: a bullet paragraph with no style otherwise inherits whatever
+    // spaceAbove/spaceBelow the preceding paragraph carries at insertion, producing
+    // large visual gaps between list siblings despite correct numbering/bullets.
+    const el = createElement("paragraph", {
+      bullet: {},
+      namedStyleType: "NORMAL_TEXT",
+      text: "Item",
+    });
+    expect(el.style?.spaceAbove).toBe(0);
+    expect(el.style?.spaceBelow).toBe(0);
+  });
+
+  test("explicit style spacing overrides the bullet default", () => {
+    const el = createElement("paragraph", {
+      bullet: {},
+      namedStyleType: "NORMAL_TEXT",
+      style: { spaceBelow: 12 },
+      text: "Item",
+    });
+    expect(el.style?.spaceAbove).toBe(0);
+    expect(el.style?.spaceBelow).toBe(12);
+  });
+
   test("refuses p/q/ul/ol aliases", () => {
     expect(() =>
       createElement("p" as "paragraph", {

@@ -679,6 +679,10 @@
           "type": "boolean",
           "description": "Dump document or tab metadata into `dumped[as]`."
         },
+        "allowNoop": {
+          "type": "boolean",
+          "description": "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
+        },
         "dangerousRemoveSection": {
           "type": "boolean",
           "description": "Remove entire section below heading."
@@ -730,6 +734,10 @@
         "dump": {
           "type": "boolean",
           "description": "Dump document or tab metadata into `dumped[as]`."
+        },
+        "allowNoop": {
+          "type": "boolean",
+          "description": "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
         },
         "alignment": {
           "$ref": "#/definitions/ParagraphAlignment",
@@ -1000,6 +1008,10 @@
           "type": "boolean",
           "description": "Dump document or tab metadata into `dumped[as]`."
         },
+        "allowNoop": {
+          "type": "boolean",
+          "description": "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
+        },
         "file": {
           "type": "string",
           "description": "Local markdown or text file path to read (or '-' for stdin)."
@@ -1063,6 +1075,10 @@
         "dump": {
           "type": "boolean",
           "description": "Dump document or tab metadata into `dumped[as]`."
+        },
+        "allowNoop": {
+          "type": "boolean",
+          "description": "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
         },
         "file": {
           "type": "string",
@@ -1136,6 +1152,10 @@
           "type": "boolean",
           "description": "Dump document or tab metadata into `dumped[as]`."
         },
+        "allowNoop": {
+          "type": "boolean",
+          "description": "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
+        },
         "fromDoc": {
           "type": "string",
           "description": "Source document ID or alias (defaults to target doc)."
@@ -1196,6 +1216,10 @@
         "dump": {
           "type": "boolean",
           "description": "Dump document or tab metadata into `dumped[as]`."
+        },
+        "allowNoop": {
+          "type": "boolean",
+          "description": "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
         },
         "alignment": {
           "$ref": "#/definitions/ParagraphAlignment",
@@ -1790,6 +1814,10 @@
         "dump": {
           "type": "boolean",
           "description": "Dump document or tab metadata into `dumped[as]`."
+        },
+        "allowNoop": {
+          "type": "boolean",
+          "description": "Accept a step that changes nothing instead of rejecting it as a likely anchor or content mistake."
         },
         "allTabs": {
           "type": "boolean",

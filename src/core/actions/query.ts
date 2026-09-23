@@ -1,7 +1,14 @@
 /* Workflow step: query — find nodes and serialize them into dumped aliases. */
 
 import { exportDocumentToMarkdown } from "~/core/dom/export.ts";
-import { liveDump, nodeSummarize, pageSetupExtract, TAPE_ECHO_CAP } from "~/core/dom/ops.ts";
+import {
+  liveDump,
+  matchSnippet,
+  nodeSummarize,
+  pageSetupExtract,
+  QUERY_PAYLOAD_CHAR_CAP,
+  TAPE_ECHO_CAP,
+} from "~/core/dom/ops.ts";
 import { parseDocument } from "~/core/dom/parse.ts";
 import { headingLevel, isHeading, neighborhoodFrom, tableCellsAsNodes } from "~/core/dom/query.ts";
 import { fontColorsMatch } from "~/core/dom/style.ts";
@@ -97,6 +104,7 @@ export const queryStep: WorkflowStepHandler = async (runtime, stepIndex, step) =
 
   const payload = queryPayloadBuild({
     alias: as,
+    contains: step.contains,
     documentId: targetDoc.docId,
     full,
     nodes,
@@ -104,6 +112,15 @@ export const queryStep: WorkflowStepHandler = async (runtime, stepIndex, step) =
     pageSetup: pageSetupExtract(effectiveDocStyle),
     tabInputs,
     unfiltered: !filtered,
+  });
+  queryPayloadSizeGuard({
+    contains: step.contains,
+    crossTab: isMultiTab && !targetTabId,
+    filtered,
+    nodes,
+    output,
+    payload,
+    stepIndex,
   });
   runtime.dumpStore.set(as, payload);
   runtime.dumped[as] = payload;
@@ -156,9 +173,59 @@ function nodeIsUnsafe(node: DocNode): boolean {
   );
 }
 
+/**
+ * Rejects a filtered node payload too large to be consumed, and diagnoses the usual cause.
+ *
+ * Only the filtered `output: "nodes"` path is guarded: unfiltered reads already truncate through
+ * {@link liveDump}, whose `full: true` "give me everything" contract is deliberate. A filtered
+ * query has no such cap, so `full: true` plus an over-broad filter serializes without limit. When
+ * the filter was `contains`, the error carries bracketed match snippets — an over-broad term like
+ * `"ci"` matching "effi[ci]ent" is then obvious from the failure itself rather than invisible
+ * behind a truncated result the caller never gets to read.
+ */
+function queryPayloadSizeGuard(opts: {
+  contains?: string;
+  crossTab: boolean;
+  filtered: boolean;
+  nodes: DocNode[];
+  output: QueryOutputFormat;
+  payload: unknown;
+  stepIndex: number;
+}): void {
+  if (!opts.filtered || opts.output !== "nodes") return;
+  const size = JSON.stringify(opts.payload)?.length ?? 0;
+  if (size <= QUERY_PAYLOAD_CHAR_CAP) return;
+
+  const where = opts.crossTab ? " across all tabs" : "";
+  const lines = [
+    `steps[${opts.stepIndex}] query: ${opts.nodes.length} nodes matched${where}, serializing to ` +
+      `~${size.toLocaleString()} characters (cap ${QUERY_PAYLOAD_CHAR_CAP.toLocaleString()}).`,
+  ];
+  if (opts.contains) {
+    const samples = opts.nodes
+      .map((n) => matchSnippet(n.text ?? "", opts.contains!))
+      .filter((s): s is string => Boolean(s))
+      .slice(0, SNIPPET_SAMPLES);
+    lines.push(
+      `contains: "${opts.contains}" is a case-insensitive substring match with no word boundaries, ` +
+        `so short or common terms overmatch. It matched:`,
+      ...samples.map((s) => `  • ${s}`),
+    );
+  }
+  lines.push(
+    "Narrow with `tab`, `nodeUnder`, `nodeKinds`, or a longer/more specific `contains`; " +
+      'drop `full` for summaries; or use output: "markdown" for a broad read.',
+  );
+  throw new Error(lines.join("\n"));
+}
+
+/** Match snippets shown when a `contains` query overflows {@link QUERY_PAYLOAD_CHAR_CAP}. */
+const SNIPPET_SAMPLES = 5;
+
 /** Serializes matched nodes for `dumped`. */
 function queryPayloadBuild(opts: {
   alias: string;
+  contains?: string;
   documentId: string;
   full: boolean;
   nodes: DocNode[];
@@ -226,7 +293,7 @@ function queryPayloadBuild(opts: {
       tabTitle: first?.tabTitle,
     });
   }
-  return opts.nodes.map((n) => nodeSummarize(n, { full: opts.full }));
+  return opts.nodes.map((n) => nodeSummarize(n, { contains: opts.contains, full: opts.full }));
 }
 
 /** Reads and validates `output:` (default `nodes`). */

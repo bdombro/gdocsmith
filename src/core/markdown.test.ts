@@ -77,6 +77,11 @@ describe("markdown parser", () => {
     expect(asParagraph(elements[0]).bullet?.preset).toBe("BULLET_DISC_CIRCLE_SQUARE");
     expect(asParagraph(elements[0]).bullet?.nestingLevel).toBe(0);
     expect(asParagraph(elements[0]).text).toBe("Bullet 1");
+    // Regression: list items must default to tight spacing, or they inherit whatever
+    // spaceAbove/spaceBelow the surrounding prose carries — producing large visual gaps
+    // between siblings of the same list even though numbering/bullets render correctly.
+    expect(asParagraph(elements[0]).style?.spaceAbove).toBe(0);
+    expect(asParagraph(elements[0]).style?.spaceBelow).toBe(0);
 
     // Nested unordered
     expect(asParagraph(elements[1]).bullet?.preset).toBe("BULLET_DISC_CIRCLE_SQUARE");
@@ -216,6 +221,45 @@ describe("markdown parser", () => {
       return p?.indentStart?.magnitude === 72;
     });
     expect(indentRequests.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("consecutive numbered list items compile to tight 0pt spaceAbove/spaceBelow", () => {
+    // Regression: list item paragraphs carried no style override, so each item inherited
+    // whatever spaceAbove/spaceBelow the surrounding prose had at the insertion point —
+    // producing large visual gaps between numbered siblings despite correct numbering.
+    const md = "1. Step 1\n2. Step 2";
+    const elements = parseMarkdownToElements(md);
+
+    const doc = {
+      body: {
+        content: [
+          { endIndex: 1, sectionBreak: {}, startIndex: 0 },
+          {
+            endIndex: 20,
+            paragraph: { elements: [{ textRun: { content: "Heading\n" } }] },
+            startIndex: 1,
+          },
+        ],
+      },
+      documentId: "test-list-spacing",
+      revisionId: "rev-1",
+      title: "Test",
+    };
+
+    const parsed = parseDocument(doc as any);
+    const writer = new DomWriter(parsed.nodes);
+    const anchor = parsed.nodes.find((n) => n.kind === "paragraph")!;
+    let cur = anchor;
+    for (const el of elements) {
+      cur = writer.insertAdjacentElement(cur, "afterend", el);
+    }
+
+    const { requests } = compileDom(writer);
+    const spacingRequests = requests.filter((r: any) => {
+      const p = r.updateParagraphStyle?.paragraphStyle;
+      return p?.spaceAbove?.magnitude === 0 && p?.spaceBelow?.magnitude === 0;
+    });
+    expect(spacingRequests.length).toBe(2);
   });
 
   test("parses code blocks into multiple 0-margin lines", () => {

@@ -527,6 +527,11 @@ export function elementCreate(
       nestingLevel: bulletObj.nestingLevel ?? 0,
       preset,
     };
+    // List items otherwise inherit spaceAbove/spaceBelow from whatever paragraph precedes
+    // the insertion point, producing large visual gaps between siblings of the same list
+    // even though numbering/bullets render correctly. Default to tight spacing; explicit
+    // caller overrides in p.style still win.
+    spec.style = { spaceAbove: 0, spaceBelow: 0, ...spec.style };
   }
   const indent = indentNormalize(p.indentStart) ?? indentNormalize(p.style?.indentStart);
   if (indent) spec.indentStart = indent;

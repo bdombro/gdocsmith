@@ -97,12 +97,12 @@ export async function applyScriptExecute(
   for (const step of steps) {
     if (step.kind === "docOpen" && step.doc) {
       const id = Gdoc.idParse(step.doc.trim());
-      if (!id.startsWith("virtual:")) rawIdsToLoad.add(id);
+      if (!id.startsWith("virtual:") && !step.forceFetch) rawIdsToLoad.add(id);
     } else if (step.kind === "docCreate" && step.fromDoc) {
       const trimmed = step.fromDoc.trim();
       if (!declaredAliases.has(trimmed)) {
         const id = Gdoc.idParse(trimmed);
-        if (!id.startsWith("virtual:")) rawIdsToLoad.add(id);
+        if (!id.startsWith("virtual:") && !step.forceFetch) rawIdsToLoad.add(id);
       }
     }
   }

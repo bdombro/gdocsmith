@@ -29,6 +29,7 @@ Declarative Google Docs authoring via the `run` MCP tool. No raw batchUpdate scr
     - **Phase 1: Discover:** Single `run` querying source outlines and notes (`kind: docOpen`, `kind: query`).
     - **Phase 2: Create & Structure:** Single `run` creating the target doc with its initial root tab seeded from a template (`kind: docCreate` with `fromDoc`, `fromTab`, `tabTitle`, `tabAs`) and creating remaining tabs with final titles and positions (`kind: tabCreate` with `title`, `as`, `afterTab`).
     - **Phase 3: Populate & Link:** Single `run` transferring sections, updating placeholders, and inserting cross-tab links (`kind: sectionCopy`, `kind: replaceMarkdown`, `kind: markdownInsert`).
+11. **Cache freshness:** Document snapshots are cached server-side (~10s stale-while-revalidate, ~5min hard revalidate) across `run` calls, even though aliases reset each call. If a doc may have been edited outside gdocsmith since your last read and you need a guaranteed-fresh copy, pass `forceFetch: true` on `docOpen` (or `docCreate` with `fromDoc`).
 
 ## Canonical Recipes
 
@@ -114,7 +115,17 @@ Declarative Google Docs authoring via the `run` MCP tool. No raw batchUpdate scr
 }
 ```
 
-### 8. Multi-Tab Doc from Template Tabs (Single-Step Root Tab Seeding)
+### 8. Force-Fresh Read After a Suspected External Edit
+```json
+{
+  "steps": [
+    { "kind": "docOpen", "doc": "<documentId>", "as": "myDoc", "forceFetch": true },
+    { "kind": "query", "doc": "myDoc", "as": "outline", "output": "outline" }
+  ]
+}
+```
+
+### 9. Multi-Tab Doc from Template Tabs (Single-Step Root Tab Seeding)
 ```json
 {
   "steps": [

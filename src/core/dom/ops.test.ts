@@ -1466,6 +1466,49 @@ describe("applyOps", () => {
     expect(writer.nodes[0]?.tapeIndex).toBe(1);
   });
 
+  test("replaceMarkdown (structured spec form) applies an added inline run even when plain text is unchanged", () => {
+    // Regression: diffAndApplyMarkdown's LCS matching keyed solely off checksums that ignored
+    // run-level styling. A structured ElementSpec whose plain text matched the existing node
+    // but which added a `code` run was treated as an unchanged "match" and silently skipped —
+    // the styling edit never reached the document. (Markdown-*string* replaceMarkdown isn't
+    // affected by this path: its incoming spec.text retains raw markdown syntax, e.g. backticks,
+    // which already differs textually from the old node's plain text.)
+    const nodes: DocNode[] = [
+      {
+        end: 60,
+        kind: "paragraph",
+        namedStyleType: "NORMAL_TEXT",
+        start: 0,
+        tapeIndex: 1,
+        text: "Uses AutomatedCampaignMessageQueueItems for sending",
+      },
+    ];
+    const writer = new DomWriter(nodes);
+
+    applyOps(writer, [
+      {
+        at: 1,
+        replaceMarkdown: [
+          {
+            kind: "paragraph",
+            namedStyleType: "NORMAL_TEXT",
+            runs: [{ code: true, end: 39, start: 5 }],
+            text: "Uses AutomatedCampaignMessageQueueItems for sending",
+          },
+        ],
+      },
+    ]);
+
+    // Same node — but the code run must have actually been applied, not silently skipped.
+    expect(writer.nodes).toHaveLength(1);
+
+    const mutations = writer.mutations();
+    const innerTextMutation = mutations.find((m) => (m as { type?: string }).type === "innerText") as
+      | { runs?: Array<{ code?: boolean; end?: number; start?: number }> }
+      | undefined;
+    expect(innerTextMutation?.runs?.some((r) => r.code === true)).toBe(true);
+  });
+
   test("replaceSection on a section diffs and preserves unchanged nodes", () => {
     const nodes: DocNode[] = [
       {

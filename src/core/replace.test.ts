@@ -370,11 +370,11 @@ describe("executeRegexReplace", () => {
     });
 
     expect(result.occurrencesChanged).toBe(3);
-    expect(result.touchedNodeIds).toEqual(["h.heading_2.09a1", "h.heading_4.1d8b"]);
+    expect(result.touchedNodeIds).toEqual(["h.heading_2.91f3", "h.heading_4.704f"]);
     expect(result.matches.length).toBe(2);
-    expect(result.matches[0]?.at).toBe("h.heading_2.09a1");
+    expect(result.matches[0]?.at).toBe("h.heading_2.91f3");
     expect(result.matches[0]?.after).toBe("Alpha tracked under https://jira.corp/101 and https://jira.corp/102.");
-    expect(result.matches[1]?.at).toBe("h.heading_4.1d8b");
+    expect(result.matches[1]?.at).toBe("h.heading_4.704f");
     expect(result.matches[1]?.after).toBe("Beta tracked under https://jira.corp/201 here.");
     expect(capturedRequests.length).toBeGreaterThan(0);
   });
@@ -401,7 +401,7 @@ describe("executeRegexReplace", () => {
 
     expect(result.occurrencesChanged).toBe(2);
     expect(result.matches.length).toBe(1);
-    expect(result.matches[0]?.at).toBe("h.heading_2.09a1");
+    expect(result.matches[0]?.at).toBe("h.heading_2.91f3");
     expect(result.matches[0]?.after).toBe("Alpha tracked under JIRA-101 and JIRA-102.");
     // Node 5 (in Section Beta) must NOT be modified
     expect(result.matches.some((m) => m.at === 5)).toBe(false);
@@ -425,7 +425,7 @@ describe("executeRegexReplace", () => {
 
     expect(result.occurrencesChanged).toBe(1);
     expect(result.matches.length).toBe(1);
-    expect(result.matches[0]?.at).toBe("h.heading_2.a0e4");
+    expect(result.matches[0]?.at).toBe("h.heading_2.8b17");
     expect(result.matches[0]?.after).toBe("Topic Alpha");
   });
 

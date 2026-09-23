@@ -93,7 +93,7 @@ describe("parseTape", () => {
         tapeIndex: 1,
         kind: "paragraph",
         namedStyleType: "HEADING_2",
-        scopedId: "h.heading_1.f627",
+        scopedId: "h.heading_1.e49a",
         start: 1,
         text: "Agenda",
       },

@@ -1,19 +1,17 @@
 #!/usr/bin/env bun
 // @bun
-import { createRequire } from "node:module";
-var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// ../bun-argsbarg/src/config/file.ts
+// node_modules/argsbarg/src/config/file.ts
 import { existsSync as existsSync6, mkdirSync as mkdirSync4, readFileSync as readFileSync2, rmSync as rmSync2, unlinkSync, writeFileSync as writeFileSync3 } from "node:fs";
 import { dirname as dirname5, join as join5 } from "node:path";
 
-// ../bun-argsbarg/src/core/types.ts
+// node_modules/argsbarg/src/core/types.ts
 var CliValueFormat;
-((CliValueFormat2) => {
-  CliValueFormat2["Duration"] = "duration";
-  CliValueFormat2["CommaList"] = "comma-list";
-  CliValueFormat2["Date"] = "date";
-  CliValueFormat2["DateTime"] = "date-time";
+((CliValueFormat) => {
+  CliValueFormat["Duration"] = "duration";
+  CliValueFormat["CommaList"] = "comma-list";
+  CliValueFormat["Date"] = "date";
+  CliValueFormat["DateTime"] = "date-time";
 })(CliValueFormat ||= {});
 function isCliLeaf(node) {
   return "handler" in node && typeof node.handler === "function";
@@ -35,7 +33,7 @@ class CliSchemaValidationError extends Error {
   }
 }
 
-// ../bun-argsbarg/src/config/entry.ts
+// node_modules/argsbarg/src/config/entry.ts
 function defaultConfigEntryTitle(key) {
   return key;
 }
@@ -86,7 +84,7 @@ function configMcpSetEnabled(program) {
   return true;
 }
 
-// ../bun-argsbarg/src/runtime/capabilities.ts
+// node_modules/argsbarg/src/runtime/capabilities.ts
 function resolveCapabilities(program) {
   const configure = program.configure?.enabled !== false;
   return {
@@ -176,7 +174,7 @@ function assertBuiltinAllowed(argv, caps) {
   }
 }
 
-// ../bun-argsbarg/src/runtime/exposure.ts
+// node_modules/argsbarg/src/runtime/exposure.ts
 function isCliHidden(node) {
   return node.cli?.hidden === true;
 }
@@ -237,7 +235,7 @@ function leafHttpResponseDefaults(leaf) {
   };
 }
 
-// ../bun-argsbarg/src/core/wire-schema.ts
+// node_modules/argsbarg/src/core/wire-schema.ts
 var DURATION_PATTERN = "^\\d+[hdms]?$";
 var MCP_WIRE_OMIT_PRESENCE = new Set(["json", "yes", "verbose"]);
 function optionProperty(opt) {
@@ -328,7 +326,7 @@ function buildLeafInputSchema(leaf) {
   return schema;
 }
 
-// ../bun-argsbarg/src/http/paths.ts
+// node_modules/argsbarg/src/http/paths.ts
 var HTTP_RESERVED_TOP_LEVEL_SEGMENTS = new Set(["health", "openapi.json", "swagger", "tools"]);
 function resolveHttpPathPrefix(program) {
   const raw = program.httpServer?.pathPrefix;
@@ -354,7 +352,7 @@ function httpUserPathGlob(prefix) {
   return prefix ? `${prefix}/*` : "/*";
 }
 
-// ../bun-argsbarg/src/http/routes.ts
+// node_modules/argsbarg/src/http/routes.ts
 var VERB_KEYS = new Set(["get", "post", "put", "patch", "delete"]);
 function isParamRouterKey(key) {
   return key.startsWith(":");
@@ -596,7 +594,7 @@ function defaultSuccessStatus(method, hasBody) {
   }
 }
 
-// ../bun-argsbarg/src/http/schema-deref.ts
+// node_modules/argsbarg/src/http/schema-deref.ts
 function decodeJsonPointerSegment(segment) {
   return segment.replace(/~1/g, "/").replace(/~0/g, "~");
 }
@@ -658,7 +656,7 @@ function dereferenceJsonSchema(schema) {
   return derefValue(root, root, new Set);
 }
 
-// ../bun-argsbarg/src/http/openapi.ts
+// node_modules/argsbarg/src/http/openapi.ts
 var JSON_CONTENT_TYPE = "application/json; charset=utf-8";
 function defaultErrorSchema() {
   return {
@@ -873,7 +871,7 @@ function openApiJson(program) {
 `;
 }
 
-// ../bun-argsbarg/src/help.ts
+// node_modules/argsbarg/src/help.ts
 var style = {
   wrap(prefix, body, suffix) {
     return prefix + body + suffix;
@@ -1376,32 +1374,32 @@ function cliHelpRender(schema, helpPath, useStderr, opts) {
   const color = isTTY;
   const showSchema = opts?.showSchema ?? !isTTY;
   if (helpPath.length === 0) {
-    const lines2 = [];
-    lines2.push("");
+    const lines = [];
+    lines.push("");
     if (schema.description.length > 0) {
-      lines2.push(color ? style.white(schema.description) : schema.description);
-      lines2.push("");
+      lines.push(color ? style.white(schema.description) : schema.description);
+      lines.push("");
     }
-    const usage2 = usageLines(schema.key, helpPath, (schema.commands ?? []).length > 0, false, false, color);
+    const usage = usageLines(schema.key, helpPath, (schema.commands ?? []).length > 0, false, false, color);
     if (isTTY) {
-      lines2.push(renderTextBox("Usage", usage2, hw, color).join(`
+      lines.push(renderTextBox("Usage", usage, hw, color).join(`
 `));
     } else {
-      lines2.push(renderPlainSection("Usage", usage2).join(`
+      lines.push(renderPlainSection("Usage", usage).join(`
 `));
     }
     const optRows = rowsForOptions(visibleOptions(schema.options), color);
     const optBox = isTTY ? renderTableBox("Options", optRows, hw, color) : renderPlainTable("Options", optRows, hw);
     if (optBox.length > 0) {
-      lines2.push("");
-      lines2.push(optBox.join(`
+      lines.push("");
+      lines.push(optBox.join(`
 `));
     }
     if ((schema.commands ?? []).length > 0) {
-      const subRows2 = rowsForSubcommands(schema.commands ?? []);
-      const subBox2 = isTTY ? renderTableBox("Commands", subRows2, hw, color) : renderPlainTable("Commands", subRows2, hw);
-      lines2.push("");
-      lines2.push(subBox2.join(`
+      const subRows = rowsForSubcommands(schema.commands ?? []);
+      const subBox = isTTY ? renderTableBox("Commands", subRows, hw, color) : renderPlainTable("Commands", subRows, hw);
+      lines.push("");
+      lines.push(subBox.join(`
 `));
     }
     if (isCliLeaf(schema) && showSchema) {
@@ -1410,19 +1408,19 @@ function cliHelpRender(schema, helpPath, useStderr, opts) {
         const title = isDocumentLeaf(leaf) ? "Output Schema (JSON)" : "Output Schema (with --json)";
         const yamlLines = schemaToYamlLines(leaf.outputSchema, 0);
         if (yamlLines.length > 0) {
-          lines2.push("");
+          lines.push("");
           if (isTTY) {
-            lines2.push(renderTextBox(title, yamlLines, hw, color).join(`
+            lines.push(renderTextBox(title, yamlLines, hw, color).join(`
 `));
           } else {
-            lines2.push(renderPlainSection(title, yamlLines).join(`
+            lines.push(renderPlainSection(title, yamlLines).join(`
 `));
           }
         }
       }
     }
-    appendNotesBox(lines2, schema.notes, schema.key, hw, color, isTTY);
-    return `${lines2.join(`
+    appendNotesBox(lines, schema.notes, schema.key, hw, color, isTTY);
+    return `${lines.join(`
 `)}
 
 `;
@@ -1525,7 +1523,7 @@ function cliHelpRender(schema, helpPath, useStderr, opts) {
 `;
 }
 
-// ../bun-argsbarg/src/docs/cli-guide.ts
+// node_modules/argsbarg/src/docs/cli-guide.ts
 function commandPath(rootKey, path) {
   if (path.length === 0) {
     return rootKey;
@@ -1675,13 +1673,13 @@ function generateCliGuide(program, opts = {}) {
 `;
 }
 
-// ../bun-argsbarg/src/http/server.ts
+// node_modules/argsbarg/src/http/server.ts
 import { randomUUID } from "node:crypto";
 
-// ../bun-argsbarg/src/config/bootstrap.ts
+// node_modules/argsbarg/src/config/bootstrap.ts
 import { readSync as readSync2 } from "node:fs";
 
-// ../bun-argsbarg/src/prompt.ts
+// node_modules/argsbarg/src/prompt.ts
 import { readSync } from "node:fs";
 function readPromptLine() {
   const buf = Buffer.alloc(4096);
@@ -1689,7 +1687,7 @@ function readPromptLine() {
   return buf.toString("utf8", 0, n).replace(/\r?\n$/, "");
 }
 
-// ../bun-argsbarg/src/config/bindings.ts
+// node_modules/argsbarg/src/config/bindings.ts
 var CONFIG_BINDINGS_KEY = "_bindings";
 var BINDING_VALUES = new Set(["env", "file", "skip"]);
 function isFrameworkConfigKey(key) {
@@ -1762,7 +1760,7 @@ function bindingForKey(key, fileData, resolvedPresent) {
   return "missing";
 }
 
-// ../bun-argsbarg/src/config/schema.ts
+// node_modules/argsbarg/src/config/schema.ts
 function synthesizeAllStringSchema(schema) {
   const properties = {};
   const required = [];
@@ -1829,7 +1827,7 @@ function schemaDefaultForKey(program, key) {
   return entry.default;
 }
 
-// ../bun-argsbarg/src/config/resolve.ts
+// node_modules/argsbarg/src/config/resolve.ts
 function isPresent2(value) {
   if (value === undefined || value === null) {
     return false;
@@ -2021,7 +2019,7 @@ function formatMcpMissingConfigMessage(program, keys) {
 `);
 }
 
-// ../bun-argsbarg/node_modules/@cfworker/json-schema/dist/esm/deep-compare-strict.js
+// node_modules/@cfworker/json-schema/dist/esm/deep-compare-strict.js
 function deepCompareStrict(a, b) {
   const typeofa = typeof a;
   if (typeofa !== typeof b) {
@@ -2062,7 +2060,7 @@ function deepCompareStrict(a, b) {
   return a === b;
 }
 
-// ../bun-argsbarg/node_modules/@cfworker/json-schema/dist/esm/pointer.js
+// node_modules/@cfworker/json-schema/dist/esm/pointer.js
 function encodePointer(p) {
   return encodeURI(escapePointer(p));
 }
@@ -2070,7 +2068,7 @@ function escapePointer(p) {
   return p.replace(/~/g, "~0").replace(/\//g, "~1");
 }
 
-// ../bun-argsbarg/node_modules/@cfworker/json-schema/dist/esm/dereference.js
+// node_modules/@cfworker/json-schema/dist/esm/dereference.js
 var schemaArrayKeyword = {
   prefixItems: true,
   items: true,
@@ -2191,7 +2189,7 @@ function dereference(schema, lookup = Object.create(null), baseURI = initialBase
   return lookup;
 }
 
-// ../bun-argsbarg/node_modules/@cfworker/json-schema/dist/esm/format.js
+// node_modules/@cfworker/json-schema/dist/esm/format.js
 var DATE = /^(\d\d\d\d)-(\d\d)-(\d\d)$/;
 var DAYS = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 var TIME = /^(\d\d):(\d\d):(\d\d)(\.\d+)?(z|[+-]\d\d(?::?\d\d)?)?$/i;
@@ -2284,7 +2282,7 @@ function regex(str) {
   }
 }
 
-// ../bun-argsbarg/node_modules/@cfworker/json-schema/dist/esm/ucs2-length.js
+// node_modules/@cfworker/json-schema/dist/esm/ucs2-length.js
 function ucs2length(s) {
   let result = 0;
   let length = s.length;
@@ -2303,7 +2301,7 @@ function ucs2length(s) {
   return result;
 }
 
-// ../bun-argsbarg/node_modules/@cfworker/json-schema/dist/esm/validate.js
+// node_modules/@cfworker/json-schema/dist/esm/validate.js
 function validate(instance, schema, draft = "2019-09", lookup = dereference(schema), shortCircuit = true, recursiveAnchor = null, instanceLocation = "#", schemaLocation = "#", evaluated = Object.create(null)) {
   if (schema === true) {
     return { valid: true, errors: [] };
@@ -2360,8 +2358,8 @@ function validate(instance, schema, draft = "2019-09", lookup = dereference(sche
     }
   }
   if ($ref !== undefined) {
-    const uri2 = __absolute_ref__ || $ref;
-    const refSchema = lookup[uri2];
+    const uri = __absolute_ref__ || $ref;
+    const refSchema = lookup[uri];
     if (refSchema === undefined) {
       let message = `Unresolved $ref "${$ref}".`;
       if (__absolute_ref__ && __absolute_ref__ !== $ref) {
@@ -2712,10 +2710,10 @@ Known schemas:
     if (!stop && $patternProperties !== undefined) {
       const keywordLocation = `${schemaLocation}/patternProperties`;
       for (const pattern in $patternProperties) {
-        const regex2 = new RegExp(pattern, "u");
+        const regex = new RegExp(pattern, "u");
         const subSchema = $patternProperties[pattern];
         for (const key in instance) {
-          if (!regex2.test(key)) {
+          if (!regex.test(key)) {
             continue;
           }
           const subInstancePointer = `${instanceLocation}/${encodePointer(key)}`;
@@ -2849,16 +2847,16 @@ Known schemas:
         }
       }
       if (!stop && $additionalItems !== undefined) {
-        const keywordLocation2 = `${schemaLocation}/additionalItems`;
+        const keywordLocation = `${schemaLocation}/additionalItems`;
         for (;i < length; i++) {
-          const result = validate(instance[i], $additionalItems, draft, lookup, shortCircuit, recursiveAnchor, `${instanceLocation}/${i}`, keywordLocation2);
+          const result = validate(instance[i], $additionalItems, draft, lookup, shortCircuit, recursiveAnchor, `${instanceLocation}/${i}`, keywordLocation);
           evaluated[i] = true;
           if (!result.valid) {
             stop = shortCircuit;
             errors.push({
               instanceLocation,
               keyword: "additionalItems",
-              keywordLocation: keywordLocation2,
+              keywordLocation,
               error: `Items did not match additional items schema.`
             }, ...result.errors);
           }
@@ -3062,7 +3060,7 @@ Known schemas:
   return { valid: errors.length === 0, errors };
 }
 
-// ../bun-argsbarg/node_modules/@cfworker/json-schema/dist/esm/validator.js
+// node_modules/@cfworker/json-schema/dist/esm/validator.js
 class Validator {
   schema;
   draft;
@@ -3085,7 +3083,7 @@ class Validator {
   }
 }
 
-// ../bun-argsbarg/src/core/formats.ts
+// node_modules/argsbarg/src/core/formats.ts
 var DURATION_RE = /^\d+[hdms]?$/i;
 var DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 function parseDurationMs(durationStr) {
@@ -3162,8 +3160,8 @@ function validatePattern(s, pattern) {
     throw new Error(`Value does not match required pattern: ${pattern}`);
   }
 }
-function formatValidationError(format2, value) {
-  switch (format2) {
+function formatValidationError(format, value) {
+  switch (format) {
     case "duration" /* Duration */:
       return `Invalid duration: ${value} (use e.g. 30s, 20m, 1h, 2d)`;
     case "comma-list" /* CommaList */:
@@ -3174,9 +3172,9 @@ function formatValidationError(format2, value) {
       return `Invalid date-time: ${value} (use RFC 3339, e.g. 2026-06-22T15:00:00Z)`;
   }
 }
-function validateFormatValue(value, format2, pattern) {
-  if (format2 !== undefined) {
-    switch (format2) {
+function validateFormatValue(value, format, pattern) {
+  if (format !== undefined) {
+    switch (format) {
       case "duration" /* Duration */:
         validateDuration(value);
         return;
@@ -3196,7 +3194,7 @@ function validateFormatValue(value, format2, pattern) {
   }
 }
 
-// ../bun-argsbarg/src/config/validate.ts
+// node_modules/argsbarg/src/config/validate.ts
 if (!format["comma-list"]) {
   format["comma-list"] = (value) => {
     try {
@@ -3487,7 +3485,7 @@ function parseConfigSetValue(raw, propertySchema, rootSchema, useJson) {
   return raw;
 }
 
-// ../bun-argsbarg/src/config/bootstrap.ts
+// node_modules/argsbarg/src/config/bootstrap.ts
 function bootstrapAppConfig(program, opts) {
   let fileData;
   if (opts.validateFile === true) {
@@ -3684,8 +3682,8 @@ function runConfigure(program, opts = {}) {
     throw new Error("configure requires program.appConfig on the program root.");
   }
   if (!process.stdin.isTTY) {
-    const { resolved: resolved2 } = bootstrapAppConfig(program, { validateFile: false });
-    const missing = missingRequiredConfig(program, resolved2);
+    const { resolved } = bootstrapAppConfig(program, { validateFile: false });
+    const missing = missingRequiredConfig(program, resolved);
     if (missing.length > 0) {
       process.stderr.write(`${formatMissingConfigMessage(program, missing)}
 `);
@@ -3823,7 +3821,7 @@ function ensureAppConfig(program, opts) {
   return { fileData, resolved };
 }
 
-// ../bun-argsbarg/src/utils.ts
+// node_modules/argsbarg/src/utils.ts
 function fullStringIsDouble(s) {
   if (s.trim().length === 0)
     return false;
@@ -3840,7 +3838,7 @@ function strictParseDouble(s) {
 }
 var isInteractiveTty = !!process.stdin.isTTY;
 
-// ../bun-argsbarg/src/core/parse.ts
+// node_modules/argsbarg/src/core/parse.ts
 var helpShort = "-h";
 var helpLong = "--help";
 function isHelpTok(tok) {
@@ -4406,7 +4404,7 @@ function postParseValidate(root, pr) {
   return { ...pr, opts };
 }
 
-// ../bun-argsbarg/src/core/leaf-inputs.ts
+// node_modules/argsbarg/src/core/leaf-inputs.ts
 class LeafInputError extends Error {
   constructor(message) {
     super(message);
@@ -4415,9 +4413,9 @@ class LeafInputError extends Error {
 }
 var DOCUMENT_LEAF_BODY_KEY = "__documentLeafBody";
 var JSON_LEAF_BODY_KEY = DOCUMENT_LEAF_BODY_KEY;
-function resolveLeaf(program, commandPath2) {
+function resolveLeaf(program, commandPath) {
   let node = program;
-  for (const seg of commandPath2) {
+  for (const seg of commandPath) {
     if (!isCliRouter(node))
       return;
     const child = node.commands.find((c) => c.key === seg);
@@ -4523,15 +4521,15 @@ function readJsonOptionValue(ctx, name) {
   }
   return;
 }
-async function preloadPipableJson(program, commandPath2, opts, invocation, args = []) {
+async function preloadPipableJson(program, commandPath, opts, invocation, args = []) {
   if (invocation !== "cli" || isInteractiveTty) {
     return {};
   }
-  const leaf = resolveLeaf(program, commandPath2);
+  const leaf = resolveLeaf(program, commandPath);
   if (leaf && isDocumentLeaf(leaf) && args.length === 0) {
     return { [JSON_LEAF_BODY_KEY]: await readPipedJsonStdinForJsonLeaf(leaf.kind) };
   }
-  for (const opt of collectOptionDefs(program, commandPath2)) {
+  for (const opt of collectOptionDefs(program, commandPath)) {
     if (opt.kind === "json" /* Json */ && opt.pipable && !(opt.name in opts)) {
       return { [opt.name]: await readPipedJsonStdin() };
     }
@@ -4591,11 +4589,11 @@ function loadLeafInputs(ctx) {
       }
       throw new LeafInputError("JSON input must be a JSON object");
     }
-    const out2 = body;
+    const out = body;
     if (leaf.inputSchema !== undefined) {
-      validateAgainstInputSchema(out2, leaf.inputSchema);
+      validateAgainstInputSchema(out, leaf.inputSchema);
     }
-    return omitUndefinedInputs(out2);
+    return omitUndefinedInputs(out);
   }
   const out = {};
   const options = collectOptionDefs(ctx.program, ctx.commandPath);
@@ -4638,7 +4636,7 @@ function loadLeafInputs(ctx) {
   return omitUndefinedInputs(out);
 }
 
-// ../bun-argsbarg/src/http/result.ts
+// node_modules/argsbarg/src/http/result.ts
 function stripAnsi(text) {
   const ansiEscape = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
   return text.replace(ansiEscape, "");
@@ -4717,11 +4715,11 @@ function apiDocsHtml() {
 </html>`;
 }
 
-// ../bun-argsbarg/src/log/emitter.ts
+// node_modules/argsbarg/src/log/emitter.ts
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
-// ../bun-argsbarg/src/log/ecs.ts
+// node_modules/argsbarg/src/log/ecs.ts
 var ECS_VERSION = "8.11.0";
 var PROTECTED_ECS_KEYS = new Set([
   "@timestamp",
@@ -4802,7 +4800,7 @@ function durationMsToEcsNanos(durationMs) {
   return durationMs * 1e6;
 }
 
-// ../bun-argsbarg/src/log/emitter.ts
+// node_modules/argsbarg/src/log/emitter.ts
 var OBSCURE_CLIENT_MESSAGE = "An unexpected error occurred.";
 function obscureUnexpectedClientMessage() {
   return OBSCURE_CLIENT_MESSAGE;
@@ -4949,7 +4947,7 @@ ${event.error.stack}`;
   }
 }
 
-// ../bun-argsbarg/src/hooks/run.ts
+// node_modules/argsbarg/src/hooks/run.ts
 async function runHook(hook, label) {
   if (!hook) {
     return;
@@ -5040,7 +5038,7 @@ async function runErrorPipeline(hookCtx, err, failureKind, hooks, emitter, obscu
   return { failureKind, clientError, errorMsg: displayMessage };
 }
 
-// ../bun-argsbarg/src/core/respond.ts
+// node_modules/argsbarg/src/core/respond.ts
 function normalizeRespondOptions(opts) {
   if (opts.contentType !== undefined) {
     return opts;
@@ -5082,7 +5080,7 @@ function encodeRespondBodyBase64(body) {
   return btoa(binary);
 }
 
-// ../bun-argsbarg/src/mcp/result.ts
+// node_modules/argsbarg/src/mcp/result.ts
 function buildToolCallSuccessFromResponse(response) {
   const { body, contentType = "application/json; charset=utf-8" } = response;
   let structuredContent;
@@ -5111,7 +5109,7 @@ function buildToolCallSuccessFromResponse(response) {
   };
 }
 
-// ../bun-argsbarg/src/headless/tool-call.ts
+// node_modules/argsbarg/src/headless/tool-call.ts
 function lookupHeadlessTool(program, toolName) {
   const tools = collectMcpTools(program);
   const tool = tools.find((t) => t.name === toolName);
@@ -5220,7 +5218,11 @@ function headlessSuccessToHttpResponse(result, leafApiResponse, defaultStatus) {
 }
 function headlessFailureToHttpResponse(result, obscureUnexpected = false) {
   const status = resolveHttpErrorStatus(result);
-  return apiErrorResponse(status, { error: formatHeadlessError(result, obscureUnexpected) });
+  let message = firstErrorLine(result.message);
+  if (obscureUnexpected && result.failureKind === "unexpected") {
+    message = obscureUnexpectedClientMessage();
+  }
+  return apiErrorResponse(status, { error: message });
 }
 function resolveHttpErrorStatus(result) {
   if (result.failureKind) {
@@ -5238,16 +5240,13 @@ function resolveHttpErrorStatus(result) {
   return 500;
 }
 function headlessFailureMcpMessage(result, obscureUnexpected = false) {
-  return formatHeadlessError(result, obscureUnexpected);
-}
-function formatHeadlessError(result, obscureUnexpected) {
   if (obscureUnexpected && result.failureKind === "unexpected") {
     return obscureUnexpectedClientMessage();
   }
-  return stripAnsi(result.message).trim();
+  return firstErrorLine(result.message);
 }
 
-// ../bun-argsbarg/src/log/trace.ts
+// node_modules/argsbarg/src/log/trace.ts
 import { randomBytes } from "node:crypto";
 var TRACEPARENT_RE = /^[\da-f]{2}-([\da-f]{32})-([\da-f]{16})-([\da-f]{2})$/i;
 function randomSpanId() {
@@ -5286,7 +5285,7 @@ function formatTraceparent(ctx) {
   return `00-${ctx.traceId}-${ctx.spanId}-${flags}`;
 }
 
-// ../bun-argsbarg/src/http/readiness.ts
+// node_modules/argsbarg/src/http/readiness.ts
 var READINESS_CACHE_MS = 3000;
 function configFileCheck(runtime) {
   const err = runtime.state.configFileError;
@@ -5336,7 +5335,7 @@ async function evaluateReadiness(program, surface, runtime, appConfig) {
   return result;
 }
 
-// ../bun-argsbarg/src/http/server.ts
+// node_modules/argsbarg/src/http/server.ts
 var DEFAULT_HOST = "127.0.0.1";
 var DEFAULT_PORT = 3000;
 function resolveHttpListenAddress(program) {
@@ -5529,7 +5528,7 @@ async function httpServeHttp(cli, resolved) {
   throw new Error("HTTP API server stopped unexpectedly");
 }
 
-// ../bun-argsbarg/src/docs/http-guide.ts
+// node_modules/argsbarg/src/docs/http-guide.ts
 function formatRouteLine(root, route) {
   const cliPath = route.commandPath.join(" ");
   let line = `- \`${route.method} ${route.openApiPath}\` (CLI: \`${root.key} ${cliPath}\`) — ${route.leaf.description}`;
@@ -5635,11 +5634,11 @@ function generateHttpGuide(root) {
 `);
 }
 
-// ../bun-argsbarg/src/configure/artifacts/mcp-config.ts
+// node_modules/argsbarg/src/configure/artifacts/mcp-config.ts
 import { existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync, writeFileSync } from "node:fs";
 import { dirname as dirname2 } from "node:path";
 
-// ../bun-argsbarg/src/paths/host.ts
+// node_modules/argsbarg/src/paths/host.ts
 import { existsSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
@@ -5660,7 +5659,7 @@ function appConfigLibHome(home = userHome()) {
   return join(home, ".local", "lib");
 }
 
-// ../bun-argsbarg/src/configure/artifacts/mcp-config.ts
+// node_modules/argsbarg/src/configure/artifacts/mcp-config.ts
 function expectedMcpEntry(root) {
   return { command: root.key, args: ["mcp"] };
 }
@@ -5716,15 +5715,15 @@ function removeMcpConfig(path, name, dry) {
   return [path];
 }
 
-// ../bun-argsbarg/src/configure/artifacts/paths.ts
+// node_modules/argsbarg/src/configure/artifacts/paths.ts
 import { dirname as dirname3, join as join2 } from "node:path";
 
-// ../bun-argsbarg/src/skill/naming.ts
+// node_modules/argsbarg/src/skill/naming.ts
 function skillDirName(programKey) {
   return programKey.replace(/[/\\\s]/g, "_");
 }
 
-// ../bun-argsbarg/src/configure/artifacts/paths.ts
+// node_modules/argsbarg/src/configure/artifacts/paths.ts
 function displayInstallPath(path) {
   return displayHomePath(path);
 }
@@ -5749,7 +5748,7 @@ function resolveInstallPaths(root) {
   };
 }
 
-// ../bun-argsbarg/src/docs/mcp-resources.ts
+// node_modules/argsbarg/src/docs/mcp-resources.ts
 function defaultDocsTopicResourceUri(mcpId, topicKey) {
   return `${mcpId}://docs/${topicKey}`;
 }
@@ -5792,7 +5791,7 @@ function reservedDocsTopicResourceUris(program) {
   return docsUserTopicKeys(docs).map((key) => resolveDocsTopicResourceUri(program, key));
 }
 
-// ../bun-argsbarg/src/docs/mcp-guide.ts
+// node_modules/argsbarg/src/docs/mcp-guide.ts
 function appendManualClientSetup(lines, _root, serverId, entry) {
   const home = userHome();
   const claudeDesktopPath = resolveClaudeDesktopMcpPath(home);
@@ -5859,8 +5858,8 @@ function generateMcpGuide(root) {
   if (docsEnabled(root)) {
     const docs = resolveDocsConfig(root);
     for (const key of docsUserTopicKeys(docs)) {
-      const uri2 = resolveDocsTopicResourceUri(root, key);
-      lines.push(`| Docs topic \`${key}\` | \`${uri2}\` — same markdown as \`${root.key} docs ${key}\` |`);
+      const uri = resolveDocsTopicResourceUri(root, key);
+      lines.push(`| Docs topic \`${key}\` | \`${uri}\` — same markdown as \`${root.key} docs ${key}\` |`);
     }
   }
   lines.push("", "## Exposed tools", "");
@@ -5877,7 +5876,7 @@ function generateMcpGuide(root) {
 `);
 }
 
-// ../bun-argsbarg/src/docs/resolve.ts
+// node_modules/argsbarg/src/docs/resolve.ts
 var DOCS_BUILTIN_TOPIC_KEYS = ["http", "mcp", "all", "cli-schema", "cli", "openapi"];
 var DOCS_ROUTER_DESCRIPTION = "Print bundled CLI documentation.";
 function docsEnabled(program) {
@@ -5956,11 +5955,11 @@ function printDocsTopic(program, topic) {
   process.stdout.write(docsTopicContent(program, topic));
 }
 
-// ../bun-argsbarg/src/docs/save.ts
+// node_modules/argsbarg/src/docs/save.ts
 import { mkdirSync as mkdirSync3, writeFileSync as writeFileSync2 } from "node:fs";
 import { dirname as dirname4, join as join3 } from "node:path";
 
-// ../bun-argsbarg/src/skill/hint.ts
+// node_modules/argsbarg/src/skill/hint.ts
 var MARKDOWN_FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n/;
 function generatedFileHtmlComment(source) {
   return `<!-- Generated by ${source}; do not edit. -->
@@ -5983,7 +5982,7 @@ function applyPluginSkillHint(program, skillMd) {
   return insertGeneratedHint(skillMd, skillBundleHint(program), { afterFrontmatter: true });
 }
 
-// ../bun-argsbarg/src/docs/save.ts
+// node_modules/argsbarg/src/docs/save.ts
 var DOCS_SAVE_DIR = "docs";
 var DOCS_GENERATED_SAVE_TOPICS = ["mcp", "cli", "http"];
 function docsTopicIsGeneratedByArgsbarg(topic) {
@@ -6022,7 +6021,7 @@ function saveDocsTopic(program, topic) {
   return rel;
 }
 
-// ../bun-argsbarg/src/docs/builtin.ts
+// node_modules/argsbarg/src/docs/builtin.ts
 var DOCS_SAVE_OPTION = {
   name: "save",
   description: "Write documentation to ./docs/.",
@@ -6086,7 +6085,7 @@ function cliBuiltinDocsGroupIfEnabled(program) {
   return cliBuiltinDocsGroup(program);
 }
 
-// ../bun-argsbarg/src/builtins/completion-group.ts
+// node_modules/argsbarg/src/builtins/completion-group.ts
 function cliBuiltinCompletionGroup(program) {
   const appName = program.key;
   const router = {
@@ -6138,7 +6137,7 @@ function cliBuiltinCompletionGroup(program) {
   return router;
 }
 
-// ../bun-argsbarg/src/configure/artifacts/target-base.ts
+// node_modules/argsbarg/src/configure/artifacts/target-base.ts
 class InstallTarget {
   defaultIncludedInAll() {
     return false;
@@ -6175,7 +6174,7 @@ class InstallTarget {
   }
 }
 
-// ../bun-argsbarg/src/configure/artifacts/target-mcp-json.ts
+// node_modules/argsbarg/src/configure/artifacts/target-mcp-json.ts
 function mcpConfigHasServer(path, name) {
   return readMcpServerEntry(path, name) !== undefined;
 }
@@ -6257,7 +6256,7 @@ class McpJsonInstallTarget extends InstallTarget {
   }
 }
 
-// ../bun-argsbarg/src/configure/artifacts/targets/agents-mcp.ts
+// node_modules/argsbarg/src/configure/artifacts/targets/agents-mcp.ts
 var agentsMcpTarget = new McpJsonInstallTarget({
   key: "agentsMcp",
   actionKind: "agents-mcp",
@@ -6268,7 +6267,7 @@ var agentsMcpTarget = new McpJsonInstallTarget({
   isAvailable: (root) => root.mcpServer?.enabled === true
 });
 
-// ../bun-argsbarg/src/configure/artifacts/binary-placement.ts
+// node_modules/argsbarg/src/configure/artifacts/binary-placement.ts
 import { accessSync, constants, realpathSync } from "node:fs";
 import { delimiter, join as join4 } from "node:path";
 function resolvePathCommand(key) {
@@ -6305,7 +6304,7 @@ function isExternallyManagedBinary(key, execPath = process.execPath) {
   return resolved === realpathOrSelf(execPath);
 }
 
-// ../bun-argsbarg/src/configure/artifacts/targets/app.ts
+// node_modules/argsbarg/src/configure/artifacts/targets/app.ts
 class AppInstallTarget extends InstallTarget {
   key = "app";
   actionKind = "app";
@@ -6343,7 +6342,7 @@ class AppInstallTarget extends InstallTarget {
 }
 var appTarget = new AppInstallTarget;
 
-// ../bun-argsbarg/src/configure/artifacts/targets/configure.ts
+// node_modules/argsbarg/src/configure/artifacts/targets/configure.ts
 class ConfigureInstallTarget extends InstallTarget {
   key = "configure";
   actionKind = "configure";
@@ -6378,13 +6377,13 @@ class ConfigureInstallTarget extends InstallTarget {
 }
 var configureTarget = new ConfigureInstallTarget;
 
-// ../bun-argsbarg/src/configure/artifacts/targets/skill.ts
+// node_modules/argsbarg/src/configure/artifacts/targets/skill.ts
 import { existsSync as existsSync5 } from "node:fs";
 
-// ../bun-argsbarg/src/configure/artifacts/target-skill.ts
+// node_modules/argsbarg/src/configure/artifacts/target-skill.ts
 import { existsSync as existsSync4 } from "node:fs";
 
-// ../bun-argsbarg/src/configure/artifacts/uninstall.ts
+// node_modules/argsbarg/src/configure/artifacts/uninstall.ts
 import { existsSync as existsSync3, rmSync } from "node:fs";
 function buildUninstallPlan(root, paths, opts) {
   return buildUninstallPlanFromTargets(root, paths, opts);
@@ -6400,7 +6399,7 @@ function uninstallSkillDir(dir, dry) {
   return [`${dir}/`];
 }
 
-// ../bun-argsbarg/src/configure/artifacts/target-skill.ts
+// node_modules/argsbarg/src/configure/artifacts/target-skill.ts
 class SkillInstallTarget extends InstallTarget {
   key;
   actionKind;
@@ -6451,7 +6450,7 @@ class SkillInstallTarget extends InstallTarget {
   }
 }
 
-// ../bun-argsbarg/src/configure/artifacts/targets/skill.ts
+// node_modules/argsbarg/src/configure/artifacts/targets/skill.ts
 var skillTarget = new SkillInstallTarget({
   key: "skill",
   actionKind: "agent-skill",
@@ -6463,10 +6462,10 @@ var skillTarget = new SkillInstallTarget({
   isAvailable: (_root, p) => existsSync5(p.agentsSkillDir)
 });
 
-// ../bun-argsbarg/src/configure/artifacts/targets/index.ts
+// node_modules/argsbarg/src/configure/artifacts/targets/index.ts
 var INSTALL_TARGETS = [appTarget, skillTarget, agentsMcpTarget, configureTarget];
 
-// ../bun-argsbarg/src/configure/artifacts/target-registry.ts
+// node_modules/argsbarg/src/configure/artifacts/target-registry.ts
 var INSTALL_ARTIFACT_KEYS = INSTALL_TARGETS.map((t) => t.key);
 var SKILL_KEYS = INSTALL_TARGETS.filter((t) => t.category === "skill").map((t) => t.key);
 var MCP_KEYS = INSTALL_TARGETS.filter((t) => t.category === "mcp").map((t) => t.key);
@@ -6482,7 +6481,7 @@ function mcpServerRequiredForArtifact(key, mcpServerEnabled) {
   return !isMcpArtifactKey(key) || mcpServerEnabled;
 }
 
-// ../bun-argsbarg/src/configure/artifacts/target-effective.ts
+// node_modules/argsbarg/src/configure/artifacts/target-effective.ts
 function resolveInstallTargetSpec(spec, defaults) {
   if (spec === undefined) {
     return { ...defaults };
@@ -6534,7 +6533,7 @@ function resolveInstallPlanMode(opts) {
   return "install-scoped";
 }
 
-// ../bun-argsbarg/src/configure/artifacts/target-scope.ts
+// node_modules/argsbarg/src/configure/artifacts/target-scope.ts
 function emptyInstalledArtifacts() {
   return {
     app: false,
@@ -6677,7 +6676,7 @@ function resolveInstallTargetPreview(program, paths) {
   };
 }
 
-// ../bun-argsbarg/src/configure/artifacts/target-plan-build.ts
+// node_modules/argsbarg/src/configure/artifacts/target-plan-build.ts
 function buildInstallPlanFromTargets(root, paths, opts) {
   const detected = buildDetectedSnapshot(root, paths);
   const ctx = buildTargetPlanContext(root, paths, opts, detected);
@@ -6706,7 +6705,7 @@ function buildUninstallPlanFromTargets(root, paths, opts) {
   return actions;
 }
 
-// ../bun-argsbarg/src/configure/artifacts/plan.ts
+// node_modules/argsbarg/src/configure/artifacts/plan.ts
 function buildUpdatePlan(root, paths, opts) {
   const refresh = buildInstallPlanFromTargets(root, paths, {
     ...opts,
@@ -6719,7 +6718,7 @@ function buildUpdatePlan(root, paths, opts) {
   return buildInstallPlanFromTargets(root, paths, { ...opts, reinstall: false, all: true });
 }
 
-// ../bun-argsbarg/src/configure/artifacts/target-detect.ts
+// node_modules/argsbarg/src/configure/artifacts/target-detect.ts
 function buildInstallStatus(paths, detected, root) {
   const status = {};
   for (const target of INSTALL_TARGETS) {
@@ -6727,7 +6726,7 @@ function buildInstallStatus(paths, detected, root) {
   }
   return status;
 }
-// ../bun-argsbarg/src/configure/artifacts/status.ts
+// node_modules/argsbarg/src/configure/artifacts/status.ts
 function installOut(msg, opts) {
   if (opts.json)
     return;
@@ -6783,7 +6782,7 @@ function printInstallStatus(root, opts) {
   }
 }
 
-// ../bun-argsbarg/src/configure/index.ts
+// node_modules/argsbarg/src/configure/index.ts
 function appConfigHasEntries(program) {
   const entries = program.appConfig?.entries;
   return !!entries && Object.keys(entries).length > 0;
@@ -6873,7 +6872,7 @@ function cliConfigureStatus(root, opts) {
   process.exit(0);
 }
 
-// ../bun-argsbarg/src/builtins/config.ts
+// node_modules/argsbarg/src/builtins/config.ts
 var JSON_OPTION = {
   name: "json",
   description: "Emit JSON (compact).",
@@ -6903,9 +6902,9 @@ function configGetOutput(program, key, json, pretty) {
     }
     const value = resolved[key];
     if (json) {
-      const out2 = configEntrySensitive(key, entry) && value !== undefined && String(value).length > 0 ? { set: true } : value ?? null;
+      const out = configEntrySensitive(key, entry) && value !== undefined && String(value).length > 0 ? { set: true } : value ?? null;
       const space = pretty ? 2 : undefined;
-      process.stdout.write(`${JSON.stringify(out2, null, space)}
+      process.stdout.write(`${JSON.stringify(out, null, space)}
 `);
       return;
     }
@@ -7059,8 +7058,8 @@ function configSetLeaf(program, mcpSetEnabled) {
         process.exit(1);
       }
       if (ctx.hasFlag("from-env")) {
-        const raw2 = ctx.args[1];
-        if (raw2 !== undefined && raw2.length > 0) {
+        const raw = ctx.args[1];
+        if (raw !== undefined && raw.length > 0) {
           process.stderr.write(`configure set --from-env does not accept a value.
 `);
           process.exit(1);
@@ -7090,7 +7089,7 @@ function configureConfigSubcommands(program, mcpSetEnabled = configMcpSetEnabled
   return [configGetLeaf(program), configSetLeaf(program, mcpSetEnabled)];
 }
 
-// ../bun-argsbarg/src/builtins/configure-copy.ts
+// node_modules/argsbarg/src/builtins/configure-copy.ts
 var LABEL = {
   mcp: { prose: "MCP config", short: "MCP" },
   config: { prose: "app config", short: "config" }
@@ -7151,7 +7150,7 @@ function configureCommandNotes(program, _caps) {
 `);
 }
 
-// ../bun-argsbarg/src/builtins/configure.ts
+// node_modules/argsbarg/src/builtins/configure.ts
 var YES_OPTION = {
   name: "yes",
   description: "Skip uninstall confirmation.",
@@ -7209,7 +7208,7 @@ function cliBuiltinConfigureCommand(root) {
   };
 }
 
-// ../bun-argsbarg/src/builtins/http.ts
+// node_modules/argsbarg/src/builtins/http.ts
 var HTTP_SERVE_OPTIONS = [
   { name: "host", description: "Listen host.", kind: "string" /* String */ },
   { name: "port", description: "Listen port.", kind: "number" /* Number */ },
@@ -7263,7 +7262,7 @@ function cliBuiltinHttpCommand(program) {
   };
 }
 
-// ../bun-argsbarg/src/builtins/mcp.ts
+// node_modules/argsbarg/src/builtins/mcp.ts
 var MCP_SERVE_OPTIONS = [
   { name: "obscure-errors", description: "Hide unexpected errors from clients.", kind: "presence" /* Presence */ },
   {
@@ -7317,7 +7316,7 @@ function cliBuiltinMcpCommand(program) {
   };
 }
 
-// ../bun-argsbarg/src/builtins/version.ts
+// node_modules/argsbarg/src/builtins/version.ts
 function cliBuiltinVersionCommand() {
   return {
     key: "version",
@@ -7326,7 +7325,7 @@ function cliBuiltinVersionCommand() {
   };
 }
 
-// ../bun-argsbarg/src/builtins/registry.ts
+// node_modules/argsbarg/src/builtins/registry.ts
 function pushBuiltin(builtins, program, factory) {
   if (!factory) {
     return;
@@ -7355,7 +7354,7 @@ function resolveBuiltins(program, caps) {
   return builtins;
 }
 
-// ../bun-argsbarg/src/builtins/export.ts
+// node_modules/argsbarg/src/builtins/export.ts
 function exportBuiltinNode(cmd) {
   if (isCliSchemaHidden(cmd)) {
     return null;
@@ -7390,7 +7389,7 @@ function exportPresentationBuiltins(program) {
   return resolveBuiltins(program, caps).map((cmd) => exportBuiltinNode(cmd)).filter((node) => node !== null);
 }
 
-// ../bun-argsbarg/src/core/schema.ts
+// node_modules/argsbarg/src/core/schema.ts
 var RESERVED = new Set(["http", "completion", "configure", "docs", "mcp", "version"]);
 function exportCommand(cmd, root) {
   if (isCliSchemaHidden(cmd)) {
@@ -7461,7 +7460,7 @@ function cliSchemaJson(root) {
 `;
 }
 
-// ../bun-argsbarg/src/mcp/tools.ts
+// node_modules/argsbarg/src/mcp/tools.ts
 function defaultMcpSchemaUri(mcpId) {
   return `${mcpId}://schema`;
 }
@@ -7535,7 +7534,7 @@ function allMcpResources(root) {
 }
 function collectMcpTools(root) {
   const out = [];
-  function walk2(cmd, path) {
+  function walk(cmd, path) {
     if (isCliLeaf(cmd)) {
       if (cmd.key === "completion" || cmd.key === "configure" || cmd.key === "mcp" || cmd.key === "version") {
         return;
@@ -7555,14 +7554,14 @@ function collectMcpTools(root) {
       return;
     }
     for (const ch of cmd.commands) {
-      walk2(ch, [...path, ch.key]);
+      walk(ch, [...path, ch.key]);
     }
   }
   if (isCliLeaf(root)) {
-    walk2(root, []);
+    walk(root, []);
   } else {
     for (const ch of root.commands) {
-      walk2(ch, [ch.key]);
+      walk(ch, [ch.key]);
     }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
@@ -7641,7 +7640,7 @@ function mcpToolCallToArgv(_root, tool, args) {
   return argv;
 }
 
-// ../bun-argsbarg/src/config/file.ts
+// node_modules/argsbarg/src/config/file.ts
 function resolveAppConfigPath(program) {
   const dirName = sanitizeToolSegment(program.key);
   return join5(appConfigLibHome(), dirName, "config.json");
@@ -7706,9 +7705,9 @@ function validateAppConfigData(program, data, pathLabel, opts = {}) {
     return;
   }
   if (opts.partial || isEmptyConfigDocument(data)) {
-    const result2 = validateConfigDocumentPartial(data, jsonSchema);
-    if (!result2.valid) {
-      throw new Error(`Invalid config in ${where}: ${result2.errors.join("; ")}`);
+    const result = validateConfigDocumentPartial(data, jsonSchema);
+    if (!result.valid) {
+      throw new Error(`Invalid config in ${where}: ${result.errors.join("; ")}`);
     }
     return;
   }
@@ -7772,7 +7771,7 @@ function uninstallAppConfig(program, dry) {
   }
   return changed;
 }
-// ../bun-argsbarg/src/config/context.ts
+// node_modules/argsbarg/src/config/context.ts
 function rebuildResolved(program, fileData) {
   const hostEnv = captureMappedHostEnv(program);
   const resolved = resolveAppConfig(program, fileData, hostEnv);
@@ -7897,7 +7896,7 @@ function createAppConfigSnapshot(program, fileData, resolved) {
   return new AppConfigSnapshot(program, fileData, resolved);
 }
 
-// ../bun-argsbarg/src/core/context.ts
+// node_modules/argsbarg/src/core/context.ts
 class CliContext {
   appName;
   commandPath;
@@ -7913,9 +7912,9 @@ class CliContext {
   runtime;
   response;
   leafInputsCache;
-  constructor(appName, commandPath2, args, opts, program, invocation = "cli", appConfig = new EmptyAppConfigSnapshot(program), toolArgs, preloadedJson = {}, pathParams = {}, locals = {}, runtime) {
+  constructor(appName, commandPath, args, opts, program, invocation = "cli", appConfig = new EmptyAppConfigSnapshot(program), toolArgs, preloadedJson = {}, pathParams = {}, locals = {}, runtime) {
     this.appName = appName;
-    this.commandPath = commandPath2;
+    this.commandPath = commandPath;
     this.args = args;
     this.opts = opts;
     this.program = program;
@@ -7953,12 +7952,12 @@ class CliContext {
       return null;
     return strictParseDouble(s);
   }
-  typedOpt(name, parse2) {
+  typedOpt(name, parse) {
     const s = this.opts[name];
     if (s === undefined)
       return null;
     try {
-      return parse2(s);
+      return parse(s);
     } catch {
       return null;
     }
@@ -8042,12 +8041,12 @@ class CliContext {
     return map;
   }
 }
-// ../bun-argsbarg/src/mcp/bundle.ts
+// node_modules/argsbarg/src/mcp/bundle.ts
 import { cpSync as cpSync4, existsSync as existsSync10, mkdirSync as mkdirSync8, mkdtempSync as mkdtempSync3, readFileSync as readFileSync4, rmSync as rmSync5, writeFileSync as writeFileSync7 } from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
 import { basename as basename3, join as join9, resolve as resolve4 } from "node:path";
 
-// ../bun-argsbarg/src/config/manifest.ts
+// node_modules/argsbarg/src/config/manifest.ts
 function buildConfigUserConfigEntry(key, entry, jsonSchemaRequired) {
   return {
     type: "string",
@@ -8131,12 +8130,12 @@ function buildCursorPluginVariables(program) {
   };
 }
 
-// ../bun-argsbarg/src/mcp/claude.ts
+// node_modules/argsbarg/src/mcp/claude.ts
 import { cpSync as cpSync2, existsSync as existsSync8, mkdirSync as mkdirSync6, mkdtempSync, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join as join7, resolve as resolve2 } from "node:path";
 
-// ../bun-argsbarg/src/mcp/plugin-shared.ts
+// node_modules/argsbarg/src/mcp/plugin-shared.ts
 import {
   cpSync,
   existsSync as existsSync7,
@@ -8148,7 +8147,7 @@ import {
 } from "node:fs";
 import { join as join6, relative, resolve } from "node:path";
 
-// ../bun-argsbarg/src/skill/generate.ts
+// node_modules/argsbarg/src/skill/generate.ts
 function truncate(text, maxLen) {
   if (text.length <= maxLen)
     return text;
@@ -8226,7 +8225,7 @@ function generatePluginSkillBundle(root) {
   };
 }
 
-// ../bun-argsbarg/src/mcp/plugin-shared.ts
+// node_modules/argsbarg/src/mcp/plugin-shared.ts
 function collectZipEntries(rootDir, dir = rootDir) {
   const entries = [];
   for (const ent of readdirSync(dir, { withFileTypes: true })) {
@@ -8269,7 +8268,7 @@ function stagePluginSkills(pluginRoot, program, cwd) {
   }
 }
 
-// ../bun-argsbarg/src/mcp/zip.ts
+// node_modules/argsbarg/src/mcp/zip.ts
 function unixUxExtraField(uid, gid) {
   const uidBuf = Buffer.alloc(4);
   uidBuf.writeUInt32LE(uid >>> 0, 0);
@@ -8379,7 +8378,7 @@ function zipStore(files) {
   return Buffer.concat([...parts, centralBuf, end]);
 }
 
-// ../bun-argsbarg/src/mcp/claude.ts
+// node_modules/argsbarg/src/mcp/claude.ts
 var DIST_DIR = "dist";
 var CLAUDE_PLUGIN_DIR = "claude-plugin";
 function defaultClaudePluginPaths(program, cwd = process.cwd()) {
@@ -8452,7 +8451,7 @@ function packClaudePlugin(program, opts = {}) {
   }
 }
 
-// ../bun-argsbarg/src/mcp/cursor.ts
+// node_modules/argsbarg/src/mcp/cursor.ts
 import { cpSync as cpSync3, existsSync as existsSync9, mkdirSync as mkdirSync7, mkdtempSync as mkdtempSync2, rmSync as rmSync4, writeFileSync as writeFileSync6 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { basename as basename2, join as join8, resolve as resolve3 } from "node:path";
@@ -8541,7 +8540,7 @@ function packCursorPlugin(program, opts = {}) {
   }
 }
 
-// ../bun-argsbarg/src/mcp/bundle.ts
+// node_modules/argsbarg/src/mcp/bundle.ts
 var MANIFEST_VERSION = "0.3";
 var DIST_DIR3 = "dist";
 function defaultMcpBundlePaths(program, cwd = process.cwd()) {
@@ -8657,11 +8656,11 @@ function runMcpBundle(program) {
 `)}
 `);
 }
-// ../bun-argsbarg/src/runtime/cli.ts
+// node_modules/argsbarg/src/runtime/cli.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
 import { format as format2 } from "node:util";
 
-// ../bun-argsbarg/src/server/overrides.ts
+// node_modules/argsbarg/src/server/overrides.ts
 import { join as join10 } from "node:path";
 function resolveLogFile(program, logFile) {
   if (!logFile) {
@@ -8734,7 +8733,7 @@ function serveOverridesFromOpts(opts, surface) {
   return out;
 }
 
-// ../bun-argsbarg/src/builtins/shell-helpers.ts
+// node_modules/argsbarg/src/builtins/shell-helpers.ts
 function identToken(s) {
   return s.replace(/[^a-zA-Z0-9]/g, "_");
 }
@@ -8750,7 +8749,7 @@ function mainName(schemaName) {
 var kHelpLong = "--help";
 var kHelpShort = "-h";
 
-// ../bun-argsbarg/src/builtins/completion-simulate-shared.ts
+// node_modules/argsbarg/src/builtins/completion-simulate-shared.ts
 function emitConsumeLong(ident, scopes) {
   let o = "_${ident}_nac_consume_long() {\n".replace("${ident}", ident);
   o += `  local sid="$1" w="$2" nw="$3"
@@ -8897,7 +8896,7 @@ function emitMatchChild(ident, scopes, pathIndex) {
   return o;
 }
 
-// ../bun-argsbarg/src/builtins/scopes.ts
+// node_modules/argsbarg/src/builtins/scopes.ts
 function hasPositionalArguments(cmd) {
   return isCliLeaf(cmd) && (cmd.positionals ?? []).length > 0;
 }
@@ -8928,7 +8927,7 @@ function collectScopes(schema) {
   return acc;
 }
 
-// ../bun-argsbarg/src/builtins/completion-bash.ts
+// node_modules/argsbarg/src/builtins/completion-bash.ts
 function emitSimulate(ident) {
   let o = "_${ident}_nac_simulate() {\n".replace("${ident}", ident);
   o += `  local i=1 sid=0 w steps next
@@ -9121,7 +9120,7 @@ function completionBashScript(schema) {
   return out;
 }
 
-// ../bun-argsbarg/src/builtins/completion-fish.ts
+// node_modules/argsbarg/src/builtins/completion-fish.ts
 function scopeCondition(ident, scopeIndex, path) {
   const fn = `__${ident}_scope_${scopeIndex}`;
   let body = `function ${fn}
@@ -9189,7 +9188,7 @@ function completionFishScript(schema) {
   return out;
 }
 
-// ../bun-argsbarg/src/builtins/completion-zsh.ts
+// node_modules/argsbarg/src/builtins/completion-zsh.ts
 function emitScopeArraysZsh(ident, scopes) {
   let out = "";
   for (const [i, sc] of scopes.entries()) {
@@ -9384,7 +9383,7 @@ function completionZshScript(schema) {
   return out;
 }
 
-// ../bun-argsbarg/src/builtins/presentation.ts
+// node_modules/argsbarg/src/builtins/presentation.ts
 function parseBuiltins(program, caps) {
   return resolveBuiltins(program, caps);
 }
@@ -9450,7 +9449,7 @@ function presentationRootNotes(program, _caps) {
 `);
 }
 
-// ../bun-argsbarg/src/builtins/dispatch.ts
+// node_modules/argsbarg/src/builtins/dispatch.ts
 function completionSchema(program, opts) {
   if (opts.isLeafCompletionIntercept) {
     return cliPresentationRoot(program);
@@ -9611,7 +9610,7 @@ function builtinInterceptRoot(program, argv) {
   return { parseRoot: program, isLeafCompletionIntercept: false };
 }
 
-// ../bun-argsbarg/src/core/validate.ts
+// node_modules/argsbarg/src/core/validate.ts
 function validateDocsConfig(docs) {
   const topics = docs.topics ?? {};
   const keys = Object.keys(topics);
@@ -9852,10 +9851,10 @@ function walkNode(node, program, isRoot) {
     const schemaUri = resolveMcpSchemaUri(program);
     const reserved = new Set([schemaUri, ...reservedDocsTopicResourceUris(program)]);
     const uris = program.mcpServer.resources.map((r) => r.uri);
-    for (const uri2 of uris) {
-      if (reserved.has(uri2)) {
-        const kind = uri2 === schemaUri ? "built-in schema resource" : "auto docs topic resource";
-        throw new CliSchemaValidationError(`mcpServer.resources URI '${uri2}' conflicts with ${kind}`);
+    for (const uri of uris) {
+      if (reserved.has(uri)) {
+        const kind = uri === schemaUri ? "built-in schema resource" : "auto docs topic resource";
+        throw new CliSchemaValidationError(`mcpServer.resources URI '${uri}' conflicts with ${kind}`);
       }
     }
     if (new Set(uris).size !== uris.length) {
@@ -10031,7 +10030,7 @@ function validatePositionals(scopeKey, positionals) {
   }
 }
 
-// ../bun-argsbarg/src/hooks/builtin.ts
+// node_modules/argsbarg/src/hooks/builtin.ts
 var BUILTIN_ROOTS = new Set(["completion", "version", "http", "mcp", "configure", "docs"]);
 function isBuiltinInvokePath(path) {
   const root = path[0];
@@ -10047,7 +10046,7 @@ function isBuiltinInvokePath(path) {
   return true;
 }
 
-// ../bun-argsbarg/src/mcp/env.ts
+// node_modules/argsbarg/src/mcp/env.ts
 import { spawnSync } from "node:child_process";
 function captureShellEnv(shell) {
   const result = spawnSync(shell, ["-l", "-c", "env"], {
@@ -10096,7 +10095,7 @@ function bootstrapMcpEnv(config) {
   }
 }
 
-// ../bun-argsbarg/src/mcp/server.ts
+// node_modules/argsbarg/src/mcp/server.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
 var MCP_PROTOCOL_VERSION = "2024-11-05";
 function writeResponse(msg) {
@@ -10260,17 +10259,17 @@ async function handleRequestLine(cli, line) {
       return;
     }
     if (method === "resources/read") {
-      const uri2 = params.uri;
-      if (typeof uri2 !== "string") {
+      const uri = params.uri;
+      if (typeof uri !== "string") {
         writeError(id, -32602, "Invalid params: uri required");
         await finish("validation", new Error("Invalid params: uri required"));
         return;
       }
       const all = allMcpResources(root);
-      const found = all.find((r) => r.uri === uri2);
+      const found = all.find((r) => r.uri === uri);
       if (!found) {
-        writeError(id, -32602, `Unknown resource: ${uri2}`);
-        await finish("unknown_route", new Error(`Unknown resource: ${uri2}`));
+        writeError(id, -32602, `Unknown resource: ${uri}`);
+        await finish("unknown_route", new Error(`Unknown resource: ${uri}`));
         return;
       }
       let text;
@@ -10332,12 +10331,12 @@ async function mcpServeStdioLoop(cli) {
   }
 }
 
-// ../bun-argsbarg/src/server/context.ts
+// node_modules/argsbarg/src/server/context.ts
 function createServerRuntime(program, surface) {
   return { state: {}, program, surface };
 }
 
-// ../bun-argsbarg/src/runtime/cli.ts
+// node_modules/argsbarg/src/runtime/cli.ts
 class CliInvokeExit extends Error {
   code;
   constructor(code) {
@@ -10779,7 +10778,8 @@ class Cli {
 }
 // README.md
 var README_default = `![Logo](logo.png)
-<!-- https://patorjk.com/software/taag/#p=display&f=Double&t=gdoc+smith&x=none&v=4&h=4&w=80&we=false -->
+
+
 
 # gdocsmith - ai plugin
 
@@ -10799,18 +10799,22 @@ The native Docs API was designed for batch backend scripts, not LLMs:
 4. **No structural awareness**: No way to query document outlines, check list nesting, diff changes, or clone nodes.
 5. **Silent formatting corruption**: A single missing newline or misordered list call silently breaks document layout.
 
+
+
 ## How gdocsmith fixes it
 
 \`gdocsmith\` gives agents safe, surgical hands:
 
-- **Stable scoped IDs (\`h.arch.9a1b\`)**: Outline nodes use heading-scoped checksums instead of volatile character offsets, letting agents target content reliably across revisions.
+- **Stable scoped IDs (**\`h.arch.9a1b\`**)**: Outline nodes use heading-scoped checksums instead of volatile character offsets, letting agents target content reliably across revisions.
 - **Native Markdown**: Agents author in standard Markdown (headings, lists, tables, callouts, code blocks); gdocsmith compiles it directly into native Google Docs styled elements.
-- **Semantic color & callout queries (\`fontColors: ["red"]\`, \`["!default"]\`)**: Find warnings, blockers, and review marks by color name or exclusion without decoding raw RGB floats.
-- **2D table & list scoping (\`rows\`, \`cols\`, \`sameList\`)**: Target specific cells (\`h.arch.table.0.1.3c8f\`) without clobbering column widths, and treat bullet lists as logical subtrees.
+- **Semantic color & callout queries (**\`fontColors: ["red"]\`**,** \`["!default"]\`**)**: Find warnings, blockers, and review marks by color name or exclusion without decoding raw RGB floats.
+- **2D table & list scoping (**\`rows\`**,** \`cols\`**,** \`sameList\`**)**: Target specific cells (\`h.arch.table.0.1.3c8f\`) without clobbering column widths, and treat bullet lists as logical subtrees.
 - **Zero turn tax**: Batch document creation, tab management, queries, and edits into a single 5-second tool call with in-memory aliasing (\`as:\` → \`doc:\`, \`tab:\`).
 - **Anti-demolition guardrails**: Blocks agents from deleting and recreating unchanged text, protecting human comments and version history ([docs/guards.md](docs/guards.md)).
 - **Single declarative MCP tool**: One \`run\` workflow contract instead of 15+ chatty tools, cutting prompt bloat and hallucinations.
 - **Aesthetic defaults**: Native Google Docs styling presets prevent ugly agent formatting hacks ([docs/style.md](docs/style.md)).
+
+
 
 ## How it works
 
@@ -10819,6 +10823,8 @@ Workflows run in three simple steps:
 1. **Inspect**: Query headings, bullet trees, table rows/cols, or text colors (\`query\`). Matches return stable IDs (e.g. \`h.arch.9a1b\`, cell \`h.arch.table.0.1.3c8f\`).
 2. **Mutate**: Target verified IDs with surgical edits or Markdown insertions (\`nodeAt\`, \`nodeAfter\`, \`nodeBefore\`, \`nodeUnder\`).
 3. **Batch**: Chain creation (\`docCreate\`), tabs (\`tabCreate\`), and insertions in one pass using aliases (\`as: "spec"\` → \`doc: "spec"\`).
+
+
 
 ### Workflow Example
 
@@ -10846,32 +10852,31 @@ The query result in \`dumped.componentsHeading\` contains the matching node ID (
 
 ## Installation & Setup
 
+
+
 ### 1. Cursor Plugin
 
-Install directly via the Cursor Marketplace, or link for local development:
-
-\`\`\`bash
-git clone https://github.com/bdombro/gdocsmith.git
-cd gdocsmith
-just install-plugin-cursor
-\`\`\`
-
-The plugin automatically provides \`.cursor-plugin/plugin.json\`, \`mcp.json\`, and the bundled zero-dependency Node runner at \`scripts/mcp.mjs\`.
+Recommended: import directly from GitHub — Cursor Dashboard → **Settings → Plugins → Team Marketplaces → Import**, then enter \`https://github.com/bdombro/gdocsmith\`. Once published to the [official marketplace](https://cursor.com/marketplace/publish), install via \`/add-plugin gdocsmith\` or the Customize sidebar.
 
 ### 2. Claude Code Plugin
 
-\`gdocsmith\` includes native Claude Code plugin manifests:
-- \`.claude-plugin/plugin.json\`
-- \`.mcp.json\`
+Recommended: add the GitHub repo as a marketplace, then install:
+
+\`\`\`bash
+/plugin marketplace add bdombro/gdocsmith
+/plugin install gdocsmith@gdocsmith
+\`\`\`
 
 ### 3. Authentication
 
-\`gdocsmith\` uses credentials from the official Google Workspace CLI ([\`gws\`](https://github.com/googleworkspace/cli)). If you have \`gws\` installed and authenticated (\`gws auth login\`), no additional setup is required.
+\`gdocsmith\` uses credentials from the official Google Workspace CLI (\`[gws](https://github.com/googleworkspace/cli)\`). If you have \`gws\` installed and authenticated (\`gws auth login\`), no additional setup is required.
 
 ## MCP Tools
 
 - \`run\` *(Primary)*: Execute an ordered Google Docs workflow from JSON (\`steps\` with \`kind\`).
 - \`status\`: Print application version and verify environment health.
+
+
 
 ## CLI Usage (Testing & Debugging)
 
@@ -10883,7 +10888,29 @@ gdocsmith run < workflow.json
 
 See [docs/cli.md](docs/cli.md) for full CLI documentation and options.
 
+## Contributing / Local Development
+
+\`\`\`bash
+git clone https://github.com/bdombro/gdocsmith.git
+cd gdocsmith
+
+# Install dependencies and generate schemas
+just setup
+
+# Schemagen, format, lint, typecheck, and tests
+just check
+
+# Bundle the standalone Node MCP server script
+just build
+
+# Link the repo into ~/.cursor/plugins/local/gdocsmith for local Cursor testing
+just install-plugin-cursor
+\`\`\`
+
+
+
 ## Documentation
+
 
 | Need                                | File                                                   |
 | ----------------------------------- | ------------------------------------------------------ |
@@ -10899,6 +10926,8 @@ See [docs/cli.md](docs/cli.md) for full CLI documentation and options.
 | Guardrails & anti-demolition        | [docs/guards.md](docs/guards.md)                       |
 | Images                              | [docs/images.md](docs/images.md)                       |
 | Comments                            | [docs/comments.md](docs/comments.md)                   |
+
+
 `;
 
 // scripts/createIdentity.ts
@@ -11070,7 +11099,7 @@ function isTransientError(err) {
   return /HTTP request failed|ECONNRESET|ETIMEDOUT|socket hang up|fetch failed|network timeout/i.test(msg);
 }
 function sleep(ms) {
-  return new Promise((resolve5) => setTimeout(resolve5, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // src/core/gws.ts
@@ -12869,7 +12898,7 @@ var L = class {
     return e;
   }
 };
-var b = class l2 {
+var b = class l {
   options;
   renderer;
   textRenderer;
@@ -12877,10 +12906,10 @@ var b = class l2 {
     this.options = e || T, this.options.renderer = this.options.renderer || new P, this.renderer = this.options.renderer, this.renderer.options = this.options, this.renderer.parser = this, this.textRenderer = new L;
   }
   static parse(e, t) {
-    return new l2(t).parse(e);
+    return new l(t).parse(e);
   }
   static parseInline(e, t) {
-    return new l2(t).parseInline(e);
+    return new l(t).parseInline(e);
   }
   parse(e) {
     this.renderer.parser = this;
@@ -13231,20 +13260,20 @@ Please report this to https://github.com/markedjs/marked.`, e) {
   }
 };
 var M = new Q;
-function f(l3, e) {
-  return M.parse(l3, e);
+function f(l, e) {
+  return M.parse(l, e);
 }
-f.options = f.setOptions = function(l3) {
-  return M.setOptions(l3), f.defaults = M.defaults, U(f.defaults), f;
+f.options = f.setOptions = function(l) {
+  return M.setOptions(l), f.defaults = M.defaults, U(f.defaults), f;
 };
 f.getDefaults = A;
 f.defaults = T;
-function bt(...l3) {
-  return M.use(...l3), f.defaults = M.defaults, U(f.defaults), f;
+function bt(...l) {
+  return M.use(...l), f.defaults = M.defaults, U(f.defaults), f;
 }
 f.use = bt;
-f.walkTokens = function(l3, e) {
-  return M.walkTokens(l3, e);
+f.walkTokens = function(l, e) {
+  return M.walkTokens(l, e);
 };
 f.parseInline = M.parseInline;
 f.Parser = b;
@@ -13294,24 +13323,24 @@ function colorHsl(hex) {
   }
   const r = parseInt(clean.slice(0, 2), 16) / 255;
   const g = parseInt(clean.slice(2, 4), 16) / 255;
-  const b2 = parseInt(clean.slice(4, 6), 16) / 255;
-  const max = Math.max(r, g, b2);
-  const min = Math.min(r, g, b2);
+  const b = parseInt(clean.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
   const delta = max - min;
-  const l3 = (max + min) / 2;
+  const l = (max + min) / 2;
   if (delta === 0) {
-    return { h: 0, l: l3, s: 0 };
+    return { h: 0, l, s: 0 };
   }
-  const s = l3 > 0.5 ? delta / (2 - max - min) : delta / (max + min);
+  const s = l > 0.5 ? delta / (2 - max - min) : delta / (max + min);
   let h = 0;
   if (max === r) {
-    h = ((g - b2) / delta + (g < b2 ? 6 : 0)) * 60;
+    h = ((g - b) / delta + (g < b ? 6 : 0)) * 60;
   } else if (max === g) {
-    h = ((b2 - r) / delta + 2) * 60;
+    h = ((b - r) / delta + 2) * 60;
   } else {
     h = ((r - g) / delta + 4) * 60;
   }
-  return { h, l: l3, s };
+  return { h, l, s };
 }
 function colorMatchesPattern(hex, pattern) {
   const normPat = pattern.trim().toLowerCase();
@@ -13325,23 +13354,23 @@ function colorMatchesPattern(hex, pattern) {
     const fullPat = patClean.length === 3 ? patClean.split("").map((c) => c + c).join("") : patClean;
     return normHex === fullPat;
   }
-  const { h, l: l3, s } = colorHsl(formattedHex);
+  const { h, l, s } = colorHsl(formattedHex);
   switch (normPat) {
     case "red":
-      return (h >= 345 || h <= 15) && s >= 0.25 && l3 >= 0.15 && l3 <= 0.85;
+      return (h >= 345 || h <= 15) && s >= 0.25 && l >= 0.15 && l <= 0.85;
     case "orange":
-      return h > 15 && h < 40 && s >= 0.25 && l3 >= 0.15 && l3 <= 0.85;
+      return h > 15 && h < 40 && s >= 0.25 && l >= 0.15 && l <= 0.85;
     case "yellow":
-      return h >= 40 && h <= 70 && s >= 0.25 && l3 >= 0.2 && l3 <= 0.85;
+      return h >= 40 && h <= 70 && s >= 0.25 && l >= 0.2 && l <= 0.85;
     case "green":
-      return h > 70 && h <= 165 && s >= 0.2 && l3 >= 0.15 && l3 <= 0.85;
+      return h > 70 && h <= 165 && s >= 0.2 && l >= 0.15 && l <= 0.85;
     case "blue":
-      return h >= 180 && h <= 260 && s >= 0.2 && l3 >= 0.15 && l3 <= 0.85;
+      return h >= 180 && h <= 260 && s >= 0.2 && l >= 0.15 && l <= 0.85;
     case "purple":
-      return h > 260 && h < 345 && s >= 0.2 && l3 >= 0.15 && l3 <= 0.85;
+      return h > 260 && h < 345 && s >= 0.2 && l >= 0.15 && l <= 0.85;
     case "gray":
     case "grey":
-      return s < 0.18 && l3 >= 0.15 && l3 <= 0.85;
+      return s < 0.18 && l >= 0.15 && l <= 0.85;
     default:
       return false;
   }
@@ -13436,8 +13465,8 @@ function queryTextStyleUniform(styles) {
   return Object.keys(out).length ? out : undefined;
 }
 var uniformQueryTextStyle = queryTextStyleUniform;
-function runChromeRead(style2) {
-  const s = style2 ?? {};
+function runChromeRead(style) {
+  const s = style ?? {};
   const font = s.fontSize;
   let fontSize;
   if (font && typeof font === "object" && font !== null && "magnitude" in font) {
@@ -13515,8 +13544,8 @@ var STYLE_KEYS = [
 ];
 
 // src/core/inline.ts
-function hasActiveStyle(style2) {
-  return Boolean(style2.backgroundColor || style2.bold || style2.code || style2.fontFamily || style2.fontSize || style2.foregroundColor || style2.italic || style2.link || style2.strikethrough || style2.underline);
+function hasActiveStyle(style) {
+  return Boolean(style.backgroundColor || style.bold || style.code || style.fontFamily || style.fontSize || style.foregroundColor || style.italic || style.link || style.strikethrough || style.underline);
 }
 function createDirectiveExtension() {
   return {
@@ -13641,7 +13670,7 @@ class InlineMarkup {
   static mergeRuns(runs) {
     if (!runs.length)
       return [];
-    const sorted = [...runs].sort((a, b2) => a.start - b2.start);
+    const sorted = [...runs].sort((a, b) => a.start - b.start);
     const out = [{ ...sorted[0] }];
     for (const run of sorted.slice(1)) {
       const prev = out[out.length - 1];
@@ -13658,30 +13687,30 @@ class InlineMarkup {
     const tokens = markedInstance.Lexer.lexInline(input, markedInstance.defaults);
     let plain = "";
     const runs = [];
-    function emit(text, style2) {
+    function emit(text, style) {
       if (!text)
         return;
       const start = plain.length;
       plain += text;
       const end = plain.length;
-      if (hasActiveStyle(style2)) {
+      if (hasActiveStyle(style)) {
         runs.push({
-          ...style2.backgroundColor ? { backgroundColor: style2.backgroundColor } : {},
-          ...style2.bold ? { bold: true } : {},
-          ...style2.code ? { code: true } : {},
+          ...style.backgroundColor ? { backgroundColor: style.backgroundColor } : {},
+          ...style.bold ? { bold: true } : {},
+          ...style.code ? { code: true } : {},
           end,
-          ...style2.fontFamily ? { fontFamily: style2.fontFamily } : {},
-          ...style2.fontSize ? { fontSize: style2.fontSize } : {},
-          ...style2.foregroundColor ? { foregroundColor: style2.foregroundColor } : {},
-          ...style2.italic ? { italic: true } : {},
-          ...style2.link ? { link: style2.link } : {},
+          ...style.fontFamily ? { fontFamily: style.fontFamily } : {},
+          ...style.fontSize ? { fontSize: style.fontSize } : {},
+          ...style.foregroundColor ? { foregroundColor: style.foregroundColor } : {},
+          ...style.italic ? { italic: true } : {},
+          ...style.link ? { link: style.link } : {},
           start,
-          ...style2.strikethrough ? { strikethrough: true } : {},
-          ...style2.underline ? { underline: true } : {}
+          ...style.strikethrough ? { strikethrough: true } : {},
+          ...style.underline ? { underline: true } : {}
         });
       }
     }
-    function walk2(tokenList, currentStyle) {
+    function walk(tokenList, currentStyle) {
       for (const token of tokenList) {
         switch (token.type) {
           case "directiveStyle": {
@@ -13689,7 +13718,7 @@ class InlineMarkup {
             const custom = styles?.[directive.styleName];
             const nextStyle = custom ? { ...currentStyle, ...custom } : currentStyle;
             if (directive.tokens && directive.tokens.length > 0) {
-              walk2(directive.tokens, nextStyle);
+              walk(directive.tokens, nextStyle);
             } else {
               emit(directive.text, nextStyle);
             }
@@ -13697,7 +13726,7 @@ class InlineMarkup {
           }
           case "strong": {
             if (token.tokens && token.tokens.length > 0) {
-              walk2(token.tokens, { ...currentStyle, bold: true });
+              walk(token.tokens, { ...currentStyle, bold: true });
             } else {
               emit(token.text, { ...currentStyle, bold: true });
             }
@@ -13705,7 +13734,7 @@ class InlineMarkup {
           }
           case "em": {
             if (token.tokens && token.tokens.length > 0) {
-              walk2(token.tokens, { ...currentStyle, italic: true });
+              walk(token.tokens, { ...currentStyle, italic: true });
             } else {
               emit(token.text, { ...currentStyle, italic: true });
             }
@@ -13717,7 +13746,7 @@ class InlineMarkup {
           }
           case "del": {
             if (token.tokens && token.tokens.length > 0) {
-              walk2(token.tokens, { ...currentStyle, strikethrough: true });
+              walk(token.tokens, { ...currentStyle, strikethrough: true });
             } else {
               emit(token.text, { ...currentStyle, strikethrough: true });
             }
@@ -13728,7 +13757,7 @@ class InlineMarkup {
             const resolver = InlineMarkup.#scopedLinkResolver;
             const href = resolver ? resolver(rawHref) : rawHref;
             if (token.tokens && token.tokens.length > 0) {
-              walk2(token.tokens, { ...currentStyle, link: href });
+              walk(token.tokens, { ...currentStyle, link: href });
             } else {
               emit(token.text, { ...currentStyle, link: href });
             }
@@ -13736,7 +13765,7 @@ class InlineMarkup {
           }
           case "text": {
             if ("tokens" in token && Array.isArray(token.tokens)) {
-              walk2(token.tokens, currentStyle);
+              walk(token.tokens, currentStyle);
             } else {
               emit(token.text, currentStyle);
             }
@@ -13761,7 +13790,7 @@ class InlineMarkup {
           }
           default: {
             if ("tokens" in token && Array.isArray(token.tokens)) {
-              walk2(token.tokens, currentStyle);
+              walk(token.tokens, currentStyle);
             } else if ("text" in token && typeof token.text === "string") {
               emit(token.text, currentStyle);
             } else if ("raw" in token && typeof token.raw === "string") {
@@ -13772,7 +13801,7 @@ class InlineMarkup {
         }
       }
     }
-    walk2(tokens, {});
+    walk(tokens, {});
     return { runs: InlineMarkup.mergeRuns(runs), text: plain };
   }
   static serialize(elements) {
@@ -13781,13 +13810,13 @@ class InlineMarkup {
       const chip = el.richLink?.richLinkProperties;
       if (chip && (chip.title || chip.uri)) {
         const title = chip.title ?? "";
-        let text2 = chip.uri ? `[${title}](${chip.uri})` : title;
-        const style3 = el.richLink?.textStyle ?? {};
-        if (style3.bold === true)
-          text2 = `**${text2}**`;
-        else if (style3.italic === true)
-          text2 = `*${text2}*`;
-        out += text2;
+        let text = chip.uri ? `[${title}](${chip.uri})` : title;
+        const style = el.richLink?.textStyle ?? {};
+        if (style.bold === true)
+          text = `**${text}**`;
+        else if (style.italic === true)
+          text = `*${text}*`;
+        out += text;
         continue;
       }
       const run = el.textRun;
@@ -13796,12 +13825,12 @@ class InlineMarkup {
       const content = run.content.replace(/\n$/, "");
       if (!content)
         continue;
-      const style2 = run.textStyle ?? {};
-      const bold = style2.bold === true;
-      const font = style2.weightedFontFamily?.fontFamily;
-      const italic = style2.italic === true;
-      const strikethrough = style2.strikethrough === true;
-      const linkObj = style2.link;
+      const style = run.textStyle ?? {};
+      const bold = style.bold === true;
+      const font = style.weightedFontFamily?.fontFamily;
+      const italic = style.italic === true;
+      const strikethrough = style.strikethrough === true;
+      const linkObj = style.link;
       let link = linkObj?.url;
       if (!link && linkObj?.heading?.id) {
         link = linkObj.heading.tabId ? `?tab=${linkObj.heading.tabId}#heading=${linkObj.heading.id}` : `#heading=${linkObj.heading.id}`;
@@ -13860,7 +13889,7 @@ class RequestBuilder {
         inserts.push({ boldRow: header && r === 0, idx, line, runs, specials });
       }
     }
-    inserts.sort((a, b2) => b2.idx - a.idx);
+    inserts.sort((a, b) => b.idx - a.idx);
     const requests = [];
     for (const { boldRow, idx, line, runs, specials } of inserts) {
       if (line) {
@@ -14252,47 +14281,47 @@ class RequestBuilder {
       if (run.end <= run.start)
         continue;
       const fields = [];
-      const style2 = {};
+      const style = {};
       if (run.bold) {
         fields.push("bold");
-        style2.bold = true;
+        style.bold = true;
       }
       if (run.code) {
         fields.push("fontSize", "weightedFontFamily");
-        style2.fontSize = { magnitude: run.fontSize ?? 10, unit: "PT" };
-        style2.weightedFontFamily = { fontFamily: "Courier New" };
+        style.fontSize = { magnitude: run.fontSize ?? 10, unit: "PT" };
+        style.weightedFontFamily = { fontFamily: "Courier New" };
       }
       if (run.italic) {
         fields.push("italic");
-        style2.italic = true;
+        style.italic = true;
       }
       if (run.underline) {
         fields.push("underline");
-        style2.underline = true;
+        style.underline = true;
       }
       if (run.strikethrough) {
         fields.push("strikethrough");
-        style2.strikethrough = true;
+        style.strikethrough = true;
       }
       if (run.fontSize && !run.code) {
         fields.push("fontSize");
-        style2.fontSize = { magnitude: run.fontSize, unit: "PT" };
+        style.fontSize = { magnitude: run.fontSize, unit: "PT" };
       }
       if (run.foregroundColor) {
         fields.push("foregroundColor");
-        style2.foregroundColor = optionalColor(run.foregroundColor);
+        style.foregroundColor = optionalColor(run.foregroundColor);
       }
       if (run.backgroundColor) {
         fields.push("backgroundColor");
-        style2.backgroundColor = optionalColor(run.backgroundColor);
+        style.backgroundColor = optionalColor(run.backgroundColor);
       }
       if (run.fontFamily && !run.code) {
         fields.push("weightedFontFamily");
-        style2.weightedFontFamily = { fontFamily: run.fontFamily };
+        style.weightedFontFamily = { fontFamily: run.fontFamily };
       }
       if (run.link) {
         fields.push("link");
-        style2.link = { url: run.link };
+        style.link = { url: run.link };
       }
       if (!fields.length)
         continue;
@@ -14300,7 +14329,7 @@ class RequestBuilder {
         updateTextStyle: {
           fields: fields.join(","),
           range: rng(baseIndex + run.start, baseIndex + run.end, segmentId, tabId),
-          textStyle: style2
+          textStyle: style
         }
       });
     }
@@ -14519,14 +14548,14 @@ class RequestBuilder {
     const specials = opts.specials;
     if (!specials?.length)
       return [];
-    const ordered = [...specials].sort((a, b2) => b2.offset - a.offset);
+    const ordered = [...specials].sort((a, b) => b.offset - a.offset);
     const reqs = [];
     for (const special of ordered) {
-      const at2 = opts.index + special.offset;
+      const at = opts.index + special.offset;
       if (special.kind === "person") {
         reqs.push(RequestBuilder.insertPerson({
           email: special.email,
-          index: at2,
+          index: at,
           segmentId: opts.segmentId,
           tabId: opts.tabId
         }));
@@ -14534,14 +14563,14 @@ class RequestBuilder {
         reqs.push(RequestBuilder.insertDate({
           dateFormat: special.dateFormat,
           displayText: special.displayText,
-          index: at2,
+          index: at,
           segmentId: opts.segmentId,
           tabId: opts.tabId,
           timestamp: special.timestamp
         }));
       } else if (special.kind === "richLink") {
         reqs.push(RequestBuilder.insertRichLink({
-          index: at2,
+          index: at,
           segmentId: opts.segmentId,
           tabId: opts.tabId,
           uri: special.uri
@@ -14549,7 +14578,7 @@ class RequestBuilder {
       } else {
         reqs.push(RequestBuilder.insertInlineImage({
           heightPt: special.heightPt,
-          index: at2,
+          index: at,
           segmentId: opts.segmentId,
           tabId: opts.tabId,
           uri: special.uri,
@@ -14621,8 +14650,8 @@ function contentAlignmentAs(raw) {
   return CONTENT_ALIGN_SET.has(raw) ? raw : undefined;
 }
 var asContentAlignment = contentAlignmentAs;
-function headingStyleIs(style2) {
-  return style2 != null && HEADING_STYLES.has(style2);
+function headingStyleIs(style) {
+  return style != null && HEADING_STYLES.has(style);
 }
 var isHeadingStyle = headingStyleIs;
 function namedStyleAs(raw) {
@@ -14687,6 +14716,32 @@ import { existsSync as existsSync11, readFileSync as readFileSync6, statSync as 
 
 // src/core/dom/checksum.ts
 import { createHash } from "node:crypto";
+function runsSignature(runs) {
+  if (!runs || runs.length === 0)
+    return "";
+  return runs.map((r) => [
+    r.start ?? 0,
+    r.end ?? 0,
+    r.bold ? 1 : 0,
+    r.italic ? 1 : 0,
+    r.code ? 1 : 0,
+    r.underline ? 1 : 0,
+    r.strikethrough ? 1 : 0,
+    r.link ?? "",
+    r.foregroundColor ?? "",
+    r.backgroundColor ?? "",
+    r.fontFamily ?? "",
+    r.fontSize ?? ""
+  ].join(":")).sort().join(",");
+}
+function effectiveRuns(node) {
+  if (Array.isArray(node.runs))
+    return node.runs;
+  if (typeof node.markup === "string" && node.markup) {
+    return InlineMarkup.parse(node.markup).runs;
+  }
+  return;
+}
 function cellChecksumCompute(cell) {
   const normText = (cell.text ?? "").trim().replace(/\r\n/g, `
 `);
@@ -14731,6 +14786,7 @@ function nodeChecksumCompute(node) {
       tableShape = `${t.rows.length}x${t.rows[0]?.length ?? 0}`;
     }
   }
+  const runsStr = runsSignature(effectiveRuns(node));
   const payload = [
     node.kind ?? "paragraph",
     node.namedStyleType ?? "",
@@ -14740,7 +14796,8 @@ function nodeChecksumCompute(node) {
     styleStr,
     tableShape,
     imagesCount ? `img:${imagesCount}` : "",
-    chipsCount ? `chips:${chipsCount}` : ""
+    chipsCount ? `chips:${chipsCount}` : "",
+    runsStr
   ].join("|");
   return createHash("sha256").update(payload, "utf8").digest("hex").slice(0, 4);
 }
@@ -14787,16 +14844,16 @@ function tableCellInlineClone(cell) {
 `), unclonable };
 }
 function unclonableFromNode(node) {
-  const loc2 = node.scopedId ? `node ${node.scopedId}` : `node ${node.tapeIndex}`;
+  const loc = node.scopedId ? `node ${node.scopedId}` : `node ${node.tapeIndex}`;
   const out = [];
   if (node.hasEquation)
-    out.push(`${loc2}: contains a math equation`);
+    out.push(`${loc}: contains a math equation`);
   if (node.hasHorizontalRule)
-    out.push(`${loc2}: contains a horizontal rule`);
+    out.push(`${loc}: contains a horizontal rule`);
   if (node.footnoteIds?.length)
-    out.push(`${loc2}: contains ${node.footnoteIds.length} footnote(s)`);
+    out.push(`${loc}: contains ${node.footnoteIds.length} footnote(s)`);
   if (node.kind === "tableOfContents")
-    out.push(`${loc2}: Table of Contents`);
+    out.push(`${loc}: Table of Contents`);
   if (node.kind === "table" && node.table) {
     for (const row of node.table.cells) {
       for (const cell of row) {
@@ -14808,14 +14865,14 @@ function unclonableFromNode(node) {
           if (p.hasHorizontalRule)
             out.push(`${cellLoc}: contains a horizontal rule`);
         }
-        const plan2 = tableCellInlineClone(cell);
-        out.push(...plan2.unclonable.map((msg) => `${cellLoc}: ${msg}`));
+        const plan = tableCellInlineClone(cell);
+        out.push(...plan.unclonable.map((msg) => `${cellLoc}: ${msg}`));
       }
     }
     return out;
   }
   const plan = paragraphInlineClone(node);
-  out.push(...plan.unclonable.map((msg) => `${loc2}: ${msg}`));
+  out.push(...plan.unclonable.map((msg) => `${loc}: ${msg}`));
   return out;
 }
 function inlineClonePlan(text, chips, images) {
@@ -14837,19 +14894,19 @@ function inlineClonePlan(text, chips, images) {
     }
     items.push(converted);
   }
-  items.sort((a, b2) => a.offset - b2.offset);
+  items.sort((a, b) => a.offset - b.offset);
   let cursor = 0;
   let outText = "";
   const specials = [];
   for (const item of items) {
-    const at2 = Math.max(0, Math.min(item.offset, text.length));
-    if (at2 < cursor)
+    const at = Math.max(0, Math.min(item.offset, text.length));
+    if (at < cursor)
       continue;
-    outText += text.slice(cursor, at2);
+    outText += text.slice(cursor, at);
     if (item.special) {
       specials.push({ ...item.special, offset: outText.length });
     }
-    cursor = at2 + item.dropLen;
+    cursor = at + item.dropLen;
   }
   outText += text.slice(cursor);
   return { specials, text: outText, unclonable };
@@ -14896,14 +14953,14 @@ function chipToSpecial(chip, text) {
 }
 function imageToSpecial(image, text) {
   const offset = image.textOffset ?? 0;
-  const uri2 = image.sourceUri ?? "";
-  if (!/^https?:\/\//i.test(uri2)) {
+  const uri = image.sourceUri ?? "";
+  if (!/^https?:\/\//i.test(uri)) {
     return {
       unclonable: "inline image has no public source URI (Drive/internal images cannot be reinserted via REST)"
     };
   }
   const dropLen = text.startsWith("[Image]", offset) ? "[Image]".length : 0;
-  const special = { kind: "inlineImage", offset, uri: uri2 };
+  const special = { kind: "inlineImage", offset, uri };
   if (image.heightPt != null)
     special.heightPt = image.heightPt;
   if (image.widthPt != null)
@@ -14921,10 +14978,10 @@ function chipKindInfer(chip) {
     return "date";
   return;
 }
-function emailFromMailto(uri2) {
-  if (!uri2?.toLowerCase().startsWith("mailto:"))
+function emailFromMailto(uri) {
+  if (!uri?.toLowerCase().startsWith("mailto:"))
     return;
-  const email = uri2.slice("mailto:".length).trim();
+  const email = uri.slice("mailto:".length).trim();
   return email || undefined;
 }
 
@@ -14975,18 +15032,18 @@ function assignScopedIds(nodes) {
     if (node.kind === "paragraph" && isHeadingStyle(node.namedStyleType)) {
       currentHeadingId = node.headingId || `h.heading_${node.tapeIndex}`;
       tableIndexUnderHeading = 0;
-      const csum2 = computeNodeChecksum(node);
-      node.scopedId = `${currentHeadingId}.${csum2}`;
+      const csum = computeNodeChecksum(node);
+      node.scopedId = `${currentHeadingId}.${csum}`;
       continue;
     }
     if (node.kind === "table") {
       tableIndexUnderHeading++;
       const tableTag = tableIndexUnderHeading === 1 ? "table" : `table${tableIndexUnderHeading}`;
-      const csum2 = computeNodeChecksum(node);
-      const base2 = `${currentHeadingId}.${tableTag}.${csum2}`;
-      const count2 = (sectionCounts.get(base2) ?? 0) + 1;
-      sectionCounts.set(base2, count2);
-      node.scopedId = count2 === 1 ? base2 : `${base2}.${count2}`;
+      const csum = computeNodeChecksum(node);
+      const base = `${currentHeadingId}.${tableTag}.${csum}`;
+      const count = (sectionCounts.get(base) ?? 0) + 1;
+      sectionCounts.set(base, count);
+      node.scopedId = count === 1 ? base : `${base}.${count}`;
       if (node.table) {
         for (let r = 0;r < node.table.cells.length; r++) {
           const row = node.table.cells[r];
@@ -15046,14 +15103,14 @@ function parseContent(content, data) {
   return nodes;
 }
 function parseSegments(data) {
-  const style2 = data.documentStyle ?? {};
+  const style = data.documentStyle ?? {};
   const out = [];
   for (const [id, header] of Object.entries(data.headers ?? {})) {
     out.push({
       kind: "header",
       nodes: parseContent(header.content ?? [], data),
       segmentId: header.headerId || id,
-      use: headerUse(id, style2)
+      use: headerUse(id, style)
     });
   }
   for (const [id, footer] of Object.entries(data.footers ?? {})) {
@@ -15061,7 +15118,7 @@ function parseSegments(data) {
       kind: "footer",
       nodes: parseContent(footer.content ?? [], data),
       segmentId: footer.footerId || id,
-      use: footerUse(id, style2)
+      use: footerUse(id, style)
     });
   }
   for (const [id, note] of Object.entries(data.footnotes ?? {})) {
@@ -15073,21 +15130,21 @@ function parseSegments(data) {
   }
   return out;
 }
-function headerUse(id, style2) {
-  if (id === style2.defaultHeaderId)
+function headerUse(id, style) {
+  if (id === style.defaultHeaderId)
     return "default";
-  if (id === style2.firstPageHeaderId)
+  if (id === style.firstPageHeaderId)
     return "first";
-  if (id === style2.evenPageHeaderId)
+  if (id === style.evenPageHeaderId)
     return "even";
   return;
 }
-function footerUse(id, style2) {
-  if (id === style2.defaultFooterId)
+function footerUse(id, style) {
+  if (id === style.defaultFooterId)
     return "default";
-  if (id === style2.firstPageFooterId)
+  if (id === style.firstPageFooterId)
     return "first";
-  if (id === style2.evenPageFooterId)
+  if (id === style.evenPageFooterId)
     return "even";
   return;
 }
@@ -15142,9 +15199,9 @@ function parseParagraph(el, start, end, data) {
     node.headingId = paragraph.paragraphStyle.headingId;
   }
   applyParagraphStyle(node, paragraph.paragraphStyle);
-  const style2 = queryStyleFromParagraph(paragraph);
-  if (style2)
-    node.style = style2;
+  const style = queryStyleFromParagraph(paragraph);
+  if (style)
+    node.style = style;
   const colors = paragraphFontColorsExtract(paragraph);
   if (colors.length > 0)
     node.fontColors = colors;
@@ -15194,33 +15251,33 @@ function ptMagnitude(dim) {
     return 0;
   return;
 }
-function applyParagraphStyle(target, style2) {
-  if (!style2)
+function applyParagraphStyle(target, style) {
+  if (!style)
     return;
-  const align = asAlignment(style2.alignment);
+  const align = asAlignment(style.alignment);
   if (align)
     target.alignment = align;
-  const indentStart = ptMagnitude(style2.indentStart);
+  const indentStart = ptMagnitude(style.indentStart);
   if (indentStart != null) {
     target.indentStart = { magnitude: indentStart, unit: "PT" };
   }
-  const indentFirstLine = ptMagnitude(style2.indentFirstLine);
+  const indentFirstLine = ptMagnitude(style.indentFirstLine);
   if (indentFirstLine != null) {
     target.indentFirstLine = { magnitude: indentFirstLine, unit: "PT" };
   }
-  const indentEnd = ptMagnitude(style2.indentEnd);
+  const indentEnd = ptMagnitude(style.indentEnd);
   if (indentEnd != null) {
     target.indentEnd = { magnitude: indentEnd, unit: "PT" };
   }
-  if (typeof style2.lineSpacing === "number")
-    target.lineSpacing = style2.lineSpacing;
-  if (typeof style2.spaceAbove?.magnitude === "number") {
-    target.spaceAbove = style2.spaceAbove.magnitude;
+  if (typeof style.lineSpacing === "number")
+    target.lineSpacing = style.lineSpacing;
+  if (typeof style.spaceAbove?.magnitude === "number") {
+    target.spaceAbove = style.spaceAbove.magnitude;
   }
-  if (typeof style2.spaceBelow?.magnitude === "number") {
-    target.spaceBelow = style2.spaceBelow.magnitude;
+  if (typeof style.spaceBelow?.magnitude === "number") {
+    target.spaceBelow = style.spaceBelow.magnitude;
   }
-  const shade = hexColor(style2.shading?.backgroundColor?.color?.rgbColor);
+  const shade = hexColor(style.shading?.backgroundColor?.color?.rgbColor);
   if (shade)
     target.shading = shade;
 }
@@ -15253,9 +15310,9 @@ function parseCellParagraph(paraEl, data, row, col) {
   if (para)
     applyParagraphStyle(cell, para.paragraphStyle);
   if (para) {
-    const style2 = queryStyleFromParagraph(para);
-    if (style2)
-      cell.style = style2;
+    const style = queryStyleFromParagraph(para);
+    if (style)
+      cell.style = style;
     const cellImgs = parseImages(para, data).map((img) => ({
       ...img,
       col,
@@ -15566,12 +15623,12 @@ function headingByTitleOrSlugFind(nodes, needle) {
     return slugHits[0];
   return;
 }
-function nodeAtFind(nodes, at2) {
-  const direct = nodes.find((n) => n.tapeIndex === at2 || n.scopedId === at2 || n.headingId === at2 || String(n.tapeIndex) === String(at2));
+function nodeAtFind(nodes, at) {
+  const direct = nodes.find((n) => n.tapeIndex === at || n.scopedId === at || n.headingId === at || String(n.tapeIndex) === String(at));
   if (direct)
     return direct;
-  if (typeof at2 === "string") {
-    const trimmed = at2.trim();
+  if (typeof at === "string") {
+    const trimmed = at.trim();
     const heading = headingByTitleOrSlugFind(nodes, trimmed);
     if (heading)
       return heading;
@@ -15629,21 +15686,21 @@ function neighborhoodFrom(nodes, startId, opts) {
   }
   if (start.bullet) {
     const listId = start.bullet.listId;
-    const startLevel2 = start.bullet.nestingLevel ?? 0;
-    const out2 = [start];
+    const startLevel = start.bullet.nestingLevel ?? 0;
+    const out = [start];
     for (let j = i + 1;j < nodes.length; j++) {
       const n = nodes[j];
       if (!n.bullet || listId && n.bullet.listId !== listId)
         break;
       if (opts?.sameList) {
-        out2.push(n);
+        out.push(n);
       } else {
-        if ((n.bullet.nestingLevel ?? 0) <= startLevel2)
+        if ((n.bullet.nestingLevel ?? 0) <= startLevel)
           break;
-        out2.push(n);
+        out.push(n);
       }
     }
-    return out2;
+    return out;
   }
   const startLevel = headingLevel(start);
   const out = [start];
@@ -15805,7 +15862,7 @@ function previousElementSibling(nodes, node) {
   return nodes[i - 1] ?? null;
 }
 function headingsByTextFind(nodes, needle, opts = {}) {
-  const headings = nodes.filter((n2) => isHeading(n2));
+  const headings = nodes.filter((n) => isHeading(n));
   if (opts.at !== undefined) {
     const hit = headings.find((h) => h.tapeIndex === opts.at);
     if (!hit)
@@ -15832,7 +15889,7 @@ function headingsByTextFind(nodes, needle, opts = {}) {
   if (!sameTitle && hits.length > 1) {
     throw new Error(`Ambiguous heading "${needle}" matches ${hits.length} headings (${hits.map((h) => `${h.start}:${h.text || "(empty)"}`).join("; ")}). Use the exact title or at:<id> from query.`);
   }
-  const ranked = [...hits].sort((a, b2) => headingLevel(a) - headingLevel(b2) || a.start - b2.start);
+  const ranked = [...hits].sort((a, b) => headingLevel(a) - headingLevel(b) || a.start - b.start);
   const shallow = headingLevel(ranked[0]);
   const atShallow = ranked.filter((h) => headingLevel(h) === shallow);
   if (atShallow.length > 1) {
@@ -15842,7 +15899,7 @@ function headingsByTextFind(nodes, needle, opts = {}) {
 }
 var findHeadingsByText = headingsByTextFind;
 function nodesByTextFind(nodes, needle, opts = {}) {
-  const paras = nodes.filter((n2) => n2.kind === "paragraph");
+  const paras = nodes.filter((n) => n.kind === "paragraph");
   if (opts.at !== undefined) {
     const hit = paras.find((p) => p.tapeIndex === opts.at);
     if (!hit)
@@ -16463,30 +16520,30 @@ function elementCreate(kind, props = {}, opts) {
       lineSpacing: 100,
       ...cp.style ?? {}
     };
-    const spec2 = {
+    const spec = {
       kind: "paragraph",
       namedStyleType: "NORMAL_TEXT",
       style: baseStyle,
       text: trailingNewlineStrip(cp.text ?? "")
     };
     if (cp.alignment)
-      spec2.alignment = cp.alignment;
-    return spec2;
+      spec.alignment = cp.alignment;
+    return spec;
   }
   if (kind === "table") {
     const tp = props;
     const rows = tp.rows;
     if (!rows?.length)
       throw new Error("table requires at least one row");
-    const spec2 = {
+    const spec = {
       kind: "table",
       table: { rows: rows.map((row) => row.map(String)) }
     };
     if (tp.cellSpecials?.length)
-      spec2.table.cellSpecials = tp.cellSpecials;
+      spec.table.cellSpecials = tp.cellSpecials;
     if (tp.warnings?.length)
-      spec2.warnings = tp.warnings;
-    return spec2;
+      spec.warnings = tp.warnings;
+    return spec;
   }
   if (kind !== "paragraph") {
     throw new Error(`Unknown kind "${kind}". Use "paragraph", "codeBlock", "table", or "pageBreak".`);
@@ -16701,46 +16758,46 @@ function chunkMarkdownElements(specs) {
   return chunks;
 }
 function customStyleNormalize(raw) {
-  const style2 = {};
+  const style = {};
   if (raw.bold === true)
-    style2.bold = true;
+    style.bold = true;
   if (raw.italic === true)
-    style2.italic = true;
+    style.italic = true;
   if (raw.underline === true)
-    style2.underline = true;
+    style.underline = true;
   if (raw.strikethrough === true || raw.strike === true)
-    style2.strikethrough = true;
+    style.strikethrough = true;
   if (typeof raw.style === "string") {
     const parts = raw.style.toLowerCase().split(/[,\s]+/);
     for (const p of parts) {
       if (p === "bold")
-        style2.bold = true;
+        style.bold = true;
       if (p === "italic")
-        style2.italic = true;
+        style.italic = true;
       if (p === "underline")
-        style2.underline = true;
+        style.underline = true;
       if (p === "strike" || p === "strikethrough")
-        style2.strikethrough = true;
+        style.strikethrough = true;
     }
   }
   const fg = raw.foregroundColor ?? raw.color;
   if (typeof fg === "string")
-    style2.foregroundColor = fg;
+    style.foregroundColor = fg;
   const bg = raw.backgroundColor ?? raw.background ?? raw.highlight;
   if (typeof bg === "string")
-    style2.backgroundColor = bg;
+    style.backgroundColor = bg;
   const sz = raw.fontSize ?? raw.size;
   if (typeof sz === "number") {
-    style2.fontSize = sz;
+    style.fontSize = sz;
   } else if (typeof sz === "string") {
     const n = parseFloat(sz);
     if (!Number.isNaN(n))
-      style2.fontSize = n;
+      style.fontSize = n;
   }
   const ff = raw.fontFamily ?? raw.font;
   if (typeof ff === "string")
-    style2.fontFamily = ff;
-  return style2;
+    style.fontFamily = ff;
+  return style;
 }
 function markdownStylesParse(styles) {
   const out = {};
@@ -17303,7 +17360,7 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
     }
     const snapshot = summarizeNode(target);
     const handle = writer.wrap(target);
-    const loc2 = {
+    const loc = {
       ...cell ? { cell } : {},
       ...para != null ? { para } : {}
     };
@@ -17334,7 +17391,7 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
         action: "dangerousRemoveSection",
         index,
         target: snapshot,
-        ...loc2
+        ...loc
       }, [
         ...chipWarnings(target, cell, para),
         `Removing heading and all ${sectionNodes.length - 1} following section nodes.`,
@@ -17358,7 +17415,7 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
           action: "insertTableRow",
           index,
           target: snapshot,
-          ...loc2
+          ...loc
         }, warnings));
         const cells = typeof op.insertTableRow === "object" && Array.isArray(op.insertTableRow.cells) ? op.insertTableRow.cells : undefined;
         writer.insertTableRow(target, [r, c], insertBelow, cells);
@@ -17371,7 +17428,7 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
           action: "deleteTableRow",
           index,
           target: snapshot,
-          ...loc2
+          ...loc
         }, warnings));
         writer.deleteTableRow(target, [r, c]);
         if (op.as)
@@ -17384,7 +17441,7 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
           action: "insertTableColumn",
           index,
           target: snapshot,
-          ...loc2
+          ...loc
         }, warnings));
         writer.insertTableColumn(target, [r, c], insertRight);
         if (op.as)
@@ -17396,7 +17453,7 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
           action: "deleteTableColumn",
           index,
           target: snapshot,
-          ...loc2
+          ...loc
         }, warnings));
         writer.deleteTableColumn(target, [r, c]);
         if (op.as)
@@ -17409,7 +17466,7 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
           action: "duplicateTableRow",
           index,
           target: snapshot,
-          ...loc2
+          ...loc
         }, warnings));
         const sourceCells = target.table?.cells?.[r];
         const cells = sourceCells ? sourceCells.map((sc) => sc.text ?? "") : undefined;
@@ -17436,7 +17493,7 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
           innerText: "",
           namedStyleType: "NORMAL_TEXT",
           target: snapshot,
-          ...loc2
+          ...loc
         }, [
           ...chipWarnings(target, cell, para),
           "Target is the last paragraph of the document tape; converted remove to clear innerText and reset namedStyleType to NORMAL_TEXT (Docs rejects deleting the trailing newline)."
@@ -17444,7 +17501,7 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
         continue;
       }
       const removeUnrec = formatUnrecoverableWarning(target);
-      plan.push(withWarnings({ action: "remove", index, target: snapshot, ...loc2 }, [
+      plan.push(withWarnings({ action: "remove", index, target: snapshot, ...loc }, [
         ...chipWarnings(target, cell, para),
         ...removeUnrec ? [removeUnrec] : []
       ]));
@@ -17478,7 +17535,7 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
         action: "replaceSection",
         index,
         target: snapshot,
-        ...loc2
+        ...loc
       }, [
         ...chipWarnings(target, cell, para),
         `Diff-replacing section (${diffNodes.length} live node(s) vs ${incomingSpecs.length} markdown element(s)).`
@@ -17502,7 +17559,7 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
         action: "replaceMarkdown",
         index,
         target: snapshot,
-        ...loc2
+        ...loc
       }, [
         ...chipWarnings(target, cell, para),
         `Diff-replacing single node (${target.namedStyleType ?? target.kind}) with ${incomingSpecs.length} markdown element(s).`
@@ -17606,7 +17663,7 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
           index,
           insertAdjacentElement: summarizeInsert(effectivePosition, spec),
           target: summarizeNode(currentAnchor),
-          ...loc2
+          ...loc
         }, insertWarnings));
         currentHandle = currentHandle.insertAdjacentElement(effectivePosition, spec);
         currentAnchor = currentHandle.node;
@@ -17640,7 +17697,7 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
         ...op.bullet ? { bullet: op.bullet } : {},
         ...patch ? { style: patch } : {},
         target: snapshot,
-        ...loc2
+        ...loc
       }, [...chipWarnings(target, cell, para), ...warnings]));
       writer.setInnerText(target, op.innerText, cell, para, {
         runs: op.runs
@@ -17662,7 +17719,7 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
         ...op.bullet ? { bullet: op.bullet } : {},
         ...patch ? { style: patch } : {},
         target: snapshot,
-        ...loc2
+        ...loc
       }, warnings));
       handle.namedStyleType = op.namedStyleType;
       if (patch)
@@ -17677,7 +17734,7 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
         bullet: op.bullet,
         index,
         target: snapshot,
-        ...loc2
+        ...loc
       }, warnings));
       if (op.as)
         namedAnchors.set(op.as.trim(), target);
@@ -17694,7 +17751,7 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
       index,
       ...action === "style" ? { style: patch } : {},
       target: snapshot,
-      ...loc2
+      ...loc
     }, warnings));
     writer.setStyle(target, patch, cell, para);
     if (op.as)
@@ -17720,9 +17777,9 @@ function tapeMutationsApply(writer, ops, baseIndex = 0, opts = {}) {
           }
         }
       }
-      const hasWipedScopeMatch = unchangedMatches.some((m2) => wipedScopeNodes.some((w) => w.tapeIndex === m2.deleted.tapeIndex));
+      const hasWipedScopeMatch = unchangedMatches.some((m) => wipedScopeNodes.some((w) => w.tapeIndex === m.deleted.tapeIndex));
       if (hasWipedScopeMatch || unchangedMatches.length >= 2) {
-        const details = unchangedMatches.slice(0, 10).map((m2) => `  - ${m2.deleted.namedStyleType ?? m2.deleted.kind}: "${preview(m2.deleted.text ?? "")}" (id: ${m2.deleted.scopedId ?? m2.deleted.tapeIndex})`).join(`
+        const details = unchangedMatches.slice(0, 10).map((m) => `  - ${m.deleted.namedStyleType ?? m.deleted.kind}: "${preview(m.deleted.text ?? "")}" (id: ${m.deleted.scopedId ?? m.deleted.tapeIndex})`).join(`
 `);
         throw new Error(`Lazy replacement rejected: ${unchangedMatches.length} unchanged node(s) were deleted and re-created with identical content:
 ${details}
@@ -17753,11 +17810,11 @@ function removeNodeSafely(writer, node) {
 function diffAndApplyMarkdown(writer, oldNodes, newSpecs, anchorTarget, force) {
   const oldChecksums = oldNodes.map((n) => computeNodeChecksum(n));
   const newChecksums = newSpecs.map((s) => computeNodeChecksum(s));
-  const N2 = oldNodes.length;
-  const M2 = newSpecs.length;
-  const dp = Array.from({ length: N2 + 1 }, () => Array(M2 + 1).fill(0));
-  for (let i = 0;i < N2; i++) {
-    for (let j = 0;j < M2; j++) {
+  const N = oldNodes.length;
+  const M = newSpecs.length;
+  const dp = Array.from({ length: N + 1 }, () => Array(M + 1).fill(0));
+  for (let i = 0;i < N; i++) {
+    for (let j = 0;j < M; j++) {
       if (oldChecksums[i] === newChecksums[j]) {
         dp[i + 1][j + 1] = dp[i]?.[j] + 1;
       } else {
@@ -17766,8 +17823,8 @@ function diffAndApplyMarkdown(writer, oldNodes, newSpecs, anchorTarget, force) {
     }
   }
   const matches = [];
-  let ci = N2;
-  let cj = M2;
+  let ci = N;
+  let cj = M;
   while (ci > 0 && cj > 0) {
     if (oldChecksums[ci - 1] === newChecksums[cj - 1]) {
       matches.unshift({ oldIdx: ci - 1, newIdx: cj - 1 });
@@ -17779,11 +17836,11 @@ function diffAndApplyMarkdown(writer, oldNodes, newSpecs, anchorTarget, force) {
       cj--;
     }
   }
-  const boundaries = [{ oldIdx: -1, newIdx: -1 }, ...matches, { oldIdx: N2, newIdx: M2 }];
+  const boundaries = [{ oldIdx: -1, newIdx: -1 }, ...matches, { oldIdx: N, newIdx: M }];
   let lastAnchorNode;
-  for (let b2 = 0;b2 < boundaries.length - 1; b2++) {
-    const prevMatch = boundaries[b2];
-    const nextMatch = boundaries[b2 + 1];
+  for (let b = 0;b < boundaries.length - 1; b++) {
+    const prevMatch = boundaries[b];
+    const nextMatch = boundaries[b + 1];
     if (prevMatch.oldIdx >= 0) {
       lastAnchorNode = oldNodes[prevMatch.oldIdx];
     }
@@ -17845,7 +17902,7 @@ function diffAndApplyMarkdown(writer, oldNodes, newSpecs, anchorTarget, force) {
         removeNodeSafely(writer, oldNode);
       }
     }
-    if (nextMatch.oldIdx >= 0 && nextMatch.oldIdx < N2) {
+    if (nextMatch.oldIdx >= 0 && nextMatch.oldIdx < N) {
       lastAnchorNode = oldNodes[nextMatch.oldIdx];
     }
   }
@@ -17934,13 +17991,13 @@ function notFragileAssert(node, action, force) {
 var assertNotFragile = notFragileAssert;
 function chipWarnings(target, cell, para) {
   const warnings = [];
-  const checkNode = (node2) => {
-    if (hasChips(node2))
+  const checkNode = (node) => {
+    if (hasChips(node))
       warnings.push(CHIP_MUTATE_MSG);
-    if ("hasEquation" in node2 && node2.hasEquation) {
+    if ("hasEquation" in node && node.hasEquation) {
       warnings.push("Caution: this paragraph contains a math equation. innerText and remove destroy it.");
     }
-    if ("hasHorizontalRule" in node2 && node2.hasHorizontalRule) {
+    if ("hasHorizontalRule" in node && node.hasHorizontalRule) {
       warnings.push("Caution: this paragraph contains a horizontal rule/divider. innerText and remove destroy it.");
     }
   };
@@ -17955,9 +18012,9 @@ function chipWarnings(target, cell, para) {
   checkNode(node);
   return warnings;
 }
-function samePlainText(a, b2) {
+function samePlainText(a, b) {
   const left = plainVisible(a);
-  const right = plainVisible(b2);
+  const right = plainVisible(b);
   return left.length > 0 && left === right;
 }
 function plainVisible(s) {
@@ -18023,22 +18080,22 @@ function targetResolve(dom, op, namedAnchors) {
   }
   throw new Error(formatMissingScopedTargetMsg(dom.nodes, dest.rawAt ?? ""));
 }
-function writeAtParse(at2, namedAnchors) {
-  if (at2 == null)
+function writeAtParse(at, namedAnchors) {
+  if (at == null)
     throw new Error(WRITE_AT_ONLY_MSG);
-  if (typeof at2 === "number") {
-    if (!Number.isInteger(at2) || at2 < 1)
+  if (typeof at === "number") {
+    if (!Number.isInteger(at) || at < 1)
       throw new Error(WRITE_AT_ONLY_MSG);
-    return { nodeId: at2 };
+    return { nodeId: at };
   }
-  if (typeof at2 !== "string")
+  if (typeof at !== "string")
     throw new Error(WRITE_AT_ONLY_MSG);
-  const trimmed = at2.trim();
+  const trimmed = at.trim();
   if (!trimmed)
     throw new Error(WRITE_AT_ONLY_MSG);
   if (namedAnchors?.has(trimmed)) {
     const node = namedAnchors.get(trimmed);
-    return { nodeId: node.tapeIndex, rawAt: at2, scopedId: node.scopedId };
+    return { nodeId: node.tapeIndex, rawAt: at, scopedId: node.scopedId };
   }
   if (namedAnchors && trimmed.includes(".")) {
     const dotParts = trimmed.split(".");
@@ -18053,7 +18110,7 @@ function writeAtParse(at2, namedAnchors) {
           return {
             cell: [row, col],
             nodeId: baseNode.tapeIndex,
-            rawAt: at2,
+            rawAt: at,
             ...para != null ? { para } : {}
           };
         }
@@ -18099,7 +18156,7 @@ function writeAtParse(at2, namedAnchors) {
       cell: [row, col],
       headingId: headingPart,
       para,
-      rawAt: at2,
+      rawAt: at,
       scopedId: trimmed,
       tableIndex: tableIdx
     };
@@ -18125,7 +18182,7 @@ function writeAtParse(at2, namedAnchors) {
   return {
     headingId,
     isHeadingTarget: isHeadingDirect,
-    rawAt: at2,
+    rawAt: at,
     scopedId: trimmed
   };
 }
@@ -18146,20 +18203,20 @@ function styleFromOp(op, index) {
   return hasStyle(patch) ? patch : undefined;
 }
 function unrecoverableWarningFormat(node) {
-  const loc2 = node.scopedId ? `node ${node.scopedId}` : `node ${node.tapeIndex}`;
+  const loc = node.scopedId ? `node ${node.scopedId}` : `node ${node.tapeIndex}`;
   if (node.hasEquation) {
     const snippet = (node.text ?? "").trim() ? ` "${(node.text ?? "").trim().slice(0, 40)}"` : "";
-    return `Destroyed math equation at ${loc2}${snippet} (unrecoverable via API)`;
+    return `Destroyed math equation at ${loc}${snippet} (unrecoverable via API)`;
   }
   if (node.chips?.length) {
     const titles = node.chips.map((c) => `"${c.title || c.uri}"`).join(", ");
-    return `Destroyed ${node.chips.length} smart chip(s) at ${loc2}: ${titles} (unrecoverable via API)`;
+    return `Destroyed ${node.chips.length} smart chip(s) at ${loc}: ${titles} (unrecoverable via API)`;
   }
   if (node.kind === "tableOfContents") {
-    return `Destroyed Table of Contents at ${loc2} (unrecoverable via API)`;
+    return `Destroyed Table of Contents at ${loc} (unrecoverable via API)`;
   }
   if (node.hasHorizontalRule) {
-    return `Destroyed horizontal rule divider at ${loc2} (unrecoverable via API)`;
+    return `Destroyed horizontal rule divider at ${loc} (unrecoverable via API)`;
   }
   if (node.kind === "table" && node.table) {
     let chipCount = 0;
@@ -18170,7 +18227,7 @@ function unrecoverableWarningFormat(node) {
       }
     }
     if (chipCount > 0) {
-      return `Destroyed table with ${chipCount} smart chip(s) at ${loc2} (unrecoverable via API)`;
+      return `Destroyed table with ${chipCount} smart chip(s) at ${loc} (unrecoverable via API)`;
     }
   }
   return;
@@ -18488,16 +18545,16 @@ function domCompile(writer, opts = {}) {
   const seg = writer.segmentId;
   const tab = writer.tabId;
   if (!force) {
-    for (const m2 of writer.mutations()) {
-      if (m2.type === "insertAdjacent" && m2.spec.kind === "paragraph") {
-        assertWritable(m2.spec);
+    for (const m of writer.mutations()) {
+      if (m.type === "insertAdjacent" && m.spec.kind === "paragraph") {
+        assertWritable(m.spec);
       }
-      if (m2.type === "innerText") {
-        const orig = writer.originalNodes().find((n) => n.tapeIndex === m2.nodeId);
-        assertWritable(m2.cell ? { text: m2.text } : {
+      if (m.type === "innerText") {
+        const orig = writer.originalNodes().find((n) => n.tapeIndex === m.nodeId);
+        assertWritable(m.cell ? { text: m.text } : {
           bullet: orig?.bullet,
           namedStyleType: orig?.namedStyleType,
-          text: m2.text
+          text: m.text
         });
       }
     }
@@ -18547,7 +18604,7 @@ function domCompile(writer, opts = {}) {
         throw new Error(`innerText target ${op.nodeId} is gone`);
       if (op.cell) {
         const cell = requireLivePara(node, op.cell, op.para);
-        const oldEnd2 = cell.end;
+        const oldEnd = cell.end;
         const cellLive = {
           end: cell.end,
           tapeIndex: node.tapeIndex,
@@ -18555,21 +18612,21 @@ function domCompile(writer, opts = {}) {
           kind: "paragraph",
           start: cell.start
         };
-        const { length: length2, plain: plain2, reqs: reqs2 } = compileInnerText(cellLive, op.text, seg, tab, op.runs);
-        push(reqs2, op.mutationIndexes);
-        const imageChars2 = imageCharCount(cellLive);
-        const oldTextLen2 = Math.max(0, oldEnd2 - cell.start - 1 - imageChars2);
-        deleteChars += oldTextLen2;
-        insertChars += length2;
-        cell.text = plain2;
-        packImagesAfterText(cellLive, plain2.length);
+        const { length, plain, reqs } = compileInnerText(cellLive, op.text, seg, tab, op.runs);
+        push(reqs, op.mutationIndexes);
+        const imageChars = imageCharCount(cellLive);
+        const oldTextLen = Math.max(0, oldEnd - cell.start - 1 - imageChars);
+        deleteChars += oldTextLen;
+        insertChars += length;
+        cell.text = plain;
+        packImagesAfterText(cellLive, plain.length);
         cell.end = cellLive.end;
         cell.images = cellLive.images;
-        const delta3 = cell.end - oldEnd2;
-        shiftTableCells(node, oldEnd2, delta3, op.cell, op.para);
-        node.end += delta3;
+        const delta = cell.end - oldEnd;
+        shiftTableCells(node, oldEnd, delta, op.cell, op.para);
+        node.end += delta;
         syncTableImages(node);
-        shiftLive(live, oldEnd2, delta3, node.tapeIndex);
+        shiftLive(live, oldEnd, delta, node.tapeIndex);
         continue;
       }
       const oldEnd = node.end;
@@ -18581,8 +18638,8 @@ function domCompile(writer, opts = {}) {
       insertChars += length;
       node.text = plain;
       packImagesAfterText(node, plain.length);
-      const delta2 = node.end - oldEnd;
-      shiftLive(live, oldEnd, delta2, node.tapeIndex);
+      const delta = node.end - oldEnd;
+      shiftLive(live, oldEnd, delta, node.tapeIndex);
       continue;
     }
     if (op.type === "style") {
@@ -18639,7 +18696,7 @@ function domCompile(writer, opts = {}) {
       if (isLastLiveNode(live, node)) {
         if (node.start > 1) {
           const prev = findPrecedingLiveNode(live, node);
-          const len2 = node.end - node.start;
+          const len = node.end - node.start;
           if (prev && prev.kind === "paragraph") {
             push([
               {
@@ -18654,8 +18711,8 @@ function domCompile(writer, opts = {}) {
             if (node.bullet && !prev.bullet) {
               push([RequestBuilder.deleteParagraphBullets(prev.start, node.start, seg, tab)], op.mutationIndexes);
             }
-            deleteChars += len2;
-            shiftLive(live, node.end, -len2, node.tapeIndex);
+            deleteChars += len;
+            shiftLive(live, node.end, -len, node.tapeIndex);
             live.delete(op.nodeId);
             continue;
           }
@@ -18698,16 +18755,16 @@ function domCompile(writer, opts = {}) {
       continue;
     }
     if (op.type === "insertTable") {
-      const anchor2 = live.get(op.afterId);
-      if (!anchor2)
+      const anchor = live.get(op.afterId);
+      if (!anchor)
         throw new Error(`insert table: missing anchor ${op.afterId}`);
-      const { reqs, writeAt: writeAt2 } = compileSplit(anchor2, op.position, seg, tab);
+      const { reqs, writeAt } = compileSplit(anchor, op.position, seg, tab);
       push(reqs, op.mutationIndexes);
       push([
         {
           insertTable: {
             columns: Math.max(...op.rows.map((r) => r.length), 1),
-            location: atLoc(writeAt2, seg, tab),
+            location: atLoc(writeAt, seg, tab),
             rows: op.rows.length
           }
         }
@@ -18715,36 +18772,36 @@ function domCompile(writer, opts = {}) {
       tables += 1;
       tableInserts.push({
         ...op.cellSpecials ? { cellSpecials: op.cellSpecials } : {},
-        insertIndex: writeAt2,
+        insertIndex: writeAt,
         rows: op.rows,
         ...seg ? { segmentId: seg } : {},
         ...tab ? { tabId: tab } : {}
       });
       const created = {
-        end: writeAt2 + 1,
+        end: writeAt + 1,
         tapeIndex: op.newId,
         kind: "table",
-        start: writeAt2
+        start: writeAt
       };
       live.set(created.tapeIndex, created);
-      shiftLive(live, writeAt2, 1, created.tapeIndex);
+      shiftLive(live, writeAt, 1, created.tapeIndex);
       continue;
     }
     if (op.type === "insertPageBreak") {
-      const anchor2 = live.get(op.afterId);
-      if (!anchor2)
+      const anchor = live.get(op.afterId);
+      if (!anchor)
         throw new Error(`insert pageBreak: missing anchor ${op.afterId}`);
-      const { reqs, writeAt: writeAt2 } = compileSplit(anchor2, op.position, seg, tab);
+      const { reqs, writeAt } = compileSplit(anchor, op.position, seg, tab);
       push(reqs, op.mutationIndexes);
-      push([RequestBuilder.insertPageBreak(writeAt2, seg, tab)], op.mutationIndexes);
+      push([RequestBuilder.insertPageBreak(writeAt, seg, tab)], op.mutationIndexes);
       insertChars += 1;
       live.set(op.newId, {
-        end: writeAt2 + 1,
+        end: writeAt + 1,
         tapeIndex: op.newId,
         kind: "pageBreak",
-        start: writeAt2
+        start: writeAt
       });
-      shiftLive(live, writeAt2, 1, op.newId);
+      shiftLive(live, writeAt, 1, op.newId);
       continue;
     }
     if (op.type === "insertTableRow") {
@@ -18828,10 +18885,10 @@ function domCompile(writer, opts = {}) {
       continue;
     }
     if (op.type === "insertSectionBreak") {
-      const anchor2 = live.get(op.afterId);
-      if (!anchor2)
+      const anchor = live.get(op.afterId);
+      if (!anchor)
         throw new Error(`insertSectionBreak anchor ${op.afterId} is gone`);
-      const splitIdx = op.position === "beforebegin" ? anchor2.start : anchor2.end;
+      const splitIdx = op.position === "beforebegin" ? anchor.start : anchor.end;
       push([
         RequestBuilder.insertSectionBreak({
           index: splitIdx,
@@ -18850,10 +18907,10 @@ function domCompile(writer, opts = {}) {
       continue;
     }
     if (op.type === "insertPerson") {
-      const anchor2 = live.get(op.afterId);
-      if (!anchor2)
+      const anchor = live.get(op.afterId);
+      if (!anchor)
         throw new Error(`insertPerson anchor ${op.afterId} is gone`);
-      const split = compileSplit(anchor2, op.position, seg, tab);
+      const split = compileSplit(anchor, op.position, seg, tab);
       push(split.reqs, op.mutationIndexes);
       push([
         RequestBuilder.insertPerson({
@@ -18874,10 +18931,10 @@ function domCompile(writer, opts = {}) {
       continue;
     }
     if (op.type === "insertRichLink") {
-      const anchor2 = live.get(op.afterId);
-      if (!anchor2)
+      const anchor = live.get(op.afterId);
+      if (!anchor)
         throw new Error(`insertRichLink anchor ${op.afterId} is gone`);
-      const split = compileSplit(anchor2, op.position, seg, tab);
+      const split = compileSplit(anchor, op.position, seg, tab);
       push(split.reqs, op.mutationIndexes);
       push([
         RequestBuilder.insertRichLink({
@@ -18898,10 +18955,10 @@ function domCompile(writer, opts = {}) {
       continue;
     }
     if (op.type === "insertDate") {
-      const anchor2 = live.get(op.afterId);
-      if (!anchor2)
+      const anchor = live.get(op.afterId);
+      if (!anchor)
         throw new Error(`insertDate anchor ${op.afterId} is gone`);
-      const split = compileSplit(anchor2, op.position, seg, tab);
+      const split = compileSplit(anchor, op.position, seg, tab);
       push(split.reqs, op.mutationIndexes);
       push([
         RequestBuilder.insertDate({
@@ -18924,10 +18981,10 @@ function domCompile(writer, opts = {}) {
       continue;
     }
     if (op.type === "createFootnote") {
-      const anchor2 = live.get(op.afterId);
-      if (!anchor2)
+      const anchor = live.get(op.afterId);
+      if (!anchor)
         throw new Error(`createFootnote anchor ${op.afterId} is gone`);
-      const split = compileSplit(anchor2, op.position, seg, tab);
+      const split = compileSplit(anchor, op.position, seg, tab);
       push(split.reqs, op.mutationIndexes);
       push([
         RequestBuilder.createFootnote({
@@ -18947,10 +19004,10 @@ function domCompile(writer, opts = {}) {
       continue;
     }
     if (op.type === "insertInlineImage") {
-      const anchor2 = live.get(op.afterId);
-      if (!anchor2)
+      const anchor = live.get(op.afterId);
+      if (!anchor)
         throw new Error(`insertInlineImage anchor ${op.afterId} is gone`);
-      const split = compileSplit(anchor2, op.position, seg, tab);
+      const split = compileSplit(anchor, op.position, seg, tab);
       push(split.reqs, op.mutationIndexes);
       push([
         RequestBuilder.insertInlineImage({
@@ -19029,8 +19086,8 @@ function domCompile(writer, opts = {}) {
       insertChars += specialCount;
     }
     const rangeEnd = writeAt + parsed.plain.length + specialCount + 1;
-    const style2 = op.specs[0]?.namedStyleType ?? "NORMAL_TEXT";
-    push([RequestBuilder.namedStyle(writeAt, rangeEnd, style2, seg, tab)], op.mutationIndexes);
+    const style = op.specs[0]?.namedStyleType ?? "NORMAL_TEXT";
+    push([RequestBuilder.namedStyle(writeAt, rangeEnd, style, seg, tab)], op.mutationIndexes);
     {
       let offset = 0;
       for (let i = 0;i < op.specs.length; i++) {
@@ -19127,127 +19184,127 @@ function coalesce(mutations) {
   const out = [];
   let i = 0;
   while (i < mutations.length) {
-    const m2 = mutations[i];
-    if (m2.type === "innerText" || m2.type === "remove" || m2.type === "namedStyleType" || m2.type === "style" || m2.type === "bullets" || m2.type === "insertTableRow" || m2.type === "deleteTableRow" || m2.type === "insertTableColumn" || m2.type === "deleteTableColumn") {
-      out.push({ ...m2, mutationIndexes: [m2.opIndex ?? i] });
+    const m = mutations[i];
+    if (m.type === "innerText" || m.type === "remove" || m.type === "namedStyleType" || m.type === "style" || m.type === "bullets" || m.type === "insertTableRow" || m.type === "deleteTableRow" || m.type === "insertTableColumn" || m.type === "deleteTableColumn") {
+      out.push({ ...m, mutationIndexes: [m.opIndex ?? i] });
       i++;
       continue;
     }
-    if (m2.spec.kind === "pageBreak") {
+    if (m.spec.kind === "pageBreak") {
       out.push({
-        afterId: m2.anchorId,
-        mutationIndexes: [m2.opIndex ?? i],
-        newId: m2.newId,
-        position: m2.position,
+        afterId: m.anchorId,
+        mutationIndexes: [m.opIndex ?? i],
+        newId: m.newId,
+        position: m.position,
         type: "insertPageBreak"
       });
       i++;
       continue;
     }
-    if (m2.spec.kind === "sectionBreak") {
+    if (m.spec.kind === "sectionBreak") {
       out.push({
-        afterId: m2.anchorId,
-        mutationIndexes: [m2.opIndex ?? i],
-        newId: m2.newId,
-        position: m2.position,
-        sectionType: m2.spec.sectionType,
+        afterId: m.anchorId,
+        mutationIndexes: [m.opIndex ?? i],
+        newId: m.newId,
+        position: m.position,
+        sectionType: m.spec.sectionType,
         type: "insertSectionBreak"
       });
       i++;
       continue;
     }
-    if (m2.spec.kind === "person") {
+    if (m.spec.kind === "person") {
       out.push({
-        afterId: m2.anchorId,
-        email: m2.spec.email,
-        mutationIndexes: [m2.opIndex ?? i],
-        newId: m2.newId,
-        position: m2.position,
+        afterId: m.anchorId,
+        email: m.spec.email,
+        mutationIndexes: [m.opIndex ?? i],
+        newId: m.newId,
+        position: m.position,
         type: "insertPerson"
       });
       i++;
       continue;
     }
-    if (m2.spec.kind === "richLink") {
+    if (m.spec.kind === "richLink") {
       out.push({
-        afterId: m2.anchorId,
-        mimeType: m2.spec.mimeType,
-        mutationIndexes: [m2.opIndex ?? i],
-        newId: m2.newId,
-        position: m2.position,
-        title: m2.spec.title,
+        afterId: m.anchorId,
+        mimeType: m.spec.mimeType,
+        mutationIndexes: [m.opIndex ?? i],
+        newId: m.newId,
+        position: m.position,
+        title: m.spec.title,
         type: "insertRichLink",
-        uri: m2.spec.uri
+        uri: m.spec.uri
       });
       i++;
       continue;
     }
-    if (m2.spec.kind === "date") {
+    if (m.spec.kind === "date") {
       out.push({
-        afterId: m2.anchorId,
-        dateFormat: m2.spec.dateFormat,
-        displayText: m2.spec.displayText,
-        mutationIndexes: [m2.opIndex ?? i],
-        newId: m2.newId,
-        position: m2.position,
-        timestamp: m2.spec.timestamp,
+        afterId: m.anchorId,
+        dateFormat: m.spec.dateFormat,
+        displayText: m.spec.displayText,
+        mutationIndexes: [m.opIndex ?? i],
+        newId: m.newId,
+        position: m.position,
+        timestamp: m.spec.timestamp,
         type: "insertDate"
       });
       i++;
       continue;
     }
-    if (m2.spec.kind === "footnote") {
+    if (m.spec.kind === "footnote") {
       out.push({
-        afterId: m2.anchorId,
-        mutationIndexes: [m2.opIndex ?? i],
-        newId: m2.newId,
-        position: m2.position,
-        text: m2.spec.text,
+        afterId: m.anchorId,
+        mutationIndexes: [m.opIndex ?? i],
+        newId: m.newId,
+        position: m.position,
+        text: m.spec.text,
         type: "createFootnote"
       });
       i++;
       continue;
     }
-    if (m2.spec.kind === "inlineImage") {
+    if (m.spec.kind === "inlineImage") {
       out.push({
-        afterId: m2.anchorId,
-        heightPt: m2.spec.heightPt,
-        mutationIndexes: [m2.opIndex ?? i],
-        newId: m2.newId,
-        position: m2.position,
+        afterId: m.anchorId,
+        heightPt: m.spec.heightPt,
+        mutationIndexes: [m.opIndex ?? i],
+        newId: m.newId,
+        position: m.position,
         type: "insertInlineImage",
-        uri: m2.spec.uri,
-        widthPt: m2.spec.widthPt
+        uri: m.spec.uri,
+        widthPt: m.spec.widthPt
       });
       i++;
       continue;
     }
-    if (m2.spec.kind === "table") {
+    if (m.spec.kind === "table") {
       out.push({
-        afterId: m2.anchorId,
-        ...m2.spec.table.cellSpecials ? { cellSpecials: m2.spec.table.cellSpecials } : {},
-        mutationIndexes: [m2.opIndex ?? i],
-        newId: m2.newId,
-        position: m2.position,
-        rows: m2.spec.table.rows,
+        afterId: m.anchorId,
+        ...m.spec.table.cellSpecials ? { cellSpecials: m.spec.table.cellSpecials } : {},
+        mutationIndexes: [m.opIndex ?? i],
+        newId: m.newId,
+        position: m.position,
+        rows: m.spec.table.rows,
         type: "insertTable"
       });
       i++;
       continue;
     }
-    if (!m2.spec.bullet) {
+    if (!m.spec.bullet) {
       out.push({
-        afterId: m2.anchorId,
-        ids: [m2.newId],
-        mutationIndexes: [m2.opIndex ?? i],
-        position: m2.position,
-        specs: [m2.spec],
+        afterId: m.anchorId,
+        ids: [m.newId],
+        mutationIndexes: [m.opIndex ?? i],
+        position: m.position,
+        specs: [m.spec],
         type: "insertParagraphs"
       });
       i++;
       continue;
     }
-    const run = [m2];
+    const run = [m];
     let j = i + 1;
     while (j < mutations.length) {
       const next = mutations[j];
@@ -19258,16 +19315,16 @@ function coalesce(mutations) {
       const prev = run[run.length - 1];
       if (next.position !== "afterend" || next.anchorId !== prev.newId)
         break;
-      if (next.spec.bullet.preset !== m2.spec.bullet.preset)
+      if (next.spec.bullet.preset !== m.spec.bullet.preset)
         break;
       run.push(next);
       j++;
     }
     out.push({
-      afterId: m2.anchorId,
+      afterId: m.anchorId,
       ids: run.map((r) => r.newId),
       mutationIndexes: run.map((r, k) => r.opIndex ?? i + k),
-      position: m2.position,
+      position: m.position,
       specs: run.map((r) => r.spec),
       type: "insertParagraphs"
     });
@@ -19296,7 +19353,7 @@ function compileSplit(anchor, position, segmentId, tabId) {
 function compileInnerText(node, text, segmentId, tabId, customRuns) {
   const { runs: parsedRuns, text: plain } = InlineMarkup.parse(text);
   const runs = InlineMarkup.resolveRuns(plain, parsedRuns, customRuns);
-  const images = [...node.images ?? []].sort((a, b2) => a.start - b2.start);
+  const images = [...node.images ?? []].sort((a, b) => a.start - b.start);
   const reqs = images.length ? replaceTextKeepingImages(node, plain, images, segmentId, tabId) : RequestBuilder.replaceInnerText(node.start, node.end, plain, segmentId, tabId);
   if (plain.length) {
     reqs.push(RequestBuilder.clearInlineStyles(node.start, node.start + plain.length, segmentId, tabId));
@@ -19363,7 +19420,7 @@ function packImagesAfterText(node, plainLen) {
     return;
   }
   let pos = node.start + plainLen;
-  for (const img of [...images].sort((a, b2) => a.start - b2.start)) {
+  for (const img of [...images].sort((a, b) => a.start - b.start)) {
     const w = Math.max(1, img.end - img.start);
     img.start = pos;
     img.end = pos + w;
@@ -19396,17 +19453,17 @@ function parseSpecsInline(specs, opts = {}) {
 }
 function assertTableInsertIsolation(mutations) {
   const tableIds = new Set;
-  for (const m2 of mutations) {
-    if (m2.type === "insertAdjacent" && m2.spec.kind === "table") {
-      tableIds.add(m2.newId);
+  for (const m of mutations) {
+    if (m.type === "insertAdjacent" && m.spec.kind === "table") {
+      tableIds.add(m.newId);
     }
   }
   if (!tableIds.size)
     return;
-  for (const m2 of mutations) {
-    if (m2.type === "insertAdjacent" && m2.spec.kind === "table")
+  for (const m of mutations) {
+    if (m.type === "insertAdjacent" && m.spec.kind === "table")
       continue;
-    if (m2.type === "style" && tableIds.has(m2.nodeId) && !m2.cell)
+    if (m.type === "style" && tableIds.has(m.nodeId) && !m.cell)
       continue;
     throw new Error(TABLE_INSERT_MIX_MSG);
   }
@@ -19415,7 +19472,7 @@ function liveListRun(live, node) {
   const listId = node.bullet?.listId;
   if (!listId)
     return [node];
-  return [...live.values()].filter((n) => n.bullet?.listId === listId).sort((a, b2) => a.start - b2.start);
+  return [...live.values()].filter((n) => n.bullet?.listId === listId).sort((a, b) => a.start - b.start);
 }
 function cellParaRanges(cells) {
   const out = [];
@@ -19743,7 +19800,7 @@ async function domApply(documentId, writer, opts = {}) {
           const idx = RequestBuilder.cellInsertIndex(cell);
           cellsToFill.push({ idx, text });
         }
-        cellsToFill.sort((a, b2) => b2.idx - a.idx);
+        cellsToFill.sort((a, b) => b.idx - a.idx);
         for (const item of cellsToFill) {
           const { runs, text: plain } = InlineMarkup.parse(item.text);
           const line = plain.endsWith(`
@@ -19813,8 +19870,8 @@ Failed during table cell fill (second batchUpdate). The table may already exist 
     const p = opts.plan?.find((op) => op.index === i);
     if (!p)
       return `ops[${i}]`;
-    const preview2 = p.target.text ?? p.target.namedStyleType ?? "";
-    return `ops[${i}] ${p.action} #${p.target.id}${preview2 ? ` ${JSON.stringify(preview2)}` : ""}`;
+    const preview = p.target.text ?? p.target.namedStyleType ?? "";
+    return `ops[${i}] ${p.action} #${p.target.id}${preview ? ` ${JSON.stringify(preview)}` : ""}`;
   });
   const where = idx != null ? `API requests[${idx}]${labels.length ? ` ← ${labels.join("; ")}` : ""}. ` : "";
   return new Error(`${where}${raw}
@@ -19822,10 +19879,10 @@ That batchUpdate is atomic — none of its requests applied.`);
 }
 var wrapBatchUpdateError = batchUpdateErrorWrap;
 function googleRequestIndexParse(message) {
-  const m2 = /\brequests\[(\d+)\]/.exec(message);
-  if (!m2)
+  const m = /\brequests\[(\d+)\]/.exec(message);
+  if (!m)
     return;
-  return Number(m2[1]);
+  return Number(m[1]);
 }
 function isRevisionMismatchError(err) {
   const msg = err instanceof Error ? err.message : String(err);
@@ -19862,7 +19919,7 @@ class DomWriter {
     }) : undefined);
     this.#original = nodes.map(cloneNode);
     this.#nodes = nodes.map(cloneNode);
-    this.#nextId = nodes.reduce((m2, n) => Math.max(m2, n.tapeIndex), 0) + 1;
+    this.#nextId = nodes.reduce((m, n) => Math.max(m, n.tapeIndex), 0) + 1;
   }
   originalNodes() {
     return this.#original.map(cloneNode);
@@ -19906,8 +19963,8 @@ class DomWriter {
       type: "insertAdjacent"
     });
     const i = this.#nodes.findIndex((n) => n.tapeIndex === live.tapeIndex);
-    const at2 = position === "beforebegin" ? i : i + 1;
-    this.#nodes.splice(at2, 0, created);
+    const at = position === "beforebegin" ? i : i + 1;
+    this.#nodes.splice(at, 0, created);
     return created;
   }
   setInnerText(node, text, cell, para, opts) {
@@ -20130,9 +20187,9 @@ class DomWriter {
     return this.#nodes.find((n) => n.tapeIndex === tapeIndex);
   }
   #pendingSpec(tapeIndex) {
-    for (const m2 of this.#mutations) {
-      if (m2.type === "insertAdjacent" && m2.newId === tapeIndex)
-        return m2.spec;
+    for (const m of this.#mutations) {
+      if (m.type === "insertAdjacent" && m.newId === tapeIndex)
+        return m.spec;
     }
     return;
   }
@@ -20207,8 +20264,8 @@ function specToNode(spec, tapeIndex) {
       start: -1,
       table: {
         cells: spec.table.rows.map((row, r) => row.map((text, c) => {
-          const parsed2 = chipsImagesFromSpecials(spec.table.cellSpecials?.[r]?.[c]);
-          const p = { end: -1, start: -1, text, ...parsed2 };
+          const parsed = chipsImagesFromSpecials(spec.table.cellSpecials?.[r]?.[c]);
+          const p = { end: -1, start: -1, text, ...parsed };
           return { ...p, paragraphs: [p] };
         }))
       }
@@ -20620,7 +20677,7 @@ async function replayPendingMutations(runtime, docCtx, delays) {
   throw new Error(`Document "${docCtx.docId}" was modified externally and remained busy after retry attempts.`);
 }
 function sleep2(ms) {
-  return new Promise((resolve5) => setTimeout(resolve5, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // src/core/actions/close.ts
@@ -20711,7 +20768,7 @@ function documentExportToMarkdown(tabs, opts = {}) {
   }
   if (tabs.length === 1) {
     const single = tabs[0];
-    const audit2 = docNodesAudit(single.nodes, {
+    const audit = docNodesAudit(single.nodes, {
       documentId: opts.documentId,
       includeStyles: opts.includeStyles,
       tabId: single.tabId,
@@ -20719,7 +20776,7 @@ function documentExportToMarkdown(tabs, opts = {}) {
     });
     const bodyLines = nodesRenderToMarkdown(single.nodes);
     return {
-      audit: audit2,
+      audit,
       markdown: `${bodyLines.join(`
 
 `)}
@@ -20817,9 +20874,9 @@ function codeFenceGet(lines) {
   for (const line of lines) {
     const matches = line.match(/`+/g);
     if (matches) {
-      for (const m2 of matches) {
-        if (m2.length > maxTicks) {
-          maxTicks = m2.length;
+      for (const m of matches) {
+        if (m.length > maxTicks) {
+          maxTicks = m.length;
         }
       }
     }
@@ -20853,8 +20910,8 @@ function nodesRenderToMarkdown(nodes) {
           } else if (next.kind === "paragraph" && !next.text?.trim() && !next.images?.length && !next.chips?.length && !next.bullet) {
             const bridgeCount = bridgingEmptyLineCountGet(nodes, j);
             if (bridgeCount > 0) {
-              for (let b2 = 0;b2 < bridgeCount; b2++) {
-                codeLines.push(nodes[j + b2]?.text ?? "");
+              for (let b = 0;b < bridgeCount; b++) {
+                codeLines.push(nodes[j + b]?.text ?? "");
               }
               j += bridgeCount;
             } else {
@@ -20941,7 +20998,7 @@ function tableToMarkdown(cells) {
   const colCount = Math.max(...cells.map((r) => r.length));
   for (let r = 0;r < cells.length; r++) {
     const row = cells[r];
-    const rowContent = Array.from({ length: colCount }, (_2, c) => {
+    const rowContent = Array.from({ length: colCount }, (_, c) => {
       const cell = row[c];
       if (!cell)
         return "";
@@ -20974,7 +21031,7 @@ function diffUnifiedFormat(oldText, newText, opts) {
   ];
   const hunkStrs = hunks.map((hunk) => {
     const hunkHeader = `@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@`;
-    const lines = hunk.lines.map((l3) => `${l3.type}${l3.text}`);
+    const lines = hunk.lines.map((l) => `${l.type}${l.text}`);
     return [hunkHeader, ...lines].join(`
 `);
   });
@@ -20982,29 +21039,29 @@ function diffUnifiedFormat(oldText, newText, opts) {
 `);
 }
 var formatUnifiedDiff = diffUnifiedFormat;
-function computeLineEdits(a, b2) {
-  const N2 = a.length;
-  const M2 = b2.length;
-  const dp = Array.from({ length: N2 + 1 }, () => Array(M2 + 1).fill(0));
-  for (let i2 = 0;i2 < N2; i2++) {
-    for (let j2 = 0;j2 < M2; j2++) {
-      if (a[i2] === b2[j2]) {
-        dp[i2 + 1][j2 + 1] = dp[i2]?.[j2] + 1;
+function computeLineEdits(a, b) {
+  const N = a.length;
+  const M = b.length;
+  const dp = Array.from({ length: N + 1 }, () => Array(M + 1).fill(0));
+  for (let i = 0;i < N; i++) {
+    for (let j = 0;j < M; j++) {
+      if (a[i] === b[j]) {
+        dp[i + 1][j + 1] = dp[i]?.[j] + 1;
       } else {
-        dp[i2 + 1][j2 + 1] = Math.max(dp[i2 + 1]?.[j2], dp[i2]?.[j2 + 1]);
+        dp[i + 1][j + 1] = Math.max(dp[i + 1]?.[j], dp[i]?.[j + 1]);
       }
     }
   }
   const edits = [];
-  let i = N2;
-  let j = M2;
+  let i = N;
+  let j = M;
   while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && a[i - 1] === b2[j - 1]) {
+    if (i > 0 && j > 0 && a[i - 1] === b[j - 1]) {
       edits.unshift({ text: a[i - 1], type: "=" });
       i--;
       j--;
     } else if (j > 0 && (i === 0 || dp[i]?.[j - 1] >= dp[i - 1]?.[j])) {
-      edits.unshift({ text: b2[j - 1], type: "+" });
+      edits.unshift({ text: b[j - 1], type: "+" });
       j--;
     } else if (i > 0 && (j === 0 || dp[i]?.[j - 1] < dp[i - 1]?.[j])) {
       edits.unshift({ text: a[i - 1], type: "-" });
@@ -21043,7 +21100,7 @@ function buildHunks(edits, context) {
           currentHunk.lines.push({ text: edit.text, type: " " });
           currentHunk.oldCount++;
           currentHunk.newCount++;
-          if (currentHunk.lines.filter((l3) => l3.type === " ").length >= context) {
+          if (currentHunk.lines.filter((l) => l.type === " ").length >= context) {
             hunks.push(currentHunk);
             currentHunk = null;
             pendingEquals = [{ text: edit.text, type: " " }];
@@ -21157,7 +21214,7 @@ class DriveRevisions {
       return null;
     const dated = withId.filter((r) => r.modifiedTime);
     const pool = dated.length ? dated : withId;
-    pool.sort((a, b2) => Date.parse(a.modifiedTime ?? "") - Date.parse(b2.modifiedTime ?? ""));
+    pool.sort((a, b) => Date.parse(a.modifiedTime ?? "") - Date.parse(b.modifiedTime ?? ""));
     const head = pool.at(-1);
     return {
       id: head.id,
@@ -21465,61 +21522,63 @@ var docCreateStep = async (runtime, stepIndex, step) => {
     const fromDoc = runtime.aliasResolve(fromDocRaw);
     if (!fromDoc)
       throw new Error(`steps[${stepIndex}] docCreate could not resolve fromDoc: "${fromDocRaw}"`);
-    let newDocId2 = `virtual:${as}`;
-    let gdoc2;
+    const forceFetch = Boolean(step.forceFetch);
+    let newDocId = `virtual:${as}`;
+    let gdoc;
     if (runtime.dryRun) {
-      const sourceContext = runtime.openDocs.get(fromDoc) ?? Array.from(runtime.openDocs.values()).find((d2) => d2.docId === fromDoc);
+      const sourceContext = runtime.openDocs.get(fromDoc) ?? Array.from(runtime.openDocs.values()).find((d) => d.docId === fromDoc);
       if (sourceContext) {
-        gdoc2 = new Gdoc({ ...structuredClone(sourceContext.gdoc.data), documentId: newDocId2, title }, newDocId2);
+        gdoc = new Gdoc({ ...structuredClone(sourceContext.gdoc.data), documentId: newDocId, title }, newDocId);
         const sourceSim = sourceContext.gdoc;
         if (sourceSim.simulatedNodes) {
-          simulatedNodesSet(gdoc2, structuredClone(sourceSim.simulatedNodes));
+          simulatedNodesSet(gdoc, structuredClone(sourceSim.simulatedNodes));
         }
         if (sourceSim.simulatedTabs) {
           for (const [tId, nodes] of sourceSim.simulatedTabs.entries()) {
-            simulatedNodesSet(gdoc2, structuredClone(nodes), tId);
+            simulatedNodesSet(gdoc, structuredClone(nodes), tId);
           }
         }
       } else {
         try {
-          const loaded = runtime.preloadedDocs?.get(fromDoc) ?? await Gdoc.load(fromDoc, runtime.client);
-          gdoc2 = new Gdoc({ ...structuredClone(loaded.data), documentId: newDocId2, title }, newDocId2);
+          const preloaded = !forceFetch ? runtime.preloadedDocs?.get(fromDoc) : undefined;
+          const loaded = preloaded ?? await Gdoc.load(fromDoc, runtime.client, forceFetch ? { forceFetch: true } : undefined);
+          gdoc = new Gdoc({ ...structuredClone(loaded.data), documentId: newDocId, title }, newDocId);
         } catch {
-          gdoc2 = new Gdoc({ documentId: newDocId2, title }, newDocId2);
+          gdoc = new Gdoc({ documentId: newDocId, title }, newDocId);
         }
       }
     } else {
       const res = await gwsDrive.copyFile(fromDoc, title);
-      newDocId2 = res.id;
-      gdoc2 = await Gdoc.load(newDocId2, runtime.client);
+      newDocId = res.id;
+      gdoc = await Gdoc.load(newDocId, runtime.client);
     }
-    const openContext2 = {
+    const openContext = {
       alias: as,
-      docId: newDocId2,
-      gdoc: gdoc2,
+      docId: newDocId,
+      gdoc,
       isVirtual: runtime.dryRun,
       title
     };
-    const tabs2 = flattenTabs(gdoc2.data.tabs);
-    const tabsToCheck2 = tabs2.length > 0 ? tabs2 : [{ tabId: "t.0", title }];
-    const dumpPayload2 = {
+    const tabs = flattenTabs(gdoc.data.tabs);
+    const tabsToCheck = tabs.length > 0 ? tabs : [{ tabId: "t.0", title }];
+    const dumpPayload = {
       alias: as,
-      id: newDocId2,
+      id: newDocId,
       kind: "doc",
-      tabs: tabsToCheck2.map((t) => ({ id: t.tabId, kind: "tab", title: t.title })),
+      tabs: tabsToCheck.map((t) => ({ id: t.tabId, kind: "tab", title: t.title })),
       title
     };
-    runtime.openDocs.set(as, openContext2);
-    runtime.docIdToAlias.set(newDocId2, as);
-    runtime.aliasMap.set(as, newDocId2);
-    runtime.dumpStore.set(as, dumpPayload2);
+    runtime.openDocs.set(as, openContext);
+    runtime.docIdToAlias.set(newDocId, as);
+    runtime.aliasMap.set(as, newDocId);
+    runtime.dumpStore.set(as, dumpPayload);
     if (step.dump) {
-      runtime.dumped[as] = dumpPayload2;
+      runtime.dumped[as] = dumpPayload;
     }
     runtime.activeDocAlias = as;
     if (runtime.dryRun) {
-      for (const t of tabsToCheck2) {
-        const parsed = parseDocument(t.tabId && gdoc2.data.tabs?.length ? gdoc2.withTab(t.tabId) : gdoc2);
+      for (const t of tabsToCheck) {
+        const parsed = parseDocument(t.tabId && gdoc.data.tabs?.length ? gdoc.withTab(t.tabId) : gdoc);
         const exp = exportDocumentToMarkdown([{ nodes: parsed.nodes, tabId: t.tabId, tabTitle: t.title }]);
         runtime.initialMarkdownStates.set(`${as}/${t.tabId}`, exp.markdown);
       }
@@ -21639,12 +21698,14 @@ async function docCreateFromTab(opts) {
   const fromDoc = opts.runtime.aliasResolve(opts.fromDocRaw);
   if (!fromDoc)
     throw new Error(`steps[${opts.stepIndex}] docCreate could not resolve fromDoc: "${opts.fromDocRaw}"`);
-  const sourceContext = opts.runtime.openDocs.get(fromDoc) ?? Array.from(opts.runtime.openDocs.values()).find((d2) => d2.docId === fromDoc);
+  const forceFetch = Boolean(opts.step.forceFetch);
+  const sourceContext = opts.runtime.openDocs.get(fromDoc) ?? Array.from(opts.runtime.openDocs.values()).find((d) => d.docId === fromDoc);
   let sourceGdoc;
   if (sourceContext) {
     sourceGdoc = sourceContext.gdoc;
   } else {
-    sourceGdoc = opts.runtime.preloadedDocs?.get(fromDoc) ?? await Gdoc.load(fromDoc, opts.runtime.client);
+    const preloaded = !forceFetch ? opts.runtime.preloadedDocs?.get(fromDoc) : undefined;
+    sourceGdoc = preloaded ?? await Gdoc.load(fromDoc, opts.runtime.client, forceFetch ? { forceFetch: true } : undefined);
   }
   const fromTabHint = opts.runtime.aliasResolve(opts.fromTabRaw);
   const resolvedSourceTab = sourceGdoc.data.tabs?.length ? resolveTab(sourceGdoc.data, fromTabHint) : { tabId: "t.0", title: sourceGdoc.data.title };
@@ -22299,7 +22360,7 @@ var markdownInsertStep = async (runtime, stepIndex, step) => {
       if (tab) {
         if (!tab.documentTab)
           tab.documentTab = {};
-        const elements2 = writer.nodes.map((n, i) => ({
+        const elements = writer.nodes.map((n, i) => ({
           endIndex: (i + 1) * 2,
           paragraph: {
             elements: [{ textRun: { content: `${n.text ?? ""}
@@ -22308,7 +22369,7 @@ var markdownInsertStep = async (runtime, stepIndex, step) => {
           },
           startIndex: i * 2
         }));
-        tab.documentTab.body = { content: elements2 };
+        tab.documentTab.body = { content: elements };
       }
     }
   }
@@ -22343,17 +22404,18 @@ var openStep = async (runtime, stepIndex, step) => {
   if (!as)
     throw new Error(`steps[${stepIndex}] ${step.kind ?? "docOpen"} requires "as: <alias>"`);
   const docId = Gdoc.parseId(runtime.aliasResolve(rawDocId));
+  const forceFetch = Boolean(step.forceFetch);
   let gdoc;
   let title = "Document";
   let pinnedRevisionId;
   if (runtime.dryRun) {
-    const preloaded = runtime.preloadedDocs?.get(docId);
+    const preloaded = !forceFetch ? runtime.preloadedDocs?.get(docId) : undefined;
     if (preloaded) {
       gdoc = preloaded;
       title = gdoc.data.title || title;
     } else {
       try {
-        gdoc = await Gdoc.load(docId, runtime.client);
+        gdoc = await Gdoc.load(docId, runtime.client, forceFetch ? { forceFetch: true } : undefined);
         title = gdoc.data.title || title;
       } catch {
         gdoc = new Gdoc({
@@ -22396,7 +22458,8 @@ var openStep = async (runtime, stepIndex, step) => {
       }
     }
   } else {
-    gdoc = runtime.preloadedDocs?.get(docId) ?? await Gdoc.load(docId, runtime.client);
+    const preloaded = !forceFetch ? runtime.preloadedDocs?.get(docId) : undefined;
+    gdoc = preloaded ?? await Gdoc.load(docId, runtime.client, forceFetch ? { forceFetch: true } : undefined);
     title = gdoc.data.title || title;
     const pin = await DriveRevisions.pinHead(docId, runtime.client);
     pinnedRevisionId = pin?.id;
@@ -22762,8 +22825,8 @@ var sectionCopyStep = async (runtime, stepIndex, step) => {
     mutation.before = runtime.aliasResolve(step.nodeBefore);
     mutation.elements = specs;
   } else {
-    const at2 = step.nodeAt ?? fromSection;
-    mutation.at = runtime.aliasResolve(at2);
+    const at = step.nodeAt ?? fromSection;
+    mutation.at = runtime.aliasResolve(at);
     mutation.replaceSection = specs;
   }
   await surgicalMutationExecute(runtime, step, mutation);
@@ -23334,30 +23397,30 @@ var tabRenameStep = async (runtime, stepIndex, step) => {
 var MULTI_TAB_REPLACE_REQUIRED_MSG = "This Doc has multiple tabs. Specify --tab <id|title> to target a single tab, or --all-tabs to replace across the entire document.";
 function globalRegexCreate(pattern, ignoreCase = false) {
   if (pattern instanceof RegExp) {
-    let flags2 = pattern.flags;
-    if (!flags2.includes("g"))
-      flags2 += "g";
-    if (ignoreCase && !flags2.includes("i"))
-      flags2 += "i";
-    return new RegExp(pattern.source, flags2);
+    let flags = pattern.flags;
+    if (!flags.includes("g"))
+      flags += "g";
+    if (ignoreCase && !flags.includes("i"))
+      flags += "i";
+    return new RegExp(pattern.source, flags);
   }
   const str = String(pattern);
   const match = /^\/(.*)\/([a-z]*)$/.exec(str);
   if (match) {
     const rawPattern = match[1];
-    let flags2 = match[2];
-    if (!flags2.includes("g"))
-      flags2 += "g";
-    if (ignoreCase && !flags2.includes("i"))
-      flags2 += "i";
-    return new RegExp(rawPattern, flags2);
+    let flags = match[2];
+    if (!flags.includes("g"))
+      flags += "g";
+    if (ignoreCase && !flags.includes("i"))
+      flags += "i";
+    return new RegExp(rawPattern, flags);
   }
   const flags = ignoreCase ? "gi" : "g";
   return new RegExp(str, flags);
 }
 var createGlobalRegex = globalRegexCreate;
-function hasRegexMatch(str, regex2) {
-  const clone = new RegExp(regex2.source, regex2.flags);
+function hasRegexMatch(str, regex) {
+  const clone = new RegExp(regex.source, regex.flags);
   return clone.test(str);
 }
 async function batchReplaceExecute(documentId, options) {
@@ -23394,7 +23457,7 @@ async function batchReplaceExecute(documentId, options) {
   }
   if (options.dryRun) {
     const texts = collectTargetTexts(freshDoc, { allTabs, flatTabs, tabId });
-    const results2 = replacements.map((pair) => {
+    const results = replacements.map((pair) => {
       const { count, snippets } = countAndSampleMatches(texts, pair.find, matchCase);
       return {
         find: pair.find,
@@ -23403,8 +23466,8 @@ async function batchReplaceExecute(documentId, options) {
         ...snippets.length > 0 ? { snippets } : {}
       };
     });
-    const totalOccurrences = results2.reduce((acc, r) => acc + r.occurrences, 0);
-    const touchedNodeIds2 = collectTouchedNodeIds(freshDoc, {
+    const totalOccurrences = results.reduce((acc, r) => acc + r.occurrences, 0);
+    const touchedNodeIds = collectTouchedNodeIds(freshDoc, {
       allTabs,
       finds: replacements.map((r) => r.find),
       flatTabs,
@@ -23417,10 +23480,10 @@ async function batchReplaceExecute(documentId, options) {
       dryRun: true,
       matchCase,
       occurrencesChanged: totalOccurrences,
-      replacements: results2,
+      replacements: results,
       tabId,
       tabTitle,
-      ...touchedNodeIds2.length ? { touchedNodeIds: touchedNodeIds2 } : {}
+      ...touchedNodeIds.length ? { touchedNodeIds } : {}
     };
   }
   await DriveRevisions.pinHead(documentId, client);
@@ -23521,9 +23584,9 @@ async function regexReplaceExecute(documentId, options) {
     const tabDoc = target.tabId ? freshDoc.withTab(target.tabId) : freshDoc;
     const parsed = parseDocument(tabDoc);
     const tabOps = [];
-    const at2 = options.at;
-    const atDest = at2 != null ? parseWriteAt(at2) : undefined;
-    if (atDest?.cell && at2 != null) {
+    const at = options.at;
+    const atDest = at != null ? parseWriteAt(at) : undefined;
+    if (atDest?.cell && at != null) {
       const { cell, nodeId, para } = atDest;
       const tableNode = parsed.nodes.find((n) => n.tapeIndex === nodeId);
       if (tableNode?.kind !== "table" || !tableNode.table?.cells) {
@@ -23545,7 +23608,7 @@ async function regexReplaceExecute(documentId, options) {
         const count = matches.length;
         re.lastIndex = 0;
         const replaced = source.replace(re, options.replace);
-        const emitAt = "scopedId" in p && p.scopedId || tableCell.scopedId || at2;
+        const emitAt = "scopedId" in p && p.scopedId || tableCell.scopedId || at;
         tabOps.push({ at: emitAt, innerText: replaced });
         allMatches.push({
           after: replaced,
@@ -23746,12 +23809,12 @@ function containsText(hay, needle, matchCase) {
 function uniqueMatchIds(matches) {
   const ids = [];
   const seen = new Set;
-  for (const m2 of matches) {
-    const key = String(m2.at);
+  for (const m of matches) {
+    const key = String(m.at);
     if (seen.has(key))
       continue;
     seen.add(key);
-    ids.push(m2.at);
+    ids.push(m.at);
   }
   return ids;
 }
@@ -23926,13 +23989,13 @@ function escapeRegExp(value) {
 }
 function gdocTextReplace(data, find, replace, tabId, matchCase = true) {
   const flags = matchCase ? "g" : "gi";
-  const regex2 = new RegExp(escapeRegExp(find), flags);
+  const regex = new RegExp(escapeRegExp(find), flags);
   function replaceInElements(elements) {
     for (const el of elements ?? []) {
       if (el.paragraph?.elements) {
-        for (const pe2 of el.paragraph.elements) {
-          if (pe2.textRun?.content) {
-            pe2.textRun.content = pe2.textRun.content.replace(regex2, replace);
+        for (const pe of el.paragraph.elements) {
+          if (pe.textRun?.content) {
+            pe.textRun.content = pe.textRun.content.replace(regex, replace);
           }
         }
       }
@@ -23962,24 +24025,24 @@ function gdocTextReplace(data, find, replace, tabId, matchCase = true) {
 }
 function simulatedNodesTextReplace(nodes, find, replace, matchCase = true) {
   const flags = matchCase ? "g" : "gi";
-  const regex2 = new RegExp(escapeRegExp(find), flags);
+  const regex = new RegExp(escapeRegExp(find), flags);
   for (const node of nodes) {
     if (node.text) {
-      node.text = node.text.replace(regex2, replace);
+      node.text = node.text.replace(regex, replace);
     }
     if (node.markup) {
-      node.markup = node.markup.replace(regex2, replace);
+      node.markup = node.markup.replace(regex, replace);
     }
     if (node.table?.cells) {
       for (const row of node.table.cells) {
         for (const cell of row) {
           if (cell.text) {
-            cell.text = cell.text.replace(regex2, replace);
+            cell.text = cell.text.replace(regex, replace);
           }
           if (cell.paragraphs) {
             for (const p of cell.paragraphs) {
               if (p.text) {
-                p.text = p.text.replace(regex2, replace);
+                p.text = p.text.replace(regex, replace);
               }
             }
           }
@@ -24054,7 +24117,7 @@ async function applyScriptExecute(doc, opts = {}) {
     }
     if (aliasMap.has(str))
       return aliasMap.get(str);
-    return str.replace(/\$\{([^}]+)\}/g, (_2, key) => {
+    return str.replace(/\$\{([^}]+)\}/g, (_, key) => {
       if (queryAliases.has(key)) {
         throw new Error(`Alias "${key}" is a query result. Mutations must target an explicit scopedId from the query output.`);
       }
@@ -24069,7 +24132,7 @@ async function applyScriptExecute(doc, opts = {}) {
     const openDoc = openDocs.get(str);
     if (openDoc)
       return openDoc;
-    const boundAlias = docIdToAlias.get(str) ?? Array.from(openDocs.values()).find((d2) => d2.docId === str)?.alias;
+    const boundAlias = docIdToAlias.get(str) ?? Array.from(openDocs.values()).find((d) => d.docId === str)?.alias;
     if (boundAlias && openDocs.has(boundAlias)) {
       return openDocs.get(boundAlias);
     }
@@ -24094,13 +24157,13 @@ async function applyScriptExecute(doc, opts = {}) {
   for (const step of steps) {
     if (step.kind === "docOpen" && step.doc) {
       const id = Gdoc.idParse(step.doc.trim());
-      if (!id.startsWith("virtual:"))
+      if (!id.startsWith("virtual:") && !step.forceFetch)
         rawIdsToLoad.add(id);
     } else if (step.kind === "docCreate" && step.fromDoc) {
       const trimmed = step.fromDoc.trim();
       if (!declaredAliases.has(trimmed)) {
         const id = Gdoc.idParse(trimmed);
-        if (!id.startsWith("virtual:"))
+        if (!id.startsWith("virtual:") && !step.forceFetch)
           rawIdsToLoad.add(id);
       }
     }
@@ -24422,6 +24485,10 @@ var GdocsmithDocumentSchema_default = {
           type: "boolean",
           description: "Force tab copy even if source contains uncloneable elements (chips/images/equations)."
         },
+        forceFetch: {
+          type: "boolean",
+          description: "Bypass the document snapshot cache and fetch `fromDoc` fresh (use when it may have changed externally)."
+        },
         fromDoc: {
           type: "string",
           description: "Optional source document ID or alias to copy from (creates blank document if omitted)."
@@ -24508,6 +24575,10 @@ var GdocsmithDocumentSchema_default = {
         dump: {
           type: "boolean",
           description: "Dump document or tab metadata into `dumped[as]`."
+        },
+        forceFetch: {
+          type: "boolean",
+          description: "Bypass the document snapshot cache and fetch fresh (use when the doc may have changed externally)."
         },
         kind: {
           type: "string",
@@ -26057,7 +26128,7 @@ var runCommand = {
   inputSchema: GdocsmithDocumentSchema,
   key: "run",
   kind: "document",
-  notes: "• Pipe stdin or pass one JSON document. Knobs: `dryRun`, `force`, `quiet` on the document.\n" + "• Each step requires `kind` (e.g. docOpen|docClose|docCreate|tabCreate|query|markdownInsert|replaceSection|…).\n" + "• File-touching steps require `doc:` (raw id or open alias). `docCreate` binds `as` (optional `fromDoc:` to clone). There is no run-level documentId.\n" + "• Raw IDs only: extract between `/document/d/` and `/edit`. Full URLs are rejected.\n" + "• Surgical targeting: copy heading-scoped ids from `kind: query` into `nodeAt`, `nodeAfter`, or `nodeBefore` (e.g. `h.arch.9a1b`). NEVER compute startIndex/endIndex or write raw batchUpdate scripts.\n" + "• In-place updates: prefer `replaceSection`, `replaceMarkdown`, or `replace` over deleting and re-inserting content (no demolish-and-rebuild). `replaceSection` replaces all subsections under that heading (e.g. H1 replaces H2s, H2 replaces H3s); guards reject deleting child subsections without `force: true`. To update a placeholder or body paragraph under a parent heading while preserving child subsections, use `replaceMarkdown` with `find: <placeholder>` or `nodeAt: <scopedId|text>` to insert formatted markdown, or `textReplace` for plain string edits.\n" + "• Real headings only (`TITLE`, `HEADING_1`–`HEADING_3`). No bullet glyphs in surgical text; use run-in bold (`**Label**: value`).\n" + "• Tab setup & bindings: `docOpen`, `docCreate`, `tabCreate`, and `tabPopulate` set aliases. When creating documents with templates, use `docCreate` with `fromDoc` + `fromTab` to seed and rename the initial root `t.0` tab in one step (`docCreate: as, title, fromDoc, fromTab, tabTitle, tabAs`), leaving no orphan tabs and keeping root `t.0` intact. Use `tabCreate` for subsequent tabs (`title, as, afterTab, fromDoc, fromTab`). Always specify final tab `title` at creation time because tabRename fails on docs without root `t.0`. Every `run` call is stateless; aliases do not persist across multiple `run` invocations. `dump: true` dumps metadata into `dumped[as]`. `query` with `as:` writes matches into `dumped[as]`. Query aliases cannot be used as mutation anchors.\n" + "• Cross-doc transfers: use `kind: sectionCopy` with `fromDoc:` and `fromSection:` to transfer sections server-side without streaming markdown, or query source with `output: markdown` and write with `replaceSection`. Anchors must always belong to the target `doc:`.\n" + "• Symbolic links: use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown; gdocsmith automatically resolves them to native Docs deep links (`?tab=...#heading=...`).\n" + "• Prefer one `run` per phase until step kinds are proven; then batch related steps. Chip/table writes use `kind: surgical`.\n" + "• Dry run: optional `dryRun: true` returns a unified git diff without writing. Run mutations directly without requiring dry-run first; use dryRun only when you need to inspect an expected diff.",
+  notes: "• Pipe stdin or pass one JSON document. Knobs: `dryRun`, `force`, `quiet` on the document.\n" + "• Each step requires `kind` (e.g. docOpen|docClose|docCreate|tabCreate|query|markdownInsert|replaceSection|…).\n" + "• File-touching steps require `doc:` (raw id or open alias). `docCreate` binds `as` (optional `fromDoc:` to clone). There is no run-level documentId.\n" + "• Raw IDs only: extract between `/document/d/` and `/edit`. Full URLs are rejected.\n" + "• Surgical targeting: copy heading-scoped ids from `kind: query` into `nodeAt`, `nodeAfter`, or `nodeBefore` (e.g. `h.arch.9a1b`). NEVER compute startIndex/endIndex or write raw batchUpdate scripts.\n" + "• In-place updates: prefer `replaceSection`, `replaceMarkdown`, or `replace` over deleting and re-inserting content (no demolish-and-rebuild). `replaceSection` replaces all subsections under that heading (e.g. H1 replaces H2s, H2 replaces H3s); guards reject deleting child subsections without `force: true`. To update a placeholder or body paragraph under a parent heading while preserving child subsections, use `replaceMarkdown` with `find: <placeholder>` or `nodeAt: <scopedId|text>` to insert formatted markdown, or `textReplace` for plain string edits.\n" + "• Real headings only (`TITLE`, `HEADING_1`–`HEADING_3`). No bullet glyphs in surgical text; use run-in bold (`**Label**: value`).\n" + "• Tab setup & bindings: `docOpen`, `docCreate`, `tabCreate`, and `tabPopulate` set aliases. When creating documents with templates, use `docCreate` with `fromDoc` + `fromTab` to seed and rename the initial root `t.0` tab in one step (`docCreate: as, title, fromDoc, fromTab, tabTitle, tabAs`), leaving no orphan tabs and keeping root `t.0` intact. Use `tabCreate` for subsequent tabs (`title, as, afterTab, fromDoc, fromTab`). Always specify final tab `title` at creation time because tabRename fails on docs without root `t.0`. Every `run` call is stateless; aliases do not persist across multiple `run` invocations. `dump: true` dumps metadata into `dumped[as]`. `query` with `as:` writes matches into `dumped[as]`. Query aliases cannot be used as mutation anchors.\n" + "• Cache: bypass 5m cache-reads on `docOpen`/`docCreate` with `forceFetch: true` when a doc may have changed externally.\n" + "• Cross-doc transfers: use `kind: sectionCopy` with `fromDoc:` and `fromSection:` to transfer sections server-side without streaming markdown, or query source with `output: markdown` and write with `replaceSection`. Anchors must always belong to the target `doc:`.\n" + "• Symbolic links: use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown; gdocsmith automatically resolves them to native Docs deep links (`?tab=...#heading=...`).\n" + "• Prefer one `run` per phase until step kinds are proven; then batch related steps. Chip/table writes use `kind: surgical`.\n" + "• Dry run: optional `dryRun: true` returns a unified git diff without writing. Run mutations directly without requiring dry-run first; use dryRun only when you need to inspect an expected diff.",
   outputSchema: GdocsmithJsonOutputSchema
 };
 // src/commands/status/__generated__/StatusJsonOutputSchema.json
@@ -26117,7 +26188,7 @@ var program = {
   },
   key: createIdentity.key,
   mcpServer: { enabled: true },
-  version: "1.0.2"
+  version: "1.0.4"
 };
 
 // src/index.ts

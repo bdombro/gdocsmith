@@ -84,6 +84,8 @@ export interface StepDocCreate extends BaseStepInput {
   as: string;
   /** Force tab copy even if source contains uncloneable elements (chips/images/equations). */
   force?: boolean;
+  /** Bypass the document snapshot cache and fetch `fromDoc` fresh (use when it may have changed externally). */
+  forceFetch?: boolean;
   /** Optional source document ID or alias to copy from (creates blank document if omitted). */
   fromDoc?: string;
   /** Optional source tab ID or title to populate the initial tab from (requires fromDoc). */
@@ -120,6 +122,8 @@ export interface StepDocOpen extends BaseStepInput {
   as: string;
   /** Document ID to load into the session. */
   doc: string;
+  /** Bypass the document snapshot cache and fetch fresh (use when the doc may have changed externally). */
+  forceFetch?: boolean;
   /** Workflow step kind. */
   kind: "docOpen";
 }

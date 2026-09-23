@@ -14,18 +14,19 @@ export const openStep: WorkflowStepHandler = async (runtime, stepIndex, step) =>
   if (!as) throw new Error(`steps[${stepIndex}] ${step.kind ?? "docOpen"} requires "as: <alias>"`);
 
   const docId = Gdoc.parseId(runtime.aliasResolve(rawDocId)!);
+  const forceFetch = Boolean(step.forceFetch);
   let gdoc: Gdoc;
   let title = "Document";
   let pinnedRevisionId: string | undefined;
 
   if (runtime.dryRun) {
-    const preloaded = runtime.preloadedDocs?.get(docId);
+    const preloaded = !forceFetch ? runtime.preloadedDocs?.get(docId) : undefined;
     if (preloaded) {
       gdoc = preloaded;
       title = gdoc.data.title || title;
     } else {
       try {
-        gdoc = await Gdoc.load(docId, runtime.client);
+        gdoc = await Gdoc.load(docId, runtime.client, forceFetch ? { forceFetch: true } : undefined);
         title = gdoc.data.title || title;
       } catch {
         gdoc = new Gdoc(
@@ -69,7 +70,8 @@ export const openStep: WorkflowStepHandler = async (runtime, stepIndex, step) =>
       }
     }
   } else {
-    gdoc = runtime.preloadedDocs?.get(docId) ?? (await Gdoc.load(docId, runtime.client));
+    const preloaded = !forceFetch ? runtime.preloadedDocs?.get(docId) : undefined;
+    gdoc = preloaded ?? (await Gdoc.load(docId, runtime.client, forceFetch ? { forceFetch: true } : undefined));
     title = gdoc.data.title || title;
     const pin = await DriveRevisions.pinHead(docId, runtime.client);
     pinnedRevisionId = pin?.id;

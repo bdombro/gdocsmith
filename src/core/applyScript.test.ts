@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import type { GdocsmithDocument } from "../commands/run/types.ts";
 import { applyScriptExecute } from "./applyScript.ts";
 import { docCache } from "./cache/docCache.ts";
+import { Gdoc } from "./gdoc.ts";
 import type { GdocsmithStepInput, StepContent, StepTabCreate } from "./workflowTypes.ts";
 
 describe("applyScriptExecute", () => {
@@ -372,7 +373,7 @@ describe("applyScriptExecute", () => {
           doc: "doc1",
           insertPerson: { email: "alice@example.com" },
           kind: "surgical",
-          nodeAfter: "h.heading_3.baa5",
+          nodeAfter: "h.heading_3.de8b",
         },
       ],
     };
@@ -788,7 +789,7 @@ describe("applyScriptExecute", () => {
           doc: "doc1",
           insertPerson: { email: "alice@example.com" },
           kind: "surgical",
-          nodeAfter: "h.heading_3.baa5",
+          nodeAfter: "h.heading_3.de8b",
         },
         {
           as: "copiedTab",
@@ -825,7 +826,7 @@ describe("applyScriptExecute", () => {
           doc: "doc1",
           insertFootnote: { text: "Citation" },
           kind: "surgical",
-          nodeAfter: "h.heading_3.baa5",
+          nodeAfter: "h.heading_3.de8b",
         },
         {
           as: "copiedTab",
@@ -868,7 +869,7 @@ describe("applyScriptExecute", () => {
           doc: "doc1",
           insertFootnote: { text: "Citation" },
           kind: "surgical",
-          nodeAfter: "h.heading_3.baa5",
+          nodeAfter: "h.heading_3.de8b",
         },
         {
           as: "copiedTab",
@@ -982,67 +983,117 @@ describe("applyScriptExecute", () => {
     expect(targetQuery.markdown).toContain("Mutated Second Tab Content");
     expect(targetQuery.markdown).not.toContain("# Second Tab Content");
 
-    const queryTab1 = await applyScriptExecute({
-      dryRun: true,
-      steps: [
-        {
-          as: "docOpenTest",
-          doc: "1OHwV5mcmyS1JGe4b7232GqYQlL6-Tgdj_hVfm8AHdhM",
-          kind: "docOpen",
-        },
-        {
-          as: "tplByTitle",
-          doc: "docOpenTest",
-          kind: "query",
-          output: "markdown",
-          tab: "Project Spec Template",
-        },
-      ],
-    });
+    const mockClient = {
+      batchUpdate: async () => "{}",
+      getDocument: async () => ({
+        documentId: "mockMultiTabDoc",
+        tabs: [
+          {
+            documentTab: {
+              body: {
+                content: [
+                  {
+                    endIndex: 36,
+                    paragraph: {
+                      elements: [{ textRun: { content: "<Project Spec Title in 3-8 words>\n" } }],
+                      paragraphStyle: { namedStyleType: "HEADING_1" },
+                    },
+                    startIndex: 0,
+                  },
+                ],
+              },
+            },
+            tabProperties: { tabId: "t.spec", title: "Project Spec Template" },
+          },
+          {
+            documentTab: {
+              body: {
+                content: [
+                  {
+                    endIndex: 7,
+                    paragraph: { elements: [{ textRun: { content: "Notes\n" } }] },
+                    startIndex: 0,
+                  },
+                ],
+              },
+            },
+            tabProperties: { tabId: "t.notes", title: "Notes" },
+          },
+        ],
+        title: "Mock Multi-tab Workflow Doc",
+      }),
+    } as unknown as import("./gws.ts").GwsClient;
+
+    const queryTab1 = await applyScriptExecute(
+      {
+        dryRun: true,
+        steps: [
+          {
+            as: "docOpenTest",
+            doc: "mockMultiTabDoc",
+            kind: "docOpen",
+          },
+          {
+            as: "tplByTitle",
+            doc: "docOpenTest",
+            kind: "query",
+            output: "markdown",
+            tab: "Project Spec Template",
+          },
+        ],
+      },
+      { client: mockClient },
+    );
     expect(queryTab1.ok).toBe(true);
     expect((queryTab1.dumped.tplByTitle as { markdown: string }).markdown).toContain(
       "<Project Spec Title in 3-8 words>",
     );
 
-    const queryAllTabs = await applyScriptExecute({
-      dryRun: true,
-      steps: [
-        {
-          as: "docOpenWorkflow",
-          doc: "1OHwV5mcmyS1JGe4b7232GqYQlL6-Tgdj_hVfm8AHdhM",
-          dump: true,
-          kind: "docOpen",
-        },
-        {
-          as: "workflowMd",
-          doc: "docOpenWorkflow",
-          kind: "query",
-          output: "markdown",
-        },
-      ],
-    });
+    const queryAllTabs = await applyScriptExecute(
+      {
+        dryRun: true,
+        steps: [
+          {
+            as: "docOpenWorkflow",
+            doc: "mockMultiTabDoc",
+            dump: true,
+            kind: "docOpen",
+          },
+          {
+            as: "workflowMd",
+            doc: "docOpenWorkflow",
+            kind: "query",
+            output: "markdown",
+          },
+        ],
+      },
+      { client: mockClient },
+    );
     expect(queryAllTabs.ok).toBe(true);
     const allTabsDumped = queryAllTabs.dumped.workflowMd as { markdown: string };
     expect(allTabsDumped.markdown).toContain("<Project Spec Title in 3-8 words>");
     expect(allTabsDumped.markdown).toContain("---");
 
     expect(
-      applyScriptExecute({
-        dryRun: true,
-        steps: [
-          {
-            as: "docOpenWorkflow",
-            doc: "1OHwV5mcmyS1JGe4b7232GqYQlL6-Tgdj_hVfm8AHdhM",
-            kind: "docOpen",
-          },
-          {
-            as: "workflowNodes",
-            doc: "docOpenWorkflow",
-            kind: "query",
-            output: "nodes",
-          },
-        ],
-      }),
+      applyScriptExecute(
+        {
+          dryRun: true,
+          steps: [
+            {
+              as: "docOpenWorkflow",
+              doc: "mockMultiTabDoc",
+              kind: "docOpen",
+            },
+            {
+              as: "workflowNodes",
+              doc: "docOpenWorkflow",
+              kind: "query",
+              output: "nodes",
+            },
+          ],
+        },
+        { client: mockClient },
+      ),
     ).rejects.toThrow("This Doc has multiple tabs. Specify --tab <id|title>.");
   });
 
@@ -1835,6 +1886,52 @@ describe("applyScriptExecute", () => {
     const res = await applyScriptExecute(doc, { client: mockClient });
     expect(res.ok).toBe(true);
     // Only "sourceDocId" should be requested, never the alias "template"
+    expect(getDocumentCalls).toBe(1);
+  });
+
+  test("docOpen without forceFetch reuses a cached snapshot (no network fetch)", async () => {
+    const docId = "doc-force-fetch-off";
+    docCache.set(docId, new Gdoc({ documentId: docId, revisionId: "rev-cached", title: "Cached" }, docId));
+
+    let getDocumentCalls = 0;
+    const mockClient = {
+      batchUpdate: async () => "{}",
+      getDocument: async () => {
+        getDocumentCalls++;
+        return { documentId: docId, revisionId: "rev-fresh", title: "Fresh" };
+      },
+    } as unknown as import("./gws.ts").GwsClient;
+
+    const doc: GdocsmithDocument = {
+      dryRun: true,
+      steps: [{ as: "d1", doc: docId, kind: "docOpen" }],
+    };
+
+    const res = await applyScriptExecute(doc, { client: mockClient });
+    expect(res.ok).toBe(true);
+    expect(getDocumentCalls).toBe(0);
+  });
+
+  test("docOpen with forceFetch bypasses the cache and fetches fresh", async () => {
+    const docId = "doc-force-fetch-on";
+    docCache.set(docId, new Gdoc({ documentId: docId, revisionId: "rev-cached", title: "Cached" }, docId));
+
+    let getDocumentCalls = 0;
+    const mockClient = {
+      batchUpdate: async () => "{}",
+      getDocument: async () => {
+        getDocumentCalls++;
+        return { documentId: docId, revisionId: "rev-fresh", title: "Fresh" };
+      },
+    } as unknown as import("./gws.ts").GwsClient;
+
+    const doc: GdocsmithDocument = {
+      dryRun: true,
+      steps: [{ as: "d1", doc: docId, forceFetch: true, kind: "docOpen" }],
+    };
+
+    const res = await applyScriptExecute(doc, { client: mockClient });
+    expect(res.ok).toBe(true);
     expect(getDocumentCalls).toBe(1);
   });
 

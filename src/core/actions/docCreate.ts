@@ -75,6 +75,7 @@ export const docCreateStep: WorkflowStepHandler = async (
     const fromDoc = runtime.aliasResolve(fromDocRaw);
     if (!fromDoc) throw new Error(`steps[${stepIndex}] docCreate could not resolve fromDoc: "${fromDocRaw}"`);
 
+    const forceFetch = Boolean(step.forceFetch);
     let newDocId = `virtual:${as}`;
     let gdoc: Gdoc;
 
@@ -94,7 +95,9 @@ export const docCreateStep: WorkflowStepHandler = async (
         }
       } else {
         try {
-          const loaded = runtime.preloadedDocs?.get(fromDoc) ?? (await Gdoc.load(fromDoc, runtime.client));
+          const preloaded = !forceFetch ? runtime.preloadedDocs?.get(fromDoc) : undefined;
+          const loaded =
+            preloaded ?? (await Gdoc.load(fromDoc, runtime.client, forceFetch ? { forceFetch: true } : undefined));
           gdoc = new Gdoc({ ...structuredClone(loaded.data), documentId: newDocId, title }, newDocId);
         } catch {
           gdoc = new Gdoc({ documentId: newDocId, title }, newDocId);
@@ -296,13 +299,16 @@ async function docCreateFromTab(
   const fromDoc = opts.runtime.aliasResolve(opts.fromDocRaw);
   if (!fromDoc) throw new Error(`steps[${opts.stepIndex}] docCreate could not resolve fromDoc: "${opts.fromDocRaw}"`);
 
+  const forceFetch = Boolean(opts.step.forceFetch);
   const sourceContext =
     opts.runtime.openDocs.get(fromDoc) ?? Array.from(opts.runtime.openDocs.values()).find((d) => d.docId === fromDoc);
   let sourceGdoc: Gdoc;
   if (sourceContext) {
     sourceGdoc = sourceContext.gdoc;
   } else {
-    sourceGdoc = opts.runtime.preloadedDocs?.get(fromDoc) ?? (await Gdoc.load(fromDoc, opts.runtime.client));
+    const preloaded = !forceFetch ? opts.runtime.preloadedDocs?.get(fromDoc) : undefined;
+    sourceGdoc =
+      preloaded ?? (await Gdoc.load(fromDoc, opts.runtime.client, forceFetch ? { forceFetch: true } : undefined));
   }
 
   const fromTabHint = opts.runtime.aliasResolve(opts.fromTabRaw);

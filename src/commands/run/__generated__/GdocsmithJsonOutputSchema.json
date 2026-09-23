@@ -52,7 +52,9 @@
           "type": "string"
         }
       },
-      "required": ["id"],
+      "required": [
+        "id"
+      ],
       "additionalProperties": false,
       "description": "Document item in highlights."
     },
@@ -75,7 +77,9 @@
           "type": "string"
         }
       },
-      "required": ["id"],
+      "required": [
+        "id"
+      ],
       "additionalProperties": false,
       "description": "Tab item in highlights."
     },
@@ -89,7 +93,10 @@
           "type": "string"
         }
       },
-      "required": ["id", "text"],
+      "required": [
+        "id",
+        "text"
+      ],
       "additionalProperties": false,
       "description": "Newly created heading item in highlights."
     }

@@ -1,7 +1,68 @@
 /* Checksum calculation for DocNode and TableCell content/metadata. */
 
 import { createHash } from "node:crypto";
+import { InlineMarkup, type TextRun } from "~/core/inline.ts";
 import type { CellParagraph, DocNode, TableCell } from "./types.ts";
+
+/** Minimal shape shared by TextRun (parsed DocNode side) and InlineRunInput (incoming spec side). */
+type RunLike = {
+  backgroundColor?: string;
+  bold?: boolean;
+  code?: boolean;
+  end?: number;
+  fontFamily?: string;
+  fontSize?: number;
+  foregroundColor?: string;
+  italic?: boolean;
+  link?: string;
+  start?: number;
+  strikethrough?: boolean;
+  underline?: boolean;
+};
+
+/**
+ * Normalizes a list of styled inline runs (from either a parsed DocNode or an incoming
+ * ElementSpec) into a stable, order-independent string. Two run lists that describe the
+ * same effective styling produce the same signature regardless of which side they came from.
+ */
+function runsSignature(runs: RunLike[] | undefined): string {
+  if (!runs || runs.length === 0) return "";
+  return runs
+    .map((r) =>
+      [
+        r.start ?? 0,
+        r.end ?? 0,
+        r.bold ? 1 : 0,
+        r.italic ? 1 : 0,
+        r.code ? 1 : 0,
+        r.underline ? 1 : 0,
+        r.strikethrough ? 1 : 0,
+        r.link ?? "",
+        r.foregroundColor ?? "",
+        r.backgroundColor ?? "",
+        r.fontFamily ?? "",
+        r.fontSize ?? "",
+      ].join(":"),
+    )
+    .sort()
+    .join(",");
+}
+
+/**
+ * Resolves the effective inline runs for a checksum candidate. Incoming ElementSpecs carry
+ * `runs: InlineRunInput[]` directly. Parsed DocNodes never carry `runs` — instead, when a
+ * paragraph's inline styling is non-uniform (mixed bold/code/link spans), the parser records
+ * a reconstructed `markup` string (only set when it differs from plain `text`). Re-parsing
+ * that markup recovers the same run structure `InlineMarkup.serialize` produced it from,
+ * since parse/serialize are designed as inverses.
+ */
+function effectiveRuns(node: Record<string, unknown>): RunLike[] | undefined {
+  if (Array.isArray(node.runs)) return node.runs as RunLike[];
+  if (typeof node.markup === "string" && node.markup) {
+    return InlineMarkup.parse(node.markup).runs as TextRun[];
+  }
+  return undefined;
+}
 
 /**
  * Computes a deterministic 4-character hex checksum over a TableCell or CellParagraph.
@@ -37,7 +98,7 @@ export const computeCellChecksum = cellChecksumCompute;
 
 /**
  * Computes a deterministic 4-character hex checksum over a DocNode's or ElementSpec's
- * text, style, alignment, bullet, and metadata.
+ * text, style, alignment, bullet, inline run styling, and metadata.
  */
 export function nodeChecksumCompute(
   /** Candidate node or spec to checksum. */
@@ -74,6 +135,8 @@ export function nodeChecksumCompute(
     }
   }
 
+  const runsStr = runsSignature(effectiveRuns(node as Record<string, unknown>));
+
   const payload = [
     node.kind ?? "paragraph",
     node.namedStyleType ?? "",
@@ -84,6 +147,7 @@ export function nodeChecksumCompute(
     tableShape,
     imagesCount ? `img:${imagesCount}` : "",
     chipsCount ? `chips:${chipsCount}` : "",
+    runsStr,
   ].join("|");
 
   return createHash("sha256").update(payload, "utf8").digest("hex").slice(0, 4);

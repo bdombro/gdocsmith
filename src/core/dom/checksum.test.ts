@@ -51,6 +51,46 @@ describe("node checksum", () => {
     expect(cBase).not.toBe(cAligned);
   });
 
+  test("checksum differentiates a plain node from an incoming spec adding inline run styling to the same text", () => {
+    // Regression: an old DocNode (no markup, unstyled) and a new ElementSpec with identical
+    // plain text but an added `code` run used to checksum identically, because runs were
+    // never part of the payload — so replaceMarkdown/replaceSection silently treated a
+    // pure-styling edit as "no change" and skipped it (LCS matched the two nodes).
+    const oldNode: Partial<DocNode> = {
+      kind: "paragraph",
+      namedStyleType: "NORMAL_TEXT",
+      text: "Uses AutomatedCampaignMessageQueueItems for sending",
+    };
+    const newSpecWithCodeRun = {
+      kind: "paragraph",
+      namedStyleType: "NORMAL_TEXT",
+      runs: [{ code: true, end: 39, start: 5 }],
+      text: "Uses AutomatedCampaignMessageQueueItems for sending",
+    };
+
+    expect(computeNodeChecksum(oldNode)).not.toBe(computeNodeChecksum(newSpecWithCodeRun));
+  });
+
+  test("checksum treats a parsed DocNode's markup and an equivalent spec's runs as the same styling", () => {
+    // The inverse of the above: an old node whose reconstructed `markup` already encodes the
+    // same code span an incoming spec's `runs` describes must NOT be flagged as changed —
+    // otherwise every replaceMarkdown of already-correct content would rewrite it.
+    const oldNodeAlreadyStyled: Partial<DocNode> = {
+      kind: "paragraph",
+      markup: "Uses `AutomatedCampaignMessageQueueItems` for sending",
+      namedStyleType: "NORMAL_TEXT",
+      text: "Uses AutomatedCampaignMessageQueueItems for sending",
+    };
+    const newSpecSameStyling = {
+      kind: "paragraph",
+      namedStyleType: "NORMAL_TEXT",
+      runs: [{ code: true, end: 39, start: 5 }],
+      text: "Uses AutomatedCampaignMessageQueueItems for sending",
+    };
+
+    expect(computeNodeChecksum(oldNodeAlreadyStyled)).toBe(computeNodeChecksum(newSpecSameStyling));
+  });
+
   test("cell checksum differentiates on content and style", () => {
     const cellA: TableCell = {
       end: 10,

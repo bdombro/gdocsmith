@@ -137,6 +137,33 @@ export function symbolsInsertEmit(
   }
 }
 
+/**
+ * Styles a paragraph that inserts just created at `start` (current coordinates): every run and the
+ * newline get the full text-style mask with their final style, and the paragraph the full
+ * paragraph-style mask (D18). Pending heading links are recorded.
+ */
+export function newParagraphStylesEmit(
+  /** Index of the paragraph's first character. */
+  start: number,
+  /** The final paragraph. */
+  f: ParagraphBlock,
+  /** Reconciliation state. */
+  ctx: ReconcileContext,
+): void {
+  const origin: RequestOrigin = { key: f.key, stepIndex: f.stamp?.stepIndex };
+  const fSyms = paragraphSymbols(f);
+  textStylesEmit(start, fSyms, new Array(fSyms.length).fill(undefined), {}, f, ctx, origin);
+  const newlinePos = start + symbolsUtf16Length(fSyms);
+  textStyleRequest(ctx, newlinePos, newlinePos + 1, TEXT_STYLE_FIELDS, f.newline.style, origin);
+  const paragraphStyle = pick(f.style, PARAGRAPH_STYLE_FIELDS);
+  paragraphStyle.namedStyleType ??= "NORMAL_TEXT";
+  requestPush(
+    ctx,
+    RequestBuilder.paragraphStyleUpdate(start, newlinePos + 1, paragraphStyle, PARAGRAPH_STYLE_FIELDS, ctx.tabId),
+    origin,
+  );
+}
+
 /** For each final symbol, the original symbol it was kept from (`undefined` when inserted). */
 function keptOriginals(
   oSyms: readonly Sym[],

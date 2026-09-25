@@ -17,7 +17,7 @@ import type {
 
 /** Options narrowing what `docModelsCompare` treats as equal despite a literal difference. */
 export interface CompareOptions {
-  /** Identity (`headingId`) moves the reconciler performed; a kept heading is expected at its transfer's `toKey`, not its original key. */
+  /** Identity (`headingId`) moves the reconciler performed; the paragraph at a transfer's `toKey` is expected to carry its id. */
   identityTransfers?: readonly IdentityTransfer[];
   /** Maps an "expected" (pre-flush) tab id to the "actual" (post-flush) tab id it corresponds to, when a doc/tab was newly created. */
   tabIdMap?: ReadonlyMap<string, string>;
@@ -113,7 +113,7 @@ function paragraphCompare(
   });
 }
 
-/** Compares `headingId`: a kept heading must keep its id (after identity transfers); a brand-new heading needs *some* id; a non-heading needs none. */
+/** Compares `headingId`: a paragraph an identity transfer lands on must carry the transferred id; a kept heading must keep its own; a brand-new heading needs *some* id; a non-heading needs none. */
 function headingIdCompare(
   path: string,
   expected: ParagraphBlock,
@@ -127,16 +127,17 @@ function headingIdCompare(
     if (actual.headingId) diffs.push(`${path}: expected no headingId, got "${actual.headingId}"`);
     return;
   }
-  // A new heading, or one the model just made a heading, gets whatever id the API mints.
-  if (expected.key.startsWith("n") || !expected.headingId) {
-    if (!actual.headingId) diffs.push(`${path}: new heading paragraph has no headingId`);
-    return;
-  }
-  const transfer = opts.identityTransfers?.find((t) => t.fromKey === expected.key);
+  // A reported transfer says which id this paragraph ends up with (e.g. a reused newline's).
+  const transfer = opts.identityTransfers?.find((t) => t.toKey === expected.key && t.headingId);
   if (transfer) {
     if (actual.headingId !== transfer.headingId) {
       diffs.push(`${path}: headingId expected "${transfer.headingId}" (transferred), got "${actual.headingId}"`);
     }
+    return;
+  }
+  // A new heading, or one the model just made a heading, gets whatever id the API mints.
+  if (expected.key.startsWith("n") || !expected.headingId) {
+    if (!actual.headingId) diffs.push(`${path}: new heading paragraph has no headingId`);
     return;
   }
   if (expected.headingId !== actual.headingId) {

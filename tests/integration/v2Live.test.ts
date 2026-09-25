@@ -3,10 +3,17 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { transactionRun } from "~/core/engine/transaction.ts";
 import type { DocHandle, Session } from "~/core/engine/types.ts";
-import { gws, gwsDrive } from "~/core/gws.ts";
+import { type DocsClient, gws, gwsDrive } from "~/core/gws.ts";
+import { docModelsCompare } from "~/core/model/equivalence.ts";
+import { docModelParse } from "~/core/model/fromJson.ts";
+import { KeyAllocator } from "~/core/model/keys.ts";
+import type { DocModel, TabModel } from "~/core/model/types.ts";
 
 /** The fixture template (copied, never edited). */
 const FIXTURE_DOC_ID = "1QuCvvolxaAVZ6DroVAxAoO7ClZFiPUOp7453MN7l-Yc";
+
+/** Cached document whose table hard break triggered the corpus GetPut failure. */
+const GETPUT_FIXTURE_DOC_ID = "1c1ZsH0UmS2991x4sDSqz43BiOjZh28U0zm_kZKOLaaQ";
 
 /** Per-test timeout: several round trips plus rate-limit headroom. */
 const TIMEOUT_MS = 180_000;
@@ -30,6 +37,28 @@ function contentRequests(result: { phases: Array<{ docs: Array<{ requestCount: n
     .filter((p) => p.phase === "content")
     .flatMap((p) => p.docs)
     .reduce((n, d) => n + d.requestCount, 0);
+}
+
+/** Returns true when a tab has a table cell paragraph with a hard line break. */
+function tabHasHardBreakTable(tab: TabModel): boolean {
+  return tab.blocks.some(
+    (block) =>
+      block.kind === "table" &&
+      block.rows.some((row) =>
+        row.cells.some((cell) =>
+          cell.blocks.some(
+            (cellBlock) =>
+              cellBlock.kind === "paragraph" &&
+              cellBlock.inlines.some((inline) => inline.kind === "text" && inline.text.includes("\u000b")),
+          ),
+        ),
+      ),
+  );
+}
+
+/** Parses a document into a stable model for structural before/after assertions. */
+function documentModel(json: Awaited<ReturnType<typeof gws.getDocument>>, documentId: string): DocModel {
+  return docModelParse(json, { docId: documentId, keys: new KeyAllocator() });
 }
 
 /** Creates a scratch document through the transaction and returns its real id. */
@@ -70,6 +99,58 @@ describe("v2 live", () => {
       const copy = await gwsDrive.copyFile(FIXTURE_DOC_ID, `[V2 LIVE] L0 ${Date.now()}`);
       scratch.push(copy.id);
       expect(await getPut(copy.id)).toBe(0);
+    },
+    TIMEOUT_MS,
+  );
+
+  test(
+    "L0: cached hard-break table export is a no-op in both markdown modes",
+    async () => {
+      const copy = await gwsDrive.copyFile(GETPUT_FIXTURE_DOC_ID, `[V2 LIVE] hard-break GetPut ${Date.now()}`);
+      try {
+        const beforeJson = await gws.getDocument(copy.id);
+        const before = documentModel(beforeJson, copy.id);
+        const targetBefore = before.tabs.find((tab) => tab.tabId === "t.0");
+        expect(targetBefore).toBeDefined();
+        expect(tabHasHardBreakTable(targetBefore as TabModel)).toBe(true);
+
+        let batchUpdateCalls = 0;
+        let batchUpdateRequests = 0;
+        const countingClient: DocsClient = {
+          batchUpdate: async (documentId, requests, options) => {
+            batchUpdateCalls++;
+            batchUpdateRequests += requests.length;
+            return gws.batchUpdate(documentId, requests, options);
+          },
+          getDocument: (documentId) => gws.getDocument(documentId),
+          revisionIdGet: (documentId) => gws.revisionIdGet(documentId),
+          run: (args) => gws.run(args),
+        };
+
+        for (const skipFrontmatter of [false, true]) {
+          batchUpdateCalls = 0;
+          batchUpdateRequests = 0;
+          const result = await transactionRun(
+            async (session) => {
+              const doc = await session.docOpen(copy.id, { forceFetch: true });
+              const tab = doc.tab("t.0");
+              const markdown = tab.markdown({ skipFrontmatter }).markdown;
+              await tab.writeMarkdown(markdown, { kind: "replace", range: { kind: "tab" } });
+            },
+            { client: countingClient, drive: gwsDrive, dryRun: false, force: false },
+          );
+
+          expect(result.refused).toBe(false);
+          expect(contentRequests(result)).toBe(0);
+          expect(batchUpdateCalls).toBe(0);
+          expect(batchUpdateRequests).toBe(0);
+          const after = documentModel(await gws.getDocument(copy.id), copy.id);
+          expect(docModelsCompare(before, after)).toMatchObject({ diffs: [], equal: true });
+          expect(tabHasHardBreakTable(after.tabs.find((tab) => tab.tabId === "t.0") as TabModel)).toBe(true);
+        }
+      } finally {
+        await scratchDelete(copy.id);
+      }
     },
     TIMEOUT_MS,
   );

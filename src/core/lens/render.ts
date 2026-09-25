@@ -1,5 +1,6 @@
 /* Renders a projection as markdown: escaping, emphasis nesting with CommonMark flanking fallbacks, directives, tokens, lists, code fences, GFM tables, and frontmatter (G3 D26, D29–D32, M13). */
 
+import { type InlineContext, inlineSignature, TAB_ENTITY } from "./markedLens.ts";
 import type { DirectiveAttrs, LinkTarget, Marks, ProjBlock, Projection, ProjSpan, TokenRef } from "./project.ts";
 
 /** Resolves link targets to their markdown form. */
@@ -69,11 +70,13 @@ export function markdownRender(
       while (projection.blocks[i]?.kind === "listItem" && projection.blocks[i].list?.group === group) {
         const item = projection.blocks[i];
         const list = item.list as NonNullable<ProjBlock["list"]>;
-        const indent = Array.from({ length: list.depth }, (_, k) => widths[k] ?? 2).reduce((a, b) => a + b, 0);
-        widths[list.depth] = list.kind === "number" ? 3 : 2;
-        widths.length = list.depth + 1;
+        // Markdown can only nest one level deeper than the item before (the first item at the top).
+        const depth = Math.min(list.depth, widths.length);
+        const indent = Array.from({ length: depth }, (_, k) => widths[k] ?? 2).reduce((a, b) => a + b, 0);
+        widths[depth] = list.kind === "number" ? 3 : 2;
+        widths.length = depth + 1;
         items.push(
-          `${" ".repeat(indent)}${listMarker(list.kind, alternate)} ${inlineRender(item.spans, opts, { cell: false })}`,
+          `${" ".repeat(indent)}${listMarker(list.kind, alternate)} ${inlineRender(item.spans, opts, { cell: false, listItem: true })}`,
         );
         i++;
       }
@@ -104,8 +107,17 @@ function listMarker(kind: "bullet" | "check" | "number", alternate: { bullet: bo
 /** Renders a non-list, non-code block. */
 function blockRender(block: ProjBlock, opts: RenderOptions): string {
   if (block.kind === "token" && block.token) return tokenRender(block.token);
-  if (block.kind === "heading")
-    return `${"#".repeat(Math.min(6, block.headingLevel ?? 1))} ${inlineRender(block.spans, opts, { cell: false })}`;
+  if (block.kind === "heading") {
+    // Headings can't hold line breaks; a trailing " #" run would read as a closing sequence.
+    const spans = block.spans.map((sp) =>
+      sp.kind === "text" ? { ...sp, text: sp.text.replaceAll("\u000b", " ") } : sp,
+    );
+    const text = inlineRender(spans, opts, { cell: false }).replace(
+      /(^|\s)(#+)$/,
+      (_, space: string, hashes: string) => `${space}\\${hashes}`,
+    );
+    return `${"#".repeat(Math.min(6, block.headingLevel ?? 1))} ${text}`;
+  }
   if (block.kind === "table" && block.table) return tableRender(block, opts);
   return inlineRender(block.spans, opts, { cell: false });
 }
@@ -149,23 +161,93 @@ function markValue(span: ProjSpan, mark: (typeof MARK_ORDER)[number]): string | 
   return (span.marks as Marks)[mark] ? mark : undefined;
 }
 
-/** Renders inline content: whitespace-trimmed, with line breaks as hard breaks. */
-function inlineRender(spans: readonly ProjSpan[], opts: RenderOptions, ctx: { cell: boolean }): string {
-  const trimmed = trimSpans(spans);
-  const text = spansRender(trimmed, 0, opts, ctx);
-  return lineStartsEscape(text);
+/**
+ * Renders inline content (edges trimmed, spaces next to line breaks dropped, D26), then lexes the
+ * result back: when the styled markdown wouldn't parse to the same text and formatting, the block is
+ * rendered plain instead (D27), which always round-trips.
+ */
+function inlineRender(
+  spans: readonly ProjSpan[],
+  opts: RenderOptions,
+  ctx: { cell: boolean; listItem?: boolean },
+): string {
+  const normalized = spansNormalize(spans);
+  const context = ctx.cell ? "cell" : ctx.listItem ? "listItem" : "paragraph";
+  const styled = lineStartsEscape(spansRender(normalized, 0, opts, ctx));
+  if (signatureMatches(styled, normalized, opts, context)) return styled;
+  return lineStartsEscape(normalized.map((s) => leafRender(s, ctx)).join(""));
 }
 
-/** Drops whitespace at the start and end of a span list (D26: lossy trim). */
-function trimSpans(spans: readonly ProjSpan[]): ProjSpan[] {
-  const out = spans.map((s) => ({ ...s })) as ProjSpan[];
-  while (out.length && out[0].kind === "text" && !(out[0] as { text: string }).text.replace(/^\s+/, "")) out.shift();
-  while (out.length && out.at(-1)?.kind === "text" && !(out.at(-1) as { text: string }).text.replace(/\s+$/, ""))
-    out.pop();
-  if (out[0]?.kind === "text") out[0] = { ...out[0], text: out[0].text.replace(/^\s+/, "") };
-  const last = out.at(-1);
-  if (last?.kind === "text") out[out.length - 1] = { ...last, text: last.text.replace(/\s+$/, "") };
-  return out;
+/** Trims whitespace at the edges and around line breaks (both lossy in markdown), dropping emptied spans. */
+function spansNormalize(spans: readonly ProjSpan[]): ProjSpan[] {
+  const within = (text: string) => text.replace(/[ \t]+\v/g, "\u000b").replace(/\v[ \t]+/g, "\u000b");
+  let out = spans
+    .map((s) => (s.kind === "text" ? { ...s, text: within(s.text) } : { ...s }))
+    .filter((s) => s.kind !== "text" || s.text !== "") as ProjSpan[];
+  // Across spans: spaces before a line break that starts the next span, or after one that ends the previous.
+  for (let changed = true; changed; ) {
+    changed = false;
+    out = out.map((span, i) => {
+      if (span.kind !== "text") return span;
+      const prev = out[i - 1];
+      const next = out[i + 1];
+      let text = span.text;
+      if (next?.kind === "text" && next.text.startsWith("\u000b")) text = text.replace(/[ \t]+$/, "");
+      if (prev?.kind === "text" && prev.text.endsWith("\u000b")) text = text.replace(/^[ \t]+/, "");
+      if (text !== span.text) changed = true;
+      return { ...span, text };
+    });
+    const before = out.length;
+    out = out.filter((s) => s.kind !== "text" || s.text !== "");
+    if (out.length !== before) changed = true;
+  }
+  // Trim the edges until they're stable (several whitespace-only spans can sit at an edge).
+  let kept = out.filter((s) => s.kind !== "text" || s.text !== "");
+  for (let changed = true; changed; ) {
+    changed = false;
+    const first = kept[0];
+    if (first?.kind === "text" && /^[ \t\v]/.test(first.text)) {
+      kept[0] = { ...first, text: first.text.replace(/^[ \t\v]+/, "") };
+      changed = true;
+    }
+    const last = kept.at(-1);
+    if (last?.kind === "text" && /[ \t\v]$/.test(last.text)) {
+      kept[kept.length - 1] = { ...last, text: last.text.replace(/[ \t\v]+$/, "") };
+      changed = true;
+    }
+    kept = kept.filter((s) => s.kind !== "text" || s.text !== "");
+  }
+  return kept;
+}
+
+/** True when `markdown` lexes back to exactly the characters of `spans` with their formatting (whitespace formatting ignored). */
+function signatureMatches(
+  markdown: string,
+  spans: readonly ProjSpan[],
+  opts: RenderOptions,
+  context: InlineContext,
+): boolean {
+  const parsed = inlineSignature(markdown, context);
+  if (!parsed) return false;
+  const expected: Array<{ ch: string; tag: string }> = [];
+  for (const span of spans) {
+    const m = span.marks;
+    const tags = [
+      m.bold && "b",
+      m.italic && "i",
+      m.strike && "s",
+      span.kind === "text" && m.code && "c",
+      m.link && `l:${linkRender(m.link, opts.links).replace(/\\([<>])/g, "$1")}`,
+      span.kind === "text" && span.directive && `d:${span.directive}`,
+    ].filter((t): t is string => !!t);
+    const tag = tags.sort().join(",");
+    if (span.kind === "token") expected.push({ ch: "\uFFFC", tag });
+    else for (const ch of Array.from(span.text)) expected.push({ ch, tag });
+  }
+  return (
+    parsed.length === expected.length &&
+    parsed.every((c, i) => c.ch === expected[i].ch && (/\s/.test(c.ch) || c.tag === expected[i].tag))
+  );
 }
 
 /** Renders spans at mark level `level` of `MARK_ORDER`, nesting deeper marks inside. */
@@ -200,35 +282,38 @@ function markWrap(
   const { lead, inner, trail } = whitespaceSplit(group);
   const content = spansRender(inner, level + 1, opts, ctx);
   if (!content) return spansRender(group, level + 1, opts, ctx);
+  const leadText = textRender(lead, ctx);
+  const trailText = textRender(trail, ctx);
   if (mark === "link") {
     const target = linkRender(group[0].marks.link as LinkTarget, opts.links);
-    return `${escapeText(lead, ctx)}[${content}](<${target}>)${escapeText(trail, ctx)}`;
+    return `${leadText}[${content}](<${target}>)${trailText}`;
   }
   if (mark === "directive") {
     const name = group[0].kind === "text" ? group[0].directive : "";
-    return `${escapeText(lead, ctx)}::${name}[${content}]::${escapeText(trail, ctx)}`;
+    return `${leadText}::${name}[${content}]::${trailText}`;
   }
   const delimiter = EMPHASIS[mark];
-  const prev = before.at(-1) ?? (lead ? " " : "");
+  const prev = lead ? " " : (Array.from(before).at(-1) ?? "");
   const nextSpan = after[0];
-  const next = trail ? " " : nextSpan?.kind === "text" ? (nextSpan.text[0] ?? "") : nextSpan ? "a" : "";
-  if (!emphasisSafe(content, lead ? " " : prev, next)) return spansRender(group, level + 1, opts, ctx);
-  return `${escapeText(lead, ctx)}${delimiter}${content}${delimiter}${escapeText(trail, ctx)}`;
+  const next = trail ? " " : nextSpan?.kind === "text" ? (Array.from(nextSpan.text)[0] ?? "") : nextSpan ? "a" : "";
+  // A delimiter right after the same delimiter character would merge into one run.
+  if (!emphasisSafe(content, prev, next) || prev === delimiter[0]) return spansRender(group, level + 1, opts, ctx);
+  return `${leadText}${delimiter}${content}${delimiter}${trailText}`;
 }
 
-/** Splits leading/trailing whitespace off a span group. */
+/** Splits leading/trailing whitespace (line breaks included) off a span group. */
 function whitespaceSplit(group: readonly ProjSpan[]): { inner: ProjSpan[]; lead: string; trail: string } {
   const inner = group.map((s) => ({ ...s })) as ProjSpan[];
   let lead = "";
   let trail = "";
   const first = inner[0];
   if (first?.kind === "text") {
-    lead = first.text.match(/^\s*/)?.[0] ?? "";
+    lead = first.text.match(/^[ \t\v]*/)?.[0] ?? "";
     inner[0] = { ...first, text: first.text.slice(lead.length) };
   }
   const last = inner.at(-1);
   if (last?.kind === "text") {
-    trail = last.text.match(/\s*$/)?.[0] ?? "";
+    trail = last.text.match(/[ \t\v]*$/)?.[0] ?? "";
     inner[inner.length - 1] = { ...last, text: last.text.slice(0, last.text.length - trail.length) };
   }
   return { inner: inner.filter((s) => s.kind !== "text" || s.text), lead, trail };
@@ -246,8 +331,9 @@ export function emphasisSafe(
   /** Character after the closer ("" at the end). */
   next: string,
 ): boolean {
-  const first = content[0] ?? "";
-  const last = content.at(-1) ?? "";
+  const chars = Array.from(content);
+  const first = chars[0] ?? "";
+  const last = chars.at(-1) ?? "";
   const space = (c: string) => c === "" || /\s/u.test(c);
   const punct = (c: string) => /[\p{P}\p{S}]/u.test(c);
   const leftFlanking = !space(first) && (!punct(first) || space(prev) || punct(prev));
@@ -258,7 +344,12 @@ export function emphasisSafe(
 /** A leaf span: escaped text, or a token. */
 function leafRender(span: ProjSpan, ctx: { cell: boolean }): string {
   if (span.kind === "token") return tokenRender(span.token);
-  return escapeText(span.text, ctx).replaceAll("\u000b", "\\\n");
+  return textRender(span.text, ctx);
+}
+
+/** Escaped text with line breaks as hard breaks. */
+function textRender(text: string, ctx: { cell: boolean }): string {
+  return escapeText(text, ctx).replaceAll("\u000b", "\\\n");
 }
 
 /** An inline code span with a fence longer than any backtick run, padded when needed. */
@@ -272,21 +363,28 @@ function codeSpanRender(text: string): string {
   return `${fence}${pad}${text}${pad}${fence}`;
 }
 
-/** Escapes markdown syntax characters in text (D26). */
+/** Escapes markdown syntax characters in text (D26); tabs become the tab entity. */
 function escapeText(text: string, ctx: { cell: boolean }): string {
   let out = text.replace(/[\\`*_[\]<>~]/g, (c) => `\\${c}`);
   if (ctx.cell) out = out.replace(/\|/g, "\\|");
-  out = out.replace(/!(?=\\\[)/g, "\\!");
-  out = out.replace(/\{\{/g, "\\{\\{");
-  out = out.replace(/::(?=[A-Za-z0-9][A-Za-z0-9_+.-]*\\\[)/g, "\\:\\:");
+  // Every "{" (not just "{{"), so a token can't form across two spans.
+  out = out.replace(/\{/g, "\\{");
+  out = out.replace(/&(?=#9;)/g, "\\&").replaceAll("\t", TAB_ENTITY);
   return out;
 }
 
-/** Escapes characters that would start block syntax at the start of each line. */
+/** Escapes what would start block syntax at the start of each line, and `!` before an escaped `[` (an image) anywhere. */
 function lineStartsEscape(text: string): string {
   return text
+    .replace(/(^|[^\\])!(?=\\\[)/g, "$1\\!")
     .split("\n")
-    .map((line) => line.replace(/^(\s*)([#>+=-])/, "$1\\$2").replace(/^(\s*)(\d+)([.)])/, "$1$2\\$3"))
+    .map((line, i) => {
+      const escaped = line.replace(/^(\s*)([#>+=|-])/, "$1\\$2").replace(/^(\s*)(\d+)([.)])/, "$1$2\\$3");
+      // A later line of only pipes, colons, and dashes would read as a table delimiter row.
+      return i > 0 && /^\s*\|?\s*:?-+:?\s*(\|\s*:?-*:?\s*)*\|?\s*$/.test(escaped)
+        ? escaped.replace(/^(\s*)([|:])/, "$1\\$2")
+        : escaped;
+    })
     .join("\n");
 }
 

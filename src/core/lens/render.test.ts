@@ -59,8 +59,8 @@ describe("markdownRender: escaping", () => {
   });
   test("mid-line specials that are only special at line start stay", () =>
     expect(md([para(t("a # b - c 1. d"))])).toBe("a # b - c 1. d"));
-  test("! before [ , {{ , and ::name[", () =>
-    expect(md([para(t("![x] {{y ::n[z]"))])).toBe("\\!\\[x\\] \\{\\{y \\:\\:n\\[z\\]"));
+  test("! before [ and every { (so neither an image nor a token can form); ::name[ is safe since [ is escaped", () =>
+    expect(md([para(t("![x] {{y ::n[z]"))])).toBe("\\!\\[x\\] \\{\\{y ::n\\[z\\]"));
   test("table cells escape pipes", () =>
     expect(
       md([

@@ -7,8 +7,21 @@ export PATH := "./node_modules/.bin:" + env_var("PATH")
 _:
     @just --list
 
+# Sync argsbarg to a local checkout (file: snapshot; re-run after each argsbarg edit)
+argsbarg-local:
+    rm -rf ../bun-argsbarg/examples/*/node_modules
+    bun add argsbarg@file:../bun-argsbarg
+    ln -sf ../argsbarg/bin/argsbarg node_modules/.bin/argsbarg
+    just schemagen
+
+# Switch back to a published argsbarg version, e.g. `just argsbarg-published 7.1.1`
+argsbarg-published VERSION:
+    bun add argsbarg@^{{VERSION}}
+    ln -sf ../argsbarg/bin/argsbarg node_modules/.bin/argsbarg
+    just schemagen
+
 # Bundle the standalone Node MCP server script for Cursor and Claude plugins
-build:
+build: schemagen
     bun build ./src/index.ts --target=node --outfile=./scripts/mcp.mjs
 
 # Schemagen, format, lint, typecheck, unit tests, and offline MCP wire tests
@@ -64,7 +77,7 @@ lint:
     bun run biome check ./src ./scripts ./tests
 
 # Bump version, build, publish release
-release *ARGS:
+release *ARGS: schemagen
     bun scripts/release.ts {{ARGS}}
 
 # Run the CLI from source once
@@ -82,22 +95,22 @@ setup:
     just schemagen
 
 # Run unit tests
-test:
+test: schemagen
     bun test src
 
 # Run all tests
 test-all: test test-live test-wire
 
 # Run live integration tests against Google Docs/Drive APIs (requires gws auth)
-test-live *ARGS:
+test-live *ARGS: build
     bun test tests/integration {{ARGS}}
 
 alias test-integration := test-live
 
-# Run offline MCP wire integration tests over stdio
-test-wire *ARGS:
+# Run offline MCP wire integration tests over stdio (source and bundled server)
+test-wire *ARGS: build
     bun test tests/integration/mcpWire.test.ts {{ARGS}}
 
 # Typecheck without emitting build artifacts
-typecheck:
+typecheck: schemagen
     bun run tsc --noEmit

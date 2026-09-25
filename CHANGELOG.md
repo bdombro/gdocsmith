@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - The fragile-node guard now also refuses removing or rewriting a paragraph containing an inline image (in-place `innerText` is exempt and keeps the image), a horizontal rule, or a footnote reference, and refuses removing a table whose cells hold images — all without `force: true`. Previously only equations, smart chips, and Table of Contents were protected, so `replaceSection`, `replaceMarkdown`, `replace`, and `remove` could silently destroy images, dividers, and footnote text the Docs REST API cannot recreate. `query`'s `unsafeOnly` filter and node `lossWarning` summaries now flag these too
+- `tests/integration/mcpWire.test.ts` now runs its whole suite against both the TS source (`bun src/index.ts mcp`) and the built Node bundle (`node scripts/mcp.mjs mcp`), so a bug introduced only by bundling (or only exercised under `node`, which is how both Claude and Cursor actually launch gdocsmith) no longer slips past `just check`
+- `just argsbarg-local` and `just argsbarg-published <version>` recipes for developing against a local `../bun-argsbarg` checkout and switching back to a published release
+
+### Changed
+- `src/commands/{run,status}/__generated__/` is no longer committed (it was accidentally tracked; AGENTS.md already documented it as gitignored). `build`, `test`, `typecheck`, `release`, and (transitively, via `build`) `test-live`/`test-wire` now depend on the `schemagen` recipe, so the schema is always regenerated fresh instead of relying on a possibly stale committed copy
 
 ### Changed
 - `sectionCopy` without an anchor appends to the end of the target tab when it lacks the source heading (previously failed)

@@ -11787,11 +11787,11 @@ class DocCache {
         this.memoryCache.set(docId, entry);
         const age = now - entry.fetchedAt;
         if (age < this.ttl1Ms) {
-          return new Gdoc(docData, docId);
+          return new Gdoc(structuredClone(docData), docId);
         }
         if (age < this.ttl2Ms) {
           this.revalidateInBackground(docId, client, entry);
-          return new Gdoc(docData, docId);
+          return new Gdoc(structuredClone(docData), docId);
         }
         return this.hardValidateOrRefresh(docId, client, entry);
       } catch {}
@@ -11823,7 +11823,8 @@ class DocCache {
   async fetchAndStore(docId, client) {
     const existingPromise = this.inFlight.get(docId);
     if (existingPromise) {
-      return existingPromise;
+      const resolved = await existingPromise;
+      return new Gdoc(structuredClone(resolved.data), docId);
     }
     const fetchPromise = (async () => {
       const data = await client.getDocument(docId);
@@ -18041,6 +18042,23 @@ function notFragileAssert(node, action, force) {
 ` + `Modifying or deleting this node permanently destroys interactive smart chips (Google Docs REST API cannot recreate smart chips).
 ` + `To proceed intentionally, pass force: true in the op or on the apply document.`);
   }
+  const imageCount = (node.images?.length ?? 0) + ("kind" in node ? tableImageCount(node) : 0);
+  if (imageCount > 0 && action !== "innerText") {
+    throw new Error(`Refusing to ${action} node ${id} (contains ${imageCount} inline image(s)):
+` + `Google Docs REST API cannot re-insert Drive-hosted images; this permanently deletes ${imageCount} inline image(s).
+` + `To proceed intentionally, pass force: true in the op or on the apply document.`);
+  }
+  if (node.hasHorizontalRule) {
+    throw new Error(`Refusing to ${action} node ${id} (contains a horizontal rule):
+` + `Google Docs REST API cannot insert horizontal rules; modifying or deleting this node permanently destroys it.
+` + `To proceed intentionally, pass force: true in the op or on the apply document.`);
+  }
+  const footnoteCount = "kind" in node ? node.footnoteIds?.length ?? 0 : 0;
+  if (footnoteCount > 0) {
+    throw new Error(`Refusing to ${action} node ${id} (contains ${footnoteCount} footnote reference(s)):
+` + `this deletes ${footnoteCount} footnote reference(s) and their footnote text.
+` + `To proceed intentionally, pass force: true in the op or on the apply document.`);
+  }
   if ("kind" in node && node.kind === "tableOfContents" && action === "remove") {
     throw new Error(`Refusing to remove node ${id} (tableOfContents):
 ` + `Google Docs REST API cannot recreate a Table of Contents.
@@ -18048,6 +18066,22 @@ function notFragileAssert(node, action, force) {
   }
 }
 var assertNotFragile = notFragileAssert;
+function tableImageCount(node) {
+  if (!node.table)
+    return 0;
+  let count = 0;
+  for (const row of node.table.cells) {
+    for (const cell of row) {
+      if (cell.paragraphs) {
+        for (const p of cell.paragraphs)
+          count += p.images?.length ?? 0;
+      } else {
+        count += cell.images?.length ?? 0;
+      }
+    }
+  }
+  return count;
+}
 function chipWarnings(target, cell, para) {
   const warnings = [];
   const checkNode = (node) => {
@@ -18357,8 +18391,14 @@ function nodeSummarize(node, opts = {}) {
   if (node.chips?.length) {
     lossWarnings.push(`FRAGILE: Contains ${node.chips.length} smart chip(s). Modifying text replaces chip with plain text.`);
   }
+  if (node.images?.length) {
+    lossWarnings.push(`FRAGILE: Contains ${node.images.length} inline image(s). Removing or rewriting this node deletes them.`);
+  }
   if (node.hasHorizontalRule) {
     lossWarnings.push("FRAGILE: Contains horizontal rule divider.");
+  }
+  if (node.footnoteIds?.length) {
+    lossWarnings.push(`FRAGILE: Contains ${node.footnoteIds.length} footnote reference(s). Rewriting or removing this node deletes them.`);
   }
   if (node.kind === "tableOfContents") {
     lossWarnings.push("IMMUTABLE: Table of contents cannot be recreated via API. Do not remove.");
@@ -22831,7 +22871,7 @@ function documentTabsParse(gdoc, title) {
   });
 }
 function nodeIsUnsafe(node) {
-  return Boolean(node.hasEquation) || Boolean(node.chips?.length) || Boolean(node.hasHorizontalRule) || node.kind === "tableOfContents";
+  return Boolean(node.hasEquation) || Boolean(node.chips?.length) || Boolean(node.images?.length) || Boolean(node.hasHorizontalRule) || Boolean(node.footnoteIds?.length) || node.kind === "tableOfContents";
 }
 function queryPayloadSizeGuard(opts) {
   if (!opts.filtered || opts.output !== "nodes")
@@ -24604,18 +24644,12 @@ var GdocsmithDocumentSchema_default = {
         },
         mode: {
           type: "string",
-          enum: [
-            "PAGES",
-            "PAGELESS"
-          ],
+          enum: ["PAGES", "PAGELESS"],
           description: "Document layout mode (PAGES or PAGELESS)."
         },
         orientation: {
           type: "string",
-          enum: [
-            "LANDSCAPE",
-            "PORTRAIT"
-          ],
+          enum: ["LANDSCAPE", "PORTRAIT"],
           description: "Page orientation for paged documents."
         },
         pageHeight: {
@@ -24628,15 +24662,7 @@ var GdocsmithDocumentSchema_default = {
         },
         pageSize: {
           type: "string",
-          enum: [
-            "LETTER",
-            "LEGAL",
-            "TABLOID",
-            "A3",
-            "A4",
-            "A5",
-            "CUSTOM"
-          ],
+          enum: ["LETTER", "LEGAL", "TABLOID", "A3", "A4", "A5", "CUSTOM"],
           description: "Standard paper size preset."
         },
         pageWidth: {
@@ -24747,10 +24773,7 @@ var GdocsmithDocumentSchema_default = {
         },
         mode: {
           type: "string",
-          enum: [
-            "PAGES",
-            "PAGELESS"
-          ],
+          enum: ["PAGES", "PAGELESS"],
           description: 'Document layout mode: "PAGES" or "PAGELESS".'
         },
         pageSetup: {
@@ -24774,11 +24797,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Document title."
         }
       },
-      required: [
-        "as",
-        "kind",
-        "title"
-      ],
+      required: ["as", "kind", "title"],
       additionalProperties: false,
       description: 'Document creation or cloning step (`kind: "docCreate"`).'
     },
@@ -24799,11 +24818,7 @@ var GdocsmithDocumentSchema_default = {
         },
         kind: {
           type: "string",
-          enum: [
-            "docClose",
-            "docDelete",
-            "docTrash"
-          ],
+          enum: ["docClose", "docDelete", "docTrash"],
           description: "Workflow step kind."
         },
         permanent: {
@@ -24811,10 +24826,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Permanently delete document from Drive (docDelete)."
         }
       },
-      required: [
-        "doc",
-        "kind"
-      ],
+      required: ["doc", "kind"],
       additionalProperties: false,
       description: 'Document lifecycle step (`kind: "docClose" | "docDelete" | "docTrash"`).'
     },
@@ -24843,11 +24855,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Workflow step kind."
         }
       },
-      required: [
-        "as",
-        "doc",
-        "kind"
-      ],
+      required: ["as", "doc", "kind"],
       additionalProperties: false,
       description: 'Open an existing document step (`kind: "docOpen"`).'
     },
@@ -24876,11 +24884,7 @@ var GdocsmithDocumentSchema_default = {
           description: "New title for the document."
         }
       },
-      required: [
-        "doc",
-        "kind",
-        "title"
-      ],
+      required: ["doc", "kind", "title"],
       additionalProperties: false,
       description: 'Rename an open document step (`kind: "docRename"`).'
     },
@@ -24942,10 +24946,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text content (fallback alias for canonical markdown:)."
         }
       },
-      required: [
-        "doc",
-        "kind"
-      ],
+      required: ["doc", "kind"],
       additionalProperties: false,
       description: 'Insert rendered markdown step (`kind: "markdownInsert"`).'
     },
@@ -24971,10 +24972,7 @@ var GdocsmithDocumentSchema_default = {
         },
         mode: {
           type: "string",
-          enum: [
-            "PAGES",
-            "PAGELESS"
-          ],
+          enum: ["PAGES", "PAGELESS"],
           description: 'Document layout mode: "PAGES" or "PAGELESS".'
         },
         pageSetup: {
@@ -24990,10 +24988,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Target tab ID or title."
         }
       },
-      required: [
-        "doc",
-        "kind"
-      ],
+      required: ["doc", "kind"],
       additionalProperties: false,
       description: 'Document page geometry / layout mode step (`kind: "pageSetup"`).'
     },
@@ -25026,11 +25021,7 @@ var GdocsmithDocumentSchema_default = {
         },
         kind: {
           type: "string",
-          enum: [
-            "docPermissionAdd",
-            "docPermissionList",
-            "docPermissionRemove"
-          ],
+          enum: ["docPermissionAdd", "docPermissionList", "docPermissionRemove"],
           description: "Workflow step kind."
         },
         moveToNewOwnersRoot: {
@@ -25058,34 +25049,18 @@ var GdocsmithDocumentSchema_default = {
           description: "Whether to transfer file ownership to the grantee on docPermissionAdd."
         }
       },
-      required: [
-        "doc",
-        "kind"
-      ],
+      required: ["doc", "kind"],
       additionalProperties: false,
       description: 'Document permission step (`kind: "docPermissionAdd" | "docPermissionList" | "docPermissionRemove"`).'
     },
     DrivePermissionRole: {
       type: "string",
-      enum: [
-        "commenter",
-        "fileOrganizer",
-        "organizer",
-        "owner",
-        "reader",
-        "writer"
-      ],
+      enum: ["commenter", "fileOrganizer", "organizer", "owner", "reader", "writer"],
       description: "Role assigned to a Drive file permission."
     },
     DrivePermissionScope: {
       type: "string",
-      enum: [
-        "anyone",
-        "domain",
-        "group",
-        "internal",
-        "user"
-      ],
+      enum: ["anyone", "domain", "group", "internal", "user"],
       description: "Grantee access scope for a Drive file permission."
     },
     StepQuery: {
@@ -25183,33 +25158,18 @@ var GdocsmithDocumentSchema_default = {
           description: "Scope query to fragile nodes only."
         }
       },
-      required: [
-        "as",
-        "doc",
-        "kind"
-      ],
+      required: ["as", "doc", "kind"],
       additionalProperties: false,
       description: 'Document inspection / query step (`kind: "query"`).'
     },
     NodeKind: {
       type: "string",
-      enum: [
-        "paragraph",
-        "table",
-        "tableOfContents",
-        "sectionBreak",
-        "pageBreak"
-      ],
+      enum: ["paragraph", "table", "tableOfContents", "sectionBreak", "pageBreak"],
       description: "Structural element kinds on the body tape."
     },
     QueryOutputFormat: {
       type: "string",
-      enum: [
-        "headings",
-        "markdown",
-        "nodes",
-        "outline"
-      ],
+      enum: ["headings", "markdown", "nodes", "outline"],
       description: 'Serializer for `kind: query` matches written to `dumped` ("headings" is an alias for "outline").'
     },
     StepRemove: {
@@ -25237,10 +25197,7 @@ var GdocsmithDocumentSchema_default = {
         },
         kind: {
           type: "string",
-          enum: [
-            "dangerousRemoveSection",
-            "remove"
-          ],
+          enum: ["dangerousRemoveSection", "remove"],
           description: "Workflow step kind."
         },
         nodeAt: {
@@ -25256,11 +25213,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Target tab ID or title."
         }
       },
-      required: [
-        "doc",
-        "kind",
-        "nodeAt"
-      ],
+      required: ["doc", "kind", "nodeAt"],
       additionalProperties: false,
       description: 'Node or section removal step (`kind: "remove" | "dangerousRemoveSection"`).'
     },
@@ -25293,10 +25246,7 @@ var GdocsmithDocumentSchema_default = {
         },
         kind: {
           type: "string",
-          enum: [
-            "innerText",
-            "replace"
-          ],
+          enum: ["innerText", "replace"],
           description: "Workflow step kind."
         },
         namedStyleType: {
@@ -25331,21 +25281,13 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text content (fallback alias for canonical replace:)."
         }
       },
-      required: [
-        "doc",
-        "kind"
-      ],
+      required: ["doc", "kind"],
       additionalProperties: false,
       description: 'In-place text replacement step (`kind: "replace" | "innerText"`).'
     },
     ParagraphAlignment: {
       type: "string",
-      enum: [
-        "START",
-        "CENTER",
-        "END",
-        "JUSTIFIED"
-      ],
+      enum: ["START", "CENTER", "END", "JUSTIFIED"],
       description: "Docs paragraph alignment (updateParagraphStyle.alignment)."
     },
     NamedStyle: {
@@ -25526,11 +25468,7 @@ var GdocsmithDocumentSchema_default = {
     },
     CellContentAlignment: {
       type: "string",
-      enum: [
-        "TOP",
-        "MIDDLE",
-        "BOTTOM"
-      ],
+      enum: ["TOP", "MIDDLE", "BOTTOM"],
       description: "Vertical alignment inside a table cell (updateTableCellStyle.contentAlignment)."
     },
     StepReplaceMarkdown: {
@@ -25575,10 +25513,7 @@ var GdocsmithDocumentSchema_default = {
           description: 'Heading-scoped id from query or text snippet to replace (e.g. h.arch.9a1b or "Placeholder: ...").'
         },
         replaceMarkdown: {
-          type: [
-            "string",
-            "boolean"
-          ],
+          type: ["string", "boolean"],
           description: "Markdown content or boolean flag when file: is specified."
         },
         tab: {
@@ -25590,10 +25525,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text content (fallback alias for canonical markdown:)."
         }
       },
-      required: [
-        "doc",
-        "kind"
-      ],
+      required: ["doc", "kind"],
       additionalProperties: false,
       description: 'Single-node markdown replacement step (`kind: "replaceMarkdown"`).'
     },
@@ -25647,10 +25579,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Anchor node to insert before when inserting adjacent rather than replacing."
         },
         replaceSection: {
-          type: [
-            "string",
-            "boolean"
-          ],
+          type: ["string", "boolean"],
           description: "Markdown content or boolean flag when file: is specified."
         },
         tab: {
@@ -25662,10 +25591,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text content (fallback alias for canonical markdown:)."
         }
       },
-      required: [
-        "doc",
-        "kind"
-      ],
+      required: ["doc", "kind"],
       additionalProperties: false,
       description: 'Section-level auto-diffing replacement step (`kind: "replaceSection"`).'
     },
@@ -25722,11 +25648,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Target tab ID or title."
         }
       },
-      required: [
-        "doc",
-        "fromSection",
-        "kind"
-      ],
+      required: ["doc", "fromSection", "kind"],
       additionalProperties: false,
       description: 'Server-side section transfer step across documents or tabs (`kind: "sectionCopy"`).'
     },
@@ -25900,9 +25822,7 @@ var GdocsmithDocumentSchema_default = {
               type: "number"
             }
           },
-          required: [
-            "uri"
-          ],
+          required: ["uri"],
           additionalProperties: false,
           description: "Insert a public HTTPS inline image."
         },
@@ -25913,9 +25833,7 @@ var GdocsmithDocumentSchema_default = {
               type: "string"
             }
           },
-          required: [
-            "email"
-          ],
+          required: ["email"],
           additionalProperties: false,
           description: "Insert a person mention chip."
         },
@@ -25932,9 +25850,7 @@ var GdocsmithDocumentSchema_default = {
               type: "string"
             }
           },
-          required: [
-            "uri"
-          ],
+          required: ["uri"],
           additionalProperties: false,
           description: "Insert a rich link chip."
         },
@@ -25948,10 +25864,7 @@ var GdocsmithDocumentSchema_default = {
               properties: {
                 sectionType: {
                   type: "string",
-                  enum: [
-                    "CONTINUOUS",
-                    "NEXT_PAGE"
-                  ]
+                  enum: ["CONTINUOUS", "NEXT_PAGE"]
                 }
               },
               additionalProperties: false
@@ -26046,10 +25959,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Table styling (pinnedHeaderRows, preventOverflow, columnWidth, etc.)."
         }
       },
-      required: [
-        "doc",
-        "kind"
-      ],
+      required: ["doc", "kind"],
       additionalProperties: false,
       description: 'Surgical DOM and tape mutation step (`kind: "surgical"`).'
     },
@@ -26104,10 +26014,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Optional document ID to clone from."
         },
         fromNode: {
-          type: [
-            "number",
-            "string"
-          ],
+          type: ["number", "string"],
           description: "Alias for nodeId."
         },
         fromTab: {
@@ -26119,10 +26026,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Replacement text content."
         },
         nodeId: {
-          type: [
-            "number",
-            "string"
-          ],
+          type: ["number", "string"],
           description: "Scoped ID or tape index of the node to clone."
         }
       },
@@ -26178,12 +26082,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Title for the new tab. Note: supply final title directly at creation to avoid HTTP 500 on template copies."
         }
       },
-      required: [
-        "as",
-        "doc",
-        "kind",
-        "title"
-      ],
+      required: ["as", "doc", "kind", "title"],
       additionalProperties: false,
       description: 'Tab creation or cloning step (`kind: "tabCreate"`).'
     },
@@ -26216,11 +26115,7 @@ var GdocsmithDocumentSchema_default = {
         },
         kind: {
           type: "string",
-          enum: [
-            "tabDelete",
-            "tabMove",
-            "tabReorder"
-          ],
+          enum: ["tabDelete", "tabMove", "tabReorder"],
           description: "Workflow step kind."
         },
         tab: {
@@ -26228,11 +26123,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Target tab ID or title."
         }
       },
-      required: [
-        "doc",
-        "kind",
-        "tab"
-      ],
+      required: ["doc", "kind", "tab"],
       additionalProperties: false,
       description: 'Tab modification step (`kind: "tabDelete" | "tabMove" | "tabReorder"`).'
     },
@@ -26277,12 +26168,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Optional new title to rename the target tab in place."
         }
       },
-      required: [
-        "doc",
-        "fromTab",
-        "kind",
-        "tab"
-      ],
+      required: ["doc", "fromTab", "kind", "tab"],
       additionalProperties: false,
       description: 'Whole-tab population step into an existing tab (`kind: "tabPopulate"`).'
     },
@@ -26315,12 +26201,7 @@ var GdocsmithDocumentSchema_default = {
           description: "New title for the tab. Note: tabRename 500s on docs lacking root 't.0' (set title directly on tabCreate)."
         }
       },
-      required: [
-        "doc",
-        "kind",
-        "tab",
-        "title"
-      ],
+      required: ["doc", "kind", "tab", "title"],
       additionalProperties: false,
       description: 'Tab renaming step (`kind: "tabRename"`).'
     },
@@ -26385,12 +26266,7 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text replacement (fallback alias for replace:)."
         }
       },
-      required: [
-        "doc",
-        "find",
-        "kind",
-        "replace"
-      ],
+      required: ["doc", "find", "kind", "replace"],
       additionalProperties: false,
       description: 'Plain find-and-replace text step (`kind: "textReplace"`).'
     }
@@ -26451,9 +26327,7 @@ var GdocsmithJsonOutputSchema_default = {
           type: "string"
         }
       },
-      required: [
-        "id"
-      ],
+      required: ["id"],
       additionalProperties: false,
       description: "Document item in highlights."
     },
@@ -26476,9 +26350,7 @@ var GdocsmithJsonOutputSchema_default = {
           type: "string"
         }
       },
-      required: [
-        "id"
-      ],
+      required: ["id"],
       additionalProperties: false,
       description: "Tab item in highlights."
     },
@@ -26492,10 +26364,7 @@ var GdocsmithJsonOutputSchema_default = {
           type: "string"
         }
       },
-      required: [
-        "id",
-        "text"
-      ],
+      required: ["id", "text"],
       additionalProperties: false,
       description: "Newly created heading item in highlights."
     }
@@ -26541,9 +26410,7 @@ var StatusJsonOutputSchema_default = {
       description: "App version from program root."
     }
   },
-  required: [
-    "version"
-  ],
+  required: ["version"],
   additionalProperties: false,
   definitions: {}
 };

@@ -96,14 +96,13 @@ describe("bulletsReconcile", () => {
     ).toThrow(/merge/);
   });
 
-  test("nesting an item of a custom list moves it to a new default list, flagged lossy", () => {
+  test("nesting an item of a custom list would start a nested new list after it: refused (live N7)", () => {
     let lossy = false;
-    const r = differentialRun(doc([item("a", 0, "kix.c"), item("b", 0, "kix.c"), para("z")]), (t, k) => {
-      lossy = nestingSet(t, k[1], 1).lossy;
-    });
+    expect(() =>
+      differentialRun(doc([item("a", 0, "kix.c"), item("b", 0, "kix.c"), para("z")]), (t, k) => {
+        lossy = nestingSet(t, k[1], 1).lossy;
+      }),
+    ).toThrow(/can't start a new list at a nested level/);
     expect(lossy).toBe(true);
-    expect(r.compare.diffs).toEqual([]);
-    const [a, b] = r.final.tabs[0].blocks as ParagraphBlock[];
-    expect(b.bullet?.listId).not.toBe(a.bullet?.listId);
   });
 });

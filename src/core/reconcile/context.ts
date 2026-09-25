@@ -34,6 +34,7 @@ export interface ReconcileContext {
   >;
   /** Original-coordinate ranges deleted (for the comment and named-range guards). */ deletedRanges: Range[];
   /** Heading identities that moved between keys. */ identityTransfers: IdentityTransfer[];
+  /** Nesting depth inside table cells (cell paragraphs can't take `pageBreakBefore`). */ inCell: number;
   /** One origin per request. */ origins: RequestOrigin[];
   /** List runs rebuilt with a new list id. */ listRebuilds: ListRebuild[];
   /** Links to fill in after content lands. */ pendingLinks: PendingLink[];
@@ -51,6 +52,7 @@ export function reconcileContextCreate(
     bulletsNow: new Map(),
     deletedRanges: [],
     identityTransfers: [],
+    inCell: 0,
     listRebuilds: [],
     origins: [],
     pendingLinks: [],
@@ -71,4 +73,19 @@ export function requestPush(
 ): void {
   ctx.requests.push(req as JsonObject);
   ctx.origins.push(origin);
+}
+
+/** Runs `fn` with `ctx` marked as inside a table cell. */
+export function inCellRun<T>(
+  /** Reconciliation state. */
+  ctx: ReconcileContext,
+  /** Work on a cell's content. */
+  fn: () => T,
+): T {
+  ctx.inCell++;
+  try {
+    return fn();
+  } finally {
+    ctx.inCell--;
+  }
 }

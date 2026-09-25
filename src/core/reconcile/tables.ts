@@ -277,6 +277,8 @@ function stylesEmit(
   f.columns.forEach((col, c) => {
     const fields = changedFields(state.columns[c] ?? {}, col.props, []);
     if (!fields.length) return;
+    // A width update must name its width type too (live 400 otherwise).
+    if (fields.includes("width") && !fields.includes("widthType")) fields.push("widthType");
     requestPush(
       ctx,
       RequestBuilder.tableColumnPropertiesUpdate({

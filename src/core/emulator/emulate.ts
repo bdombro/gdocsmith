@@ -46,7 +46,8 @@ export type EmulatorErrorCode =
   | "RANGE_AT_SEGMENT_END"
   | "SURROGATE_SPLIT"
   | "TAB_REQUIRED"
-  | "UNKNOWN_REQUEST";
+  | "UNKNOWN_REQUEST"
+  | "UNMODELED";
 
 /** Thrown when a request violates a Docs API structural rule the emulator enforces. */
 export class EmulatorError extends Error {
@@ -516,7 +517,23 @@ function updateParagraphStyleRequestApply(state: EmulatorState, req: JsonObject,
       "Named style property is not inherited and cannot be cleared.",
     );
   }
-  for (const i of paragraphNewlinesOverlapping(tab.tape, start, end)) {
+  const newlines = paragraphNewlinesOverlapping(tab.tape, start, end);
+  if (fields.includes("pageBreakBefore") && newlines.some((i) => tapeInTable(tab.tape, i))) {
+    throw new EmulatorError(
+      "INVALID_FIELD",
+      ctx.requestIndex,
+      "Cannot update page-break-before when the range contains paragraphs in a table.",
+    );
+  }
+  for (const i of newlines) {
+    // Re-applying the paragraph's own named style resets its text styles, newline included; links
+    // stay, with their chrome (F29).
+    const before = tab.tape[i] as Extract<TapeCell, { t: "nl" }>;
+    if (
+      fields.includes("namedStyleType") &&
+      (before.para.style.namedStyleType ?? "NORMAL_TEXT") === patch.namedStyleType
+    )
+      paragraphTextStylesReset(tab.tape, paragraphStartBefore(tab.tape, i), i);
     const cell = tab.tape[i] as Extract<TapeCell, { t: "nl" }>;
     const style = applyStyleFields(cell.para.style, patch, fields);
     // `direction` reads back explicitly even after a reset (F10).
@@ -531,6 +548,64 @@ function updateParagraphStyleRequestApply(state: EmulatorState, req: JsonObject,
     }
   }
   return {};
+}
+
+/**
+ * Refuses bullet ranges whose outcome isn't modeled: bulleting over existing list items together with
+ * unbulleted paragraphs, or with another preset, re-lists them (live N8, N12).
+ */
+function bulletsModeledAssert(
+  tab: TabState,
+  start: number,
+  end: number,
+  preset: BulletPreset,
+  ctx: EmulateContext,
+): void {
+  const newlines = paragraphNewlinesOverlapping(tab.tape, start, end).map(
+    (i) => tab.tape[i] as Extract<TapeCell, { t: "nl" }>,
+  );
+  const indented = newlines.some((nl) => {
+    const indent = nl.para.style.indentStart as { magnitude?: number } | undefined;
+    return !nl.para.bullet && (indent?.magnitude ?? 0) > 0;
+  });
+  // Live: an existing indent adds to the nesting the leading tabs give (L1 probe: 72pt + 1 tab → level 2).
+  if (indented) throw new EmulatorError("UNMODELED", ctx.requestIndex, "bulleting an indented paragraph");
+  const bulleted = newlines.filter((nl) => nl.para.bullet);
+  if (!bulleted.length) return;
+  const presetOf = (listId: string) =>
+    listPresetInfer(
+      (((tab.lists[listId] as JsonObject | undefined)?.listProperties as JsonObject | undefined)?.nestingLevels ??
+        []) as JsonObject[],
+      listPresetTable(),
+    );
+  if (
+    bulleted.length < newlines.length ||
+    bulleted.some((nl) => presetOf((nl.para.bullet as { listId: string }).listId) !== preset)
+  )
+    throw new EmulatorError("UNMODELED", ctx.requestIndex, "bulleting over existing list items re-lists them");
+}
+
+/** Resets the text style of tape cells `[start, nl]` to nothing but their link (and its chrome). */
+function paragraphTextStylesReset(tape: TapeCell[], start: number, nl: number): void {
+  for (let k = start; k <= nl; k++) {
+    const cell = tape[k];
+    if (cell.t !== "char" && cell.t !== "atom" && cell.t !== "nl") continue;
+    const link = cell.style?.link;
+    tape[k] = {
+      ...cell,
+      style: link ? { foregroundColor: styleCanonical(LINK_CHROME_COLOR), link, underline: true } : {},
+    } as TapeCell;
+  }
+}
+
+/** True when tape index `i` lies inside a table. */
+function tapeInTable(tape: readonly TapeCell[], i: number): boolean {
+  let depth = 0;
+  for (let k = 0; k < i; k++) {
+    if (tape[k].t === "tableStart") depth++;
+    else if (tape[k].t === "tableEnd") depth--;
+  }
+  return depth > 0;
 }
 
 // --- createParagraphBullets / deleteParagraphBullets ---
@@ -555,6 +630,7 @@ function createParagraphBulletsApply(
   bulletPreset: BulletPreset,
   ctx: EmulateContext,
 ): void {
+  bulletsModeledAssert(tab, start, end, bulletPreset, ctx);
   let pos = start;
   let boundEnd = end;
   let newListId: string | undefined;
@@ -580,6 +656,11 @@ function createParagraphBulletsApply(
     let listId: string;
     let nesting: number;
     const joinId = prevMintedHere ? undefined : sameListBefore(tab, pStart, bulletPreset);
+    const before = tab.tape[pStart - 1];
+    if (!joinId && !prevMintedHere && tabCount > 0 && before?.t === "nl" && before.para.bullet) {
+      // Live N7: a new list starting with a tabbed item right after another list gets an odd indent at nesting 0.
+      throw new EmulatorError("UNMODELED", ctx.requestIndex, "a new list that starts nested right after another list");
+    }
     if (joinId) {
       listId = joinId;
       nesting = 0;
@@ -636,17 +717,21 @@ function deleteParagraphBulletsRequestApply(state: EmulatorState, req: JsonObjec
 }
 
 /**
- * Removes bullet membership: `indentFirstLine` is dropped entirely (reverts to inherited) and
- * `indentStart` is set to an explicit empty dimension (`{unit: "PT"}`, no magnitude — an explicit
- * reset to 0, not "unset"). Confirmed live (G3 M5) at nesting level 0 and level 3: the reset is
- * flat and does not depend on the paragraph's prior nesting level.
+ * Removes bullet membership (F12, corrected by live N10): an item at nesting 0 gets `indentStart` as an
+ * explicit empty dimension (`{unit: "PT"}`) and loses `indentFirstLine`; an item at nesting n > 0 keeps
+ * both indents at 36·n pt.
  */
 function deleteParagraphBulletsApply(tab: TabState, start: number, end: number): void {
   for (const i of paragraphNewlinesOverlapping(tab.tape, start, end)) {
     const cell = tab.tape[i] as Extract<TapeCell, { t: "nl" }>;
     if (!cell.para.bullet) continue;
+    const nesting = Number((cell.para.bullet as JsonObject).nestingLevel ?? 0);
     const style: JsonObject = { ...cell.para.style, indentStart: { unit: "PT" } };
     delete style.indentFirstLine;
+    if (nesting > 0) {
+      style.indentStart = { magnitude: 36 * nesting, unit: "PT" };
+      style.indentFirstLine = { magnitude: 36 * nesting, unit: "PT" };
+    }
     cell.para = { ...cell.para, bullet: undefined, style };
   }
 }
@@ -965,6 +1050,14 @@ function updateTableColumnPropertiesRequestApply(
 ): JsonObject {
   const startLocation = req.tableStartLocation as JsonObject;
   const tab = tabResolve(state, startLocation.tabId as string | undefined, ctx.requestIndex);
+  const columnFields = parseFields(req.fields);
+  if (columnFields.includes("width") && !columnFields.includes("widthType")) {
+    throw new EmulatorError(
+      "INVALID_FIELD",
+      ctx.requestIndex,
+      "Width type must be provided when updating column width.",
+    );
+  }
   updateTableColumnProperties(
     tab,
     startLocation.index as number,

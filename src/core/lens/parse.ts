@@ -41,7 +41,12 @@ export interface ParsedBlock {
   /** Code group. */ codeGroup?: number;
   /** Heading level (1–6). */ headingLevel?: number;
   /** Kind. */ kind: ProjBlockKind;
-  /** List membership. */ list?: { depth: number; group: number; kind: "bullet" | "check" | "number" };
+  /** List membership; `written` is the kind the markdown used when it differs (a nested item takes its list's kind). */ list?: {
+    depth: number;
+    group: number;
+    kind: "bullet" | "check" | "number";
+    written?: "bullet" | "check" | "number";
+  };
   /** Inline content. */ spans: ParsedSpan[];
   /** Table content. */ table?: { alignments: Array<"CENTER" | "END" | undefined>; rows: ParsedSpan[][][] };
   /** Block token. */ token?: ParsedToken;
@@ -110,6 +115,9 @@ const STYLE_ATTRS: Record<string, "boolean" | "color" | "number" | "string"> = {
   strikethrough: "boolean",
   underline: "boolean",
 };
+
+/** A Docs heading id (`h.` + base-36). */
+const HEADING_ID = /^h\.[0-9a-z]+$/;
 
 /** A directive name (D30). */
 const DIRECTIVE_NAME = /^[A-Za-z0-9][A-Za-z0-9_+.-]*$/;
@@ -345,8 +353,17 @@ function blockWalk(token: Token, state: WalkState): void {
   }
 }
 
-/** Turns a list (and nested lists) into list-item blocks. */
-function listWalk(list: Tokens.List, depth: number, group: number, state: WalkState): void {
+/**
+ * Turns a list (and nested lists) into list-item blocks. Nested items take the kind of the list's
+ * top-level items: Google Docs can't nest a different kind of list inside another (live N7–N9).
+ */
+function listWalk(
+  list: Tokens.List,
+  depth: number,
+  group: number,
+  state: WalkState,
+  rootKind?: "bullet" | "check" | "number",
+): void {
   if (list.loose)
     throw new CoreError(
       "unsupportedSyntax",
@@ -355,7 +372,8 @@ function listWalk(list: Tokens.List, depth: number, group: number, state: WalkSt
   for (const item of list.items) {
     if (item.task && item.checked)
       throw new CoreError("unsupportedSyntax", "checked items ([x]) aren't supported; use [ ]");
-    const kind = item.task ? "check" : list.ordered ? "number" : "bullet";
+    const written = item.task ? "check" : list.ordered ? "number" : "bullet";
+    const kind = rootKind ?? written;
     const nested: Tokens.List[] = [];
     const inline: Token[] = [];
     for (const child of item.tokens) {
@@ -369,8 +387,12 @@ function listWalk(list: Tokens.List, depth: number, group: number, state: WalkSt
           `list items can only hold text and nested lists (found ${child.type})`,
         );
     }
-    state.blocks.push({ kind: "listItem", list: { depth, group, kind }, spans: inlineWalk(inline, state, {}) });
-    for (const sub of nested) listWalk(sub, depth + 1, group, state);
+    state.blocks.push({
+      kind: "listItem",
+      list: { depth, group, kind, ...(written !== kind ? { written } : {}) },
+      spans: inlineWalk(inline, state, {}),
+    });
+    for (const sub of nested) listWalk(sub, depth + 1, group, state, kind);
   }
 }
 
@@ -526,6 +548,8 @@ function headingLink(target: TabModel, ref: string, state: WalkState, tabId?: st
       ? { headingId: heading.headingId, kind: "heading", tabId }
       : { key: heading.key, kind: "pending", tabId: target.tabId };
   }
+  // A heading id nothing matches is a dangling link the document already has: keep it.
+  if (HEADING_ID.test(ref)) return { headingId: ref, kind: "heading", tabId };
   if (tabId && tabId !== state.ctx.tab.tabId)
     throw new CoreError("linkTargetNotFound", `no heading "${ref}" in that tab`);
   state.pendingTexts.push({ text: ref });

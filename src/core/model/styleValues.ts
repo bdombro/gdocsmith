@@ -202,7 +202,8 @@ const MONOSPACE_FONTS: ReadonlySet<string> = new Set([
 
 /** Canonicalizes an rgb channel triple, defaulting any missing channel to 0. */
 function rgbCanonical(rgb: RawColor): { blue: number; green: number; red: number } {
-  return { blue: rgb.blue ?? 0, green: rgb.green ?? 0, red: rgb.red ?? 0 };
+  // The API stores channels as float32 (17/255 reads back as 0.06666667), so compare at that precision.
+  return { blue: Math.fround(rgb.blue ?? 0), green: Math.fround(rgb.green ?? 0), red: Math.fround(rgb.red ?? 0) };
 }
 
 /** Converts an rgb 0-1 channel triple (missing channels default to 0) into `#RRGGBB`. */

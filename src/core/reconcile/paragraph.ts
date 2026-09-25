@@ -48,28 +48,33 @@ export function paragraphReconcile(
     }
     if (h.bEnd > h.bStart) symbolsInsertEmit(pos, fSyms.slice(h.bStart, h.bEnd), ctx, origin);
   }
-  const kept = keptOriginals(oSyms, fSyms.length, hunks);
-  const newlineAfterText = textStylesEmit(base, fSyms, kept, o.newline.style, f, ctx, origin);
   const newlinePos = base + symbolsUtf16Length(fSyms);
-  const newlineFields = styleFieldsChanged(
-    newlineAfterText,
-    f.newline.style,
-    fieldsOf(newlineAfterText, f.newline.style),
-  );
-  if (newlineFields.length) textStyleRequest(ctx, newlinePos, newlinePos + 1, newlineFields, f.newline.style, origin);
   let styleBefore = o.style;
   if (!opts.skipBullets) {
     if (o.bullet && !f.bullet) {
       requestPush(ctx, RequestBuilder.deleteParagraphBullets(base, newlinePos + 1, undefined, ctx.tabId), origin);
-      styleBefore = { ...o.style, indentStart: { magnitude: 0, unit: "PT" } };
-      delete styleBefore.indentFirstLine;
+      // What deleteParagraphBullets leaves (F12, live N10).
+      const nesting = o.bullet.nestingLevel;
+      styleBefore = { ...o.style, indentStart: { magnitude: 36 * nesting, unit: "PT" } };
+      if (nesting) styleBefore.indentFirstLine = { magnitude: 36 * nesting, unit: "PT" };
+      else delete styleBefore.indentFirstLine;
     } else if (f.bullet && !bulletsEqual(o, f)) {
       throw new CoreError("internal", "adding or changing bullets belongs to the list reconciler (M10)");
     }
   }
   const fields = (
     opts.forceFullStyle ? [...PARAGRAPH_STYLE_FIELDS] : styleFieldsChanged(styleBefore, f.style, PARAGRAPH_STYLE_FIELDS)
-  ).filter((field) => !opts.skipFields?.includes(field));
+  ).filter(
+    (field) =>
+      !opts.skipFields?.includes(field) &&
+      !(ctx.inCell && field === "pageBreakBefore") &&
+      // Unset and NORMAL_TEXT are the same named style; re-sending it would reset text styles (F29).
+      !(field === "namedStyleType" && !opts.forceFullStyle && namedOf(styleBefore) === namedOf(f.style)),
+  );
+  // Paragraph style goes first: setting namedStyleType to the paragraph's current named style resets
+  // its text styles (F29). A plain change of named style doesn't, but a forced full style (a merge
+  // survivor, whose API state came from another paragraph) may, so every run is then restyled in full.
+  const restyleAll = !!opts.forceFullStyle && fields.includes("namedStyleType");
   if (fields.length) {
     const paragraphStyle = pick(f.style, fields);
     // namedStyleType can't be reset, only set (F10).
@@ -80,6 +85,12 @@ export function paragraphReconcile(
       origin,
     );
   }
+  const kept = restyleAll ? new Array(fSyms.length).fill(undefined) : keptOriginals(oSyms, fSyms.length, hunks);
+  const newlineAfterText = textStylesEmit(base, fSyms, kept, restyleAll ? {} : o.newline.style, f, ctx, origin);
+  const newlineFields = restyleAll
+    ? [...TEXT_STYLE_FIELDS]
+    : styleFieldsChanged(newlineAfterText, f.newline.style, fieldsOf(newlineAfterText, f.newline.style));
+  if (newlineFields.length) textStyleRequest(ctx, newlinePos, newlinePos + 1, newlineFields, f.newline.style, origin);
   if (o.protected && ctx.requests.length > requestCount) ctx.protectedTouches.push(o.key);
 }
 
@@ -153,16 +164,30 @@ export function newParagraphStylesEmit(
 ): void {
   const origin: RequestOrigin = { key: f.key, stepIndex: f.stamp?.stepIndex };
   const fSyms = paragraphSymbols(f);
-  textStylesEmit(start, fSyms, new Array(fSyms.length).fill(undefined), {}, f, ctx, origin);
   const newlinePos = start + symbolsUtf16Length(fSyms);
-  textStyleRequest(ctx, newlinePos, newlinePos + 1, TEXT_STYLE_FIELDS, f.newline.style, origin);
-  const paragraphStyle = pick(f.style, PARAGRAPH_STYLE_FIELDS);
+  // Paragraph style first: re-applying a named style resets text styles (F29). Cell paragraphs
+  // can't take pageBreakBefore, even unset.
+  const fields = ctx.inCell ? PARAGRAPH_STYLE_FIELDS.filter((f) => f !== "pageBreakBefore") : PARAGRAPH_STYLE_FIELDS;
+  const paragraphStyle = pick(f.style, fields);
   paragraphStyle.namedStyleType ??= "NORMAL_TEXT";
+  // A list item the bullet pass will bullet goes in unindented: createParagraphBullets counts an
+  // existing indent as nesting (live), and the bullet pass sets the final indents.
+  if (f.bullet && !ctx.bulletsNow.get(f.key)) {
+    delete paragraphStyle.indentStart;
+    delete paragraphStyle.indentFirstLine;
+  }
   requestPush(
     ctx,
-    RequestBuilder.paragraphStyleUpdate(start, newlinePos + 1, paragraphStyle, PARAGRAPH_STYLE_FIELDS, ctx.tabId),
+    RequestBuilder.paragraphStyleUpdate(start, newlinePos + 1, paragraphStyle, fields, ctx.tabId),
     origin,
   );
+  textStylesEmit(start, fSyms, new Array(fSyms.length).fill(undefined), {}, f, ctx, origin);
+  textStyleRequest(ctx, newlinePos, newlinePos + 1, TEXT_STYLE_FIELDS, f.newline.style, origin);
+}
+
+/** A paragraph style's named style type (unset is NORMAL_TEXT). */
+function namedOf(style: JsonObject): string {
+  return (style.namedStyleType as string | undefined) ?? "NORMAL_TEXT";
 }
 
 /** For each final symbol, the original symbol it was kept from (`undefined` when inserted). */

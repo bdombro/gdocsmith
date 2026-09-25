@@ -7,7 +7,7 @@ import { docModelParse } from "../model/fromJson.ts";
 import { KeyAllocator } from "../model/keys.ts";
 import type { JsonObject } from "../model/rawJson.ts";
 import { styleEqual } from "../model/styleValues.ts";
-import { requestsEmulate } from "./emulate.ts";
+import { EmulatorError, requestsEmulate } from "./emulate.ts";
 
 /** One recorded scenario: the document before, the requests sent, and what the API returned. */
 export interface ConformanceFixture {
@@ -95,6 +95,8 @@ export function conformanceCompare(
   try {
     emulated = requestsEmulate(fx.before, fx.requests);
   } catch (err) {
+    // Refusing what it doesn't model is conservative (a plan relying on it is never sent).
+    if (err instanceof EmulatorError && err.code === "UNMODELED") return [];
     return fx.after ? [`emulator rejected the batch the API accepted: ${(err as Error).message}`] : [];
   }
   if (!fx.after) return [`emulator accepted the batch the API rejected: ${fx.error ?? "(no error text)"}`];

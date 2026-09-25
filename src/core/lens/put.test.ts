@@ -133,16 +133,27 @@ describe("markdownPut", () => {
     expect(a.inlines[1]).toMatchObject({ create: { email: "p@x.test", type: "person" } });
   });
 
-  test("numbered steps with bullet details: the bullets form their own list nested under the steps", () => {
+  test("numbered steps with bullet details: the details become numbered sub-items, with a note", () => {
     const s = setup([para("intro")]);
-    s.write("1. step one\n   - detail\n   - more\n1. step two", { kind: "append" });
+    const report = s.write("1. step one\n   - detail\n   - more\n1. step two", { kind: "append" });
     const [, one, d1, d2, two] = s.final.tabs[0].blocks as ParagraphBlock[];
-    expect(one.bullet?.listId).toBe(two.bullet?.listId as string);
-    expect(d1.bullet?.listId).toBe(d2.bullet?.listId as string);
-    expect(d1.bullet?.listId).not.toBe(one.bullet?.listId);
-    expect([one.bullet?.nestingLevel, d1.bullet?.nestingLevel, two.bullet?.nestingLevel]).toEqual([0, 1, 0]);
+    for (const p of [d1, d2, two]) expect(p.bullet?.listId).toBe(one.bullet?.listId as string);
+    expect([one, d1, d2, two].map((p) => p.bullet?.nestingLevel)).toEqual([0, 1, 1, 0]);
+    expect(report.notes).toEqual([
+      "nested bullet items became number items: Google Docs can't nest a different kind of list inside another",
+    ]);
     expect(s.plan().check.diffs).toEqual([]);
-    expect(s.exportMd(true)).toBe("intro\n\n1. step one\n   - detail\n   - more\n1. step two\n");
+    expect(s.exportMd(true)).toBe("intro\n\n1. step one\n   1. detail\n   1. more\n1. step two\n");
+  });
+
+  test("headings of every level (H1–H6) are created and read back", () => {
+    const s = setup([para("intro")]);
+    const md = [1, 2, 3, 4, 5, 6].map((n) => `${"#".repeat(n)} Level ${n}`).join("\n\n");
+    s.write(md, { kind: "append" });
+    const types = (s.final.tabs[0].blocks as ParagraphBlock[]).slice(1).map((p) => p.style.namedStyleType);
+    expect(types).toEqual([1, 2, 3, 4, 5, 6].map((n) => `HEADING_${n}`));
+    expect(s.plan().check.diffs).toEqual([]);
+    expect(s.exportMd(true)).toBe(`intro\n\n${md}\n`);
   });
 
   test("markdown table edits: cells, rows, columns, alignment", () => {

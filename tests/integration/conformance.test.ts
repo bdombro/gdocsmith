@@ -15,6 +15,9 @@ const FIXTURE_DIR = join(import.meta.dir, "..", "..", "src", "core", "emulator",
 /** Rewrite fixtures instead of only checking conformance. */
 const RECORD = process.env.GDOCSMITH_RECORD === "1";
 
+/** Only these scenario ids (comma-separated), e.g. to record new ones. */
+const ONLY = process.env.GDOCSMITH_ONLY?.split(",");
+
 /** Per-scenario timeout: a few API calls plus rate-limit backoff. */
 const SCENARIO_TIMEOUT_MS = 180_000;
 
@@ -67,7 +70,7 @@ async function scenarioRecord(scenario: (typeof SCENARIOS)[number]): Promise<Con
 
 describe("live Docs API conformance", () => {
   if (RECORD) mkdirSync(FIXTURE_DIR, { recursive: true });
-  for (const scenario of SCENARIOS) {
+  for (const scenario of SCENARIOS.filter((s) => !ONLY || ONLY.includes(s.id))) {
     test(
       `${scenario.id}: ${scenario.name}`,
       async () => {

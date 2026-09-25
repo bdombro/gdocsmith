@@ -278,7 +278,9 @@ describe("requestsEmulate", () => {
     const link = (textStyle: object, fields: string) => ({
       updateTextStyle: { fields, range: { endIndex: 3, startIndex: 1 }, textStyle },
     });
-    const chrome = { color: { rgbColor: { blue: 0.8, green: 0.33333334, red: 0.06666667 } } };
+    const chrome = {
+      color: { rgbColor: { blue: Math.fround(0.8), green: Math.fround(0.33333334), red: Math.fround(0.06666667) } },
+    };
     const linked = requestsEmulate(json, [link({ link: { url: "https://x.test" } }, "link")]).json;
     const p = parse(linked).tabs[0].blocks[0] as ParagraphBlock;
     expect(p.inlines[0].style).toEqual({ foregroundColor: chrome, link: { url: "https://x.test" }, underline: true });
@@ -307,7 +309,7 @@ describe("requestsEmulate", () => {
     expect(p.style).toEqual({ direction: "LEFT_TO_RIGHT", namedStyleType: "NORMAL_TEXT" });
   });
 
-  test("deleteParagraphBullets removes membership and resets indent flat (indentFirstLine dropped, indentStart explicit-empty)", () => {
+  test("deleteParagraphBullets leaves 36pt per nesting level on both indents (F12, live N10)", () => {
     const json = docJsonBuild({
       tabs: [
         {
@@ -323,8 +325,8 @@ describe("requestsEmulate", () => {
     ]);
     const p = parse(out).tabs[0].blocks[0] as ParagraphBlock;
     expect(p.bullet).toBeUndefined();
-    expect(p.style.indentStart).toEqual({ magnitude: 0, unit: "PT" });
-    expect(p.style.indentFirstLine).toBeUndefined();
+    expect(p.style.indentStart).toEqual({ magnitude: 36, unit: "PT" });
+    expect(p.style.indentFirstLine).toEqual({ magnitude: 36, unit: "PT" });
   });
 
   test("minted ids stay unique across batches applied to the same document", () => {

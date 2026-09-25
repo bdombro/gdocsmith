@@ -395,6 +395,10 @@ function atomCreateValidate(create: AtomCreate): void {
   if ((create.type === "richLink" || create.type === "image") && !httpsIs(create.uri)) {
     throw new CoreError("invalidAtom", `${create.type} needs an https URL, got "${create.uri}"`);
   }
+  // The API makes rich links only to Google Drive files (live: other URLs are "invalid").
+  if (create.type === "richLink" && !/^https:\/\/(docs|drive)\.google\.com\//.test(create.uri)) {
+    throw new CoreError("invalidAtom", `rich links need a Google Drive file URL, got "${create.uri}"`);
+  }
 }
 
 /** True when `style` explicitly carries every `where` value. */

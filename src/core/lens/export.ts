@@ -59,6 +59,7 @@ function linkContext(doc: DocModel, tab: TabModel): LinkRenderContext {
         b.kind === "paragraph" && headingStyleIs(b.style.namedStyleType as string | undefined),
     );
   return {
+    currentTabId: tab.tabId,
     headingText(headingId, tabId) {
       const target = tabId && tabId !== tab.tabId ? doc.tabs.find((t) => t.tabId === tabId) : tab;
       if (!target) return undefined;

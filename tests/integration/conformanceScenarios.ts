@@ -699,6 +699,30 @@ export const SCENARIOS: Scenario[] = [
     setup: [() => [ins(1, "A\nB\nC\nZ")], (j) => [bullets(P(j, 0).startIndex, P(j, 2).endIndex)]],
     test: (j) => [ins(P(j, 2).endIndex - 1, "\n\tD"), bullets(P(j, 2).endIndex, P(j, 2).endIndex + 3)],
   },
+  // mixed-kind nesting: a bullet detail under numbered steps (A, \tB, C)
+  {
+    id: "N7",
+    name: "number the span, then unbullet, re-tab, and bullet the nested item",
+    setup: [() => [ins(1, "A\n\tB\nC\nZ")]],
+    test: () => [
+      bullets(1, 8, "NUMBERED_DECIMAL_ALPHA_ROMAN"),
+      { deleteParagraphBullets: { range: { endIndex: 5, startIndex: 3 } } },
+      ins(3, "\t"),
+      bullets(3, 6),
+    ],
+  },
+  {
+    id: "N8",
+    name: "bullet the nested item first, then number the span around it",
+    setup: [() => [ins(1, "A\n\tB\nC\nZ")]],
+    test: () => [bullets(3, 6), bullets(1, 7, "NUMBERED_DECIMAL_ALPHA_ROMAN")],
+  },
+  {
+    id: "N10",
+    name: "deleteParagraphBullets over items at nesting 0, 1, and 3 (what indents remain?)",
+    setup: [() => [ins(1, "A\n\tB\n\t\t\tD\nZ")], () => [bullets(1, 12, "NUMBERED_DECIMAL_ALPHA_ROMAN")]],
+    test: () => [{ deleteParagraphBullets: { range: { endIndex: 8, startIndex: 1 } } }],
+  },
   // text style: when does a range restyle the paragraph's newline?
   {
     id: "S1",
@@ -841,5 +865,70 @@ export const SCENARIOS: Scenario[] = [
     test: (j) => [
       { mergeTableCells: { tableRange: { columnSpan: 3, rowSpan: 1, tableCellLocation: cellLoc(j, 0, 0) } } },
     ],
+  },
+  // re-applying a paragraph's own named style (F29) and paragraph styles inside tables
+  {
+    id: "P3",
+    name: "re-applying NORMAL_TEXT resets run styles; links keep their chrome",
+    setup: [
+      () => [
+        ins(1, "abc def\nz"),
+        text(2, 3, { bold: true, fontSize: { magnitude: 15, unit: "PT" } }, "bold,fontSize"),
+        text(5, 8, { link: { url: "https://example.com" }, underline: false }, "link,underline"),
+        text(8, 9, { italic: true }, "italic"),
+      ],
+    ],
+    test: () => [
+      {
+        updateParagraphStyle: {
+          fields: "namedStyleType",
+          paragraphStyle: { namedStyleType: "NORMAL_TEXT" },
+          range: { endIndex: 3, startIndex: 2 },
+        },
+      },
+    ],
+  },
+  {
+    id: "P4",
+    name: "changing HEADING_1 to HEADING_2 keeps run styles",
+    setup: [
+      () => [
+        ins(1, "abc\nz"),
+        {
+          updateParagraphStyle: {
+            fields: "namedStyleType",
+            paragraphStyle: { namedStyleType: "HEADING_1" },
+            range: { endIndex: 5, startIndex: 1 },
+          },
+        },
+        text(2, 3, { bold: true }, "bold"),
+      ],
+    ],
+    test: () => [
+      {
+        updateParagraphStyle: {
+          fields: "namedStyleType",
+          paragraphStyle: { namedStyleType: "HEADING_2" },
+          range: { endIndex: 5, startIndex: 1 },
+        },
+      },
+    ],
+  },
+  {
+    id: "P5",
+    name: "pageBreakBefore in a mask over a table cell paragraph (expect 400)",
+    setup: [...tableBase],
+    test: (j) => {
+      const start = T(j).table.tableRows[0].tableCells[0].content[0].startIndex as number;
+      return [
+        {
+          updateParagraphStyle: {
+            fields: "pageBreakBefore",
+            paragraphStyle: {},
+            range: { endIndex: start + 1, startIndex: start },
+          },
+        },
+      ];
+    },
   },
 ];

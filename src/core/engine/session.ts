@@ -100,15 +100,19 @@ export interface DocState {
   /** JSON the original model was parsed from. */ json: GoogleDoc;
   /** The model as loaded. */ original: DocModel;
   /** Alias it was created under this run (bound to a real document by the ledger). */ createdAs?: string;
+  /** Tabs the create phase already made, hidden until the program's `tabCreate` claims them (so re-runs see what the first run saw, D40). */ hiddenTabs: TabModel[];
   /** Created-tab counter (provisional ids `new:tab:<n>`, or the ledger's real ids). */ tabCounter: number;
   /** Blocks and atoms deleted. */ tombstones: Tombstone[];
 }
 
+/** Millimetres in PT (the API stores ISO sizes as exact conversions). */
+const mm = (n: number) => n * (72 / 25.4);
+
 /** Page sizes in PT (portrait). */
 const PAGE_SIZES: Record<NonNullable<PageSetupPatch["size"]>, { height: number; width: number }> = {
-  A3: { height: 1190.55, width: 841.89 },
-  A4: { height: 841.89, width: 595.28 },
-  A5: { height: 595.28, width: 419.53 },
+  A3: { height: mm(420), width: mm(297) },
+  A4: { height: mm(297), width: mm(210) },
+  A5: { height: mm(210), width: mm(148) },
   LEGAL: { height: 1008, width: 612 },
   LETTER: { height: 792, width: 612 },
   TABLOID: { height: 1224, width: 792 },
@@ -145,10 +149,15 @@ export class CoreSession implements Session {
           forceFetch: o.forceFetch,
           keys: this.keys,
         });
+    const created = new Set(this.opts.ledger?.tabs.get(docId) ?? []);
+    const current = structuredClone(loaded.model);
+    const hiddenTabs = current.tabs.filter((t) => created.has(t.tabId));
+    current.tabs = current.tabs.filter((t) => !created.has(t.tabId));
     const state: DocState = {
       alias: o.alias,
-      current: structuredClone(loaded.model),
+      current,
       docId,
+      hiddenTabs,
       intents: { permissionsAdd: [], permissionsRemove: [] },
       isNew: false,
       json: loaded.json,
@@ -182,6 +191,7 @@ export class CoreSession implements Session {
       create: { from: source?.docId, title: o.title },
       current: structuredClone(original),
       docId,
+      hiddenTabs: [],
       intents: { permissionsAdd: [], permissionsRemove: [] },
       isNew: true,
       json,
@@ -287,8 +297,13 @@ class DocHandleImpl implements DocHandle {
     if (bound) {
       // The create phase already made it (with its final title and place); fill it.
       this.state.tabCounter++;
-      const existing = doc.tabs.find((t) => t.tabId === bound);
+      const existing = this.state.hiddenTabs.find((t) => t.tabId === bound);
       if (!existing) throw new CoreError("internal", `created tab ${bound} is missing`);
+      this.state.hiddenTabs = this.state.hiddenTabs.filter((t) => t !== existing);
+      // Back into its loaded place among the visible tabs.
+      const order = this.state.original.tabs.map((t) => t.tabId);
+      const at = doc.tabs.findIndex((t) => order.indexOf(t.tabId) > order.indexOf(bound));
+      doc.tabs.splice(at < 0 ? doc.tabs.length : at, 0, existing);
       if (o.from) {
         const fromHandle = o.from as TabHandleImpl;
         const source = fromHandle.model();

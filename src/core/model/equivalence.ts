@@ -252,9 +252,9 @@ function styleCompare(path: string, label: string, expected: object, actual: obj
   diffs.push(`${path}: ${label} differs (${changed.join(", ")})`);
 }
 
-/** A paragraph style with the fields the API always reads back filled in (`namedStyleType` NORMAL_TEXT, `direction` LEFT_TO_RIGHT), so a sparse model compares equal. */
+/** A paragraph style with the fields the API always reads back filled in (`namedStyleType` NORMAL_TEXT, `direction` LEFT_TO_RIGHT) and the default `pageBreakBefore: false` (table cells always carry it and can't change it), so a sparse model compares equal. */
 function paragraphStyleDefaulted(style: Record<string, unknown>): Record<string, unknown> {
-  return { direction: "LEFT_TO_RIGHT", namedStyleType: "NORMAL_TEXT", ...style };
+  return { direction: "LEFT_TO_RIGHT", namedStyleType: "NORMAL_TEXT", pageBreakBefore: false, ...style };
 }
 
 /** True when an atom read back from the API is what `create` asked for (ids and server-filled fields ignored; images match by type, since their source lives in `inlineObjects`). */

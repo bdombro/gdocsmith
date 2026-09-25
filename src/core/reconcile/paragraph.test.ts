@@ -114,8 +114,8 @@ describe("paragraphReconcile", () => {
         paragraphStyleUpdate(t, k[1], { alignment: "CENTER" });
       },
     );
-    expect(kinds(requests)).toEqual(["updateTextStyle", "updateParagraphStyle"]);
-    expect(requests[0]).toMatchObject({ updateTextStyle: { range: { endIndex: 5, startIndex: 4 } } });
+    expect(kinds(requests)).toEqual(["updateParagraphStyle", "updateTextStyle"]);
+    expect(requests[1]).toMatchObject({ updateTextStyle: { range: { endIndex: 5, startIndex: 4 } } });
     expect(diffs).toEqual([]);
   });
 

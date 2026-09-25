@@ -180,8 +180,8 @@ describe("emulateTables", () => {
       {
         updateTableColumnProperties: {
           columnIndices: [0],
-          fields: "width",
-          tableColumnProperties: { width: { magnitude: 200, unit: "PT" } },
+          fields: "width,widthType",
+          tableColumnProperties: { width: { magnitude: 200, unit: "PT" }, widthType: "FIXED_WIDTH" },
           tableStartLocation: { index: tableStartIndex },
         },
       },

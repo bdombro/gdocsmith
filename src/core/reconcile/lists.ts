@@ -62,7 +62,7 @@ function containerBulletsReconcile(
       )
         end++;
       const members = blocks.slice(i, end + 1) as ParagraphBlock[];
-      bulletsRemove(members, ranges, ctx);
+      bulletsRemove(members, ranges, ctx, now);
       i = end + 1;
       continue;
     }
@@ -99,46 +99,23 @@ function containerBulletsReconcile(
       );
     }
     const run = blocks.slice(runStart, runEnd + 1) as ParagraphBlock[];
+    if (runPred?.bullet && (run[0].bullet?.nestingLevel ?? 0) > 0) {
+      throw new CoreError(
+        "unrealizableList",
+        "Google Docs can't start a new list at a nested level right after another list; put a paragraph between them",
+      );
+    }
     if (!isNew) {
       ctx.listRebuilds.push({ keys: run.map((m) => m.key), listId, lossy: !def?.preset });
     } else if (listSeenElsewhere(blocks, listId, runStart, runEnd)) {
-      // A new list interrupted only by items nested under it (another kind's sub-list): create the
-      // whole span as this list, then re-bullet each nested run as its own list (its predecessor is
-      // an item of this list with a different preset, so it doesn't join it).
-      const spanEnd = nestedSpanEnd(tab, blocks, listId, runStart);
-      if (spanEnd === undefined) {
-        throw new CoreError(
-          "unrealizableList",
-          "a new list's items must be consecutive or separated only by items nested under it",
-        );
-      }
-      const span = blocks.slice(runStart, spanEnd + 1) as ParagraphBlock[];
-      bulletsCreate(span, preset, listPresetTable()[preset] ?? [], ranges, ctx, now);
-      let k = 0;
-      while (k < span.length) {
-        const other = span[k].bullet?.listId;
-        if (other === listId) {
-          k++;
-          continue;
-        }
-        let e = k;
-        while (e < span.length && span[e].bullet?.listId === other) e++;
-        const def2 = other ? tab.lists[other] : undefined;
-        const preset2: BulletPreset = def2?.preset ?? LIST_DEFAULT_PRESET[def2 ? listKind(def2, 0) : "bullet"];
-        if (preset2 === preset)
-          throw new CoreError("unrealizableList", "a list nested inside a same-style list would merge into it");
-        bulletsCreate(
-          span.slice(k, e),
-          preset2,
-          def2?.nestingLevels ?? listPresetTable()[preset2] ?? [],
-          ranges,
-          ctx,
-          () => span[0].bullet,
-        );
-        k = e;
-      }
-      i = spanEnd + 1;
-      continue;
+      // Items of another list between this one's: the API can't nest a different kind of list inside
+      // a new one (live N7–N9: bulleting over list items re-lists them).
+      throw new CoreError(
+        "unrealizableList",
+        nestedSpanEnd(tab, blocks, listId, runStart) === undefined
+          ? "a new list's items must be consecutive"
+          : "Google Docs can't nest a different kind of list inside a new list; nest items of the same kind",
+      );
     }
     bulletsCreate(run, preset, listPresetTable()[preset] ?? [], ranges, ctx, now);
     i = runEnd + 1;
@@ -150,6 +127,7 @@ function bulletsRemove(
   members: readonly ParagraphBlock[],
   ranges: ReadonlyMap<string, Range>,
   ctx: ReconcileContext,
+  now: (p: ParagraphBlock) => BulletRef | undefined,
 ): void {
   const first = rangeOf(ranges, members[0]);
   const last = rangeOf(ranges, members[members.length - 1]);
@@ -158,7 +136,14 @@ function bulletsRemove(
     RequestBuilder.deleteParagraphBullets(first.start, last.end, undefined, ctx.tabId),
     originOf(members[0]),
   );
-  for (const m of members) indentsRestore(m, { indentStart: { magnitude: 0, unit: "PT" } }, ranges, ctx);
+  for (const m of members) indentsRestore(m, unbulletedIndents(now(m)?.nestingLevel ?? 0), ranges, ctx);
+}
+
+/** The indents `deleteParagraphBullets` leaves on an item at `nesting` (F12, live N10). */
+function unbulletedIndents(nesting: number): JsonObject {
+  if (!nesting) return { indentStart: { magnitude: 0, unit: "PT" } };
+  const indent = { magnitude: 36 * nesting, unit: "PT" };
+  return { indentFirstLine: indent, indentStart: indent };
 }
 
 /** Bullets a consecutive run: unbullet whatever is bulleted, insert nesting tabs, create, restore indents. */
@@ -175,6 +160,16 @@ function bulletsCreate(
   const origin = originOf(members[0]);
   if (members.some((m) => now(m))) {
     requestPush(ctx, RequestBuilder.deleteParagraphBullets(first.start, last.end, undefined, ctx.tabId), origin);
+    // Unbulleted nested items keep an indent, which createParagraphBullets would add to their tabs' nesting.
+    for (const m of members) {
+      if (!now(m)?.nestingLevel) continue;
+      const range = rangeOf(ranges, m);
+      requestPush(
+        ctx,
+        RequestBuilder.paragraphStyleUpdate(range.start, range.end, {}, [...INDENT_FIELDS], ctx.tabId),
+        originOf(m),
+      );
+    }
   }
   let tabs = 0;
   for (const m of [...members].reverse()) {

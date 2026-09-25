@@ -356,6 +356,14 @@ function tableUpdate(state: PutState, proj: ProjBlock, b0: ParsedBlock, b1: Pars
   });
 }
 
+/** Notes (once per kind pair) that a nested list item took its list's kind instead of the one written. */
+function nestedKindNote(state: PutState, block: ParsedBlock): void {
+  const list = block.list;
+  if (!list?.written) return;
+  const note = `nested ${list.written} items became ${list.kind} items: Google Docs can't nest a different kind of list inside another`;
+  if (!state.notes.includes(note)) state.notes.push(note);
+}
+
 /** Changes a paired paragraph's kind in place: heading level, list kind or depth, code, or plain (D35). */
 function kindChange(state: PutState, p: ParagraphBlock, b0: ParsedBlock, b1: ParsedBlock): void {
   const { target } = state;
@@ -373,6 +381,7 @@ function kindChange(state: PutState, p: ParagraphBlock, b0: ParsedBlock, b1: Par
     if (!keep) paragraphStyleUpdate(target, p.key, { namedStyleType: `HEADING_${b1.headingLevel}` });
   } else if (b0.kind === "heading") paragraphStyleUpdate(target, p.key, { namedStyleType: "NORMAL_TEXT" });
   if (b1.kind === "listItem" && b1.list) {
+    nestedKindNote(state, b1);
     const kind = b1.list.kind;
     if (b0.kind !== "listItem") bulletsSet(target, [p.key], { kind });
     else if (b0.list?.kind !== kind) listKindSet(target, [p.key], kind);
@@ -689,6 +698,7 @@ function blocksCreate(state: PutState, ref: ContainerRef, at: number, blocks: re
       return { style, syms: syms.map((s) => symSpec(state, probe, s, undefined)) };
     });
     const created = paragraphsInsert(target, ref, index, specs);
+    for (const block of run) nestedKindNote(state, block);
     // List membership per markdown list: items of one kind share a list, even across items of
     // another kind nested between them; each kind's first stretch takes a list via L1–L3.
     let k = 0;

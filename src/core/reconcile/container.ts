@@ -8,7 +8,7 @@ import { styleEqual } from "../model/styleValues.ts";
 import { paragraphSymbols, type Sym } from "../model/symbols.ts";
 import type { Block, BulletRef, ParagraphBlock, SectionBreakBlock } from "../model/types.ts";
 import { RequestBuilder } from "../requests.ts";
-import { type ReconcileContext, type RequestOrigin, requestPush } from "./context.ts";
+import { inCellRun, type ReconcileContext, type RequestOrigin, requestPush } from "./context.ts";
 import { newParagraphStylesEmit, paragraphReconcile, symbolsInsertEmit } from "./paragraph.ts";
 import { type CellFill, cellEmptyParagraph, tableNewEmit, tableReconcile } from "./tables.ts";
 
@@ -165,7 +165,13 @@ function keptReconcile(pair: KeptPair, override: KeptOverride | undefined, ctx: 
     const skipFields = bulletSame(before.bullet, f.bullet) ? [] : ["indentFirstLine", "indentStart"];
     paragraphReconcile(before, f, ctx, { forceFullStyle: override?.forceFullStyle, skipBullets: true, skipFields });
   } else if (o.kind === "table" && f.kind === "table") {
-    tableReconcile(o, f, ctx, (oc, fc) => containerReconcile(oc.blocks, fc.blocks, ctx), cellFillFor(ctx));
+    tableReconcile(
+      o,
+      f,
+      ctx,
+      (oc, fc) => inCellRun(ctx, () => containerReconcile(oc.blocks, fc.blocks, ctx)),
+      cellFillFor(ctx),
+    );
   } else if (o.kind === "sectionBreak" && f.kind === "sectionBreak") {
     const range = originOf(o);
     sectionStyleEmit(o.sectionStyle, f, range.start, ctx);
@@ -175,10 +181,12 @@ function keptReconcile(pair: KeptPair, override: KeptOverride | undefined, ctx: 
 /** Fills a new (empty) cell: its paragraphs go into the cell's only paragraph, with full styles. */
 function cellFillFor(ctx: ReconcileContext): CellFill {
   return (cell, contentStart) =>
-    streamInsert(
-      cell.blocks,
-      { inherit: cellEmptyParagraph(cell.key, contentStart), kind: "reuse", pos: contentStart },
-      ctx,
+    inCellRun(ctx, () =>
+      streamInsert(
+        cell.blocks,
+        { inherit: cellEmptyParagraph(cell.key, contentStart), kind: "reuse", pos: contentStart },
+        ctx,
+      ),
     );
 }
 

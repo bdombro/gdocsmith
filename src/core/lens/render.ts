@@ -5,6 +5,7 @@ import type { DirectiveAttrs, LinkTarget, Marks, ProjBlock, Projection, ProjSpan
 
 /** Resolves link targets to their markdown form. */
 export interface LinkRenderContext {
+  /** The tab being rendered. */ currentTabId?: string;
   /** Text of a heading in this tab by id, and whether that text is unique among the tab's headings. */ headingText(
     headingId: string,
     tabId?: string,
@@ -404,6 +405,9 @@ function linkRender(target: LinkTarget, links: LinkRenderContext | undefined): s
       const heading = links?.headingText(target.headingId, target.tabId);
       if (heading?.tabTitle)
         return angle(`tab:${heading.tabTitle}#${heading.unique ? heading.text : target.headingId}`);
+      // A dangling link (its heading is gone) keeps its id, and its tab when that's another one.
+      const otherTab = !heading && target.tabId ? links?.tabTitle(target.tabId) : undefined;
+      if (otherTab && links?.currentTabId !== target.tabId) return angle(`tab:${otherTab}#${target.headingId}`);
       return angle(`#${heading?.unique ? heading.text : target.headingId}`);
     }
   }

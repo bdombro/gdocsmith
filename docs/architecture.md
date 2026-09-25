@@ -120,3 +120,27 @@ Targeting a heading with `replaceSection`:
 - **Code Standards**: Strict JSDoc on all exported and module-private functions and types; alphabetical module imports; no unnecessary file extraction.
 - **Schema Generation**: `argsbarg schemagen` generates JSON schemas for CLI/MCP outputs from `/** @sg */` annotated types in `types.ts`.
 - **Documentation**: Hand-edited docs live in `docs/` and `README.md`. Generated reference files (`docs/cli.md`, `docs/mcp.md`, `docs/cli-schema.json`) are updated via `just docgen`.
+
+---
+
+## 6. v2 Core Engine (`src/core/{model,emulator,diff,reconcile,lens,engine}/`; not wired to `run` yet)
+
+v2 replaces the DOM tape with one pipeline shared by dry and live runs. Only the flush talks to Google.
+
+### 6.1 Pipeline
+1. **Load** (`engine/load.ts`): each document is fetched (or served from the snapshot cache) and parsed into a `DocModel` (`model/fromJson.ts`) whose layout reproduces the API's indices exactly (`model/layout.ts`).
+2. **Program** (`engine/session.ts`): a program edits only the in-memory model through `Session`/`DocHandle`/`TabHandle`/`TableHandle` (`engine/types.ts`). Markdown writes go through the lens; everything else uses the editing primitives (`model/edit*.ts`, `model/copy.ts`).
+3. **Plan** (`engine/plan.ts`): `reconcile/` turns original vs final into minimal requests: blocks aligned by key, character diffs inside kept paragraphs, then a bullet pass and table reconciliation. Each plan is replayed through the emulator (`emulator/`) and must reproduce the intended model (`model/equivalence.ts`), otherwise nothing is sent. The guard (`engine/guard.ts`) lists what the plan would break (comments, suggestions, heading and tab links, named ranges, content the API can't recreate) and refuses unless forced.
+4. **Flush** (`engine/flush.ts`, `engine/transaction.ts`): phases `create` → re-run → `content` (chunks locked to the revision) → `tabs` → `links` → `permissions`. A revision conflict before content lands reloads and re-runs the program; landed documents are pinned and must plan the same content again. Afterwards each document is reloaded and checked against the plan.
+
+### 6.2 Markdown lens (`lens/`)
+Markdown is a view with write-back, not a lossless format. `project.ts` projects a tab into blocks, `render.ts`/`parse.ts` convert to and from markdown, and `put.ts` writes markdown back by aligning blocks (`blockDiff.ts`, `tableAlign.ts`) and editing characters. Unchanged markdown changes nothing; content markdown can't show survives because it's never touched. Laws are property-tested (`lensLaws.test.ts`, `roundtrip.test.ts`).
+
+### 6.3 Invariants
+- A paragraph's state (style, heading id, bullet) belongs to its start: splits and merges keep it with the half or survivor holding the original start.
+- Every container ends with a paragraph; every table, TOC, and section break follows one; new tables and section breaks follow a new paragraph, and new page breaks are followed by one (`model/invariants.ts`).
+- Styles are sparse; unset and default compare equal (colors at float32 precision, as the API stores them).
+- Lists: joining the previous same-preset list happens only at nesting 0; nesting and kind changes rebuild the run; a different kind of list can't be nested inside another (nested markdown items take their list's kind, with a note).
+
+### 6.4 Testing layers
+Unit tests; recorded live conformance fixtures (`emulator/__fixtures__/conformance/`, re-recorded with `GDOCSMITH_RECORD=1 bun test tests/integration/conformance.test.ts`, `GDOCSMITH_ONLY=<ids>` for a subset) replayed offline; seeded differential fuzzing of the reconciler; lens property tests; a local-only corpus test over cached documents; and the live end-to-end suite (`tests/integration/v2Live.test.ts`). `apiFacts.ts` holds constants the model and emulator share, and the emulator refuses (`UNMODELED`) request shapes whose live outcome isn't pinned down, so a plan relying on them is never sent.

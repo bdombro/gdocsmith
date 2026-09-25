@@ -441,7 +441,11 @@ function tableProject(
         !headingStyleIs(only.style.namedStyleType as string | undefined) &&
         !only.inlines.some((i) => i.kind === "text" && i.text.includes("\u000b"));
       if (!plain || spans > 1 || cols > 1) readOnly = true;
-      return cell.blocks.flatMap((p) => spansProject(tab, p, tokens, base, styles, mode).spans);
+      // A read-only cell shows its paragraphs on one line.
+      return cell.blocks.flatMap((p, i) => [
+        ...(i > 0 ? [{ kind: "text" as const, marks: {}, text: " " }] : []),
+        ...spansProject(tab, p, tokens, base, styles, mode).spans,
+      ]);
     }),
   );
   const columnCount = t.columns.length;

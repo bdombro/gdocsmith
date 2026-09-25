@@ -110,10 +110,7 @@ export function paragraphsInsert(
     const paragraph = paragraphEmptyCreate(target.ctx.keys, spec.style ? { ...spec.style } : {}, target.ctx.stamp);
     if (spec.bullet) paragraph.bullet = { ...spec.bullet };
     if (spec.newlineStyle) paragraph.newline = { style: styleCanonical(spec.newlineStyle) as JsonObject };
-    paragraphSymbolsSet(
-      paragraph,
-      (spec.syms ?? []).flatMap((s) => symsFromSpec(target.ctx, s, {})),
-    );
+    paragraphSymbolsSet(paragraph, symbolsFromSpecs(target.ctx, spec.syms ?? [], {}));
     return paragraph;
   });
   blocks.splice(index, 0, ...created);
@@ -168,7 +165,7 @@ export function paragraphSplice(
   }
   const neighbor = syms[at - 1] ?? syms[at + deleteCount];
   const inherited = neighbor ? symStyle(neighbor) : paragraph.newline.style;
-  const inserted = insert.flatMap((spec) => symsFromSpec(target.ctx, spec, inherited));
+  const inserted = symbolsFromSpecs(target.ctx, insert, inherited);
   const removed = syms.splice(at, deleteCount, ...inserted);
   for (const sym of removed) {
     if (sym.kind === "atom") target.ctx.tombstones.push(tombstone(target, sym.atom.key, "atom"));
@@ -244,6 +241,33 @@ export function paragraphStyleUpdate(
     delete paragraph.headingId;
   }
   paragraph.stamp = target.ctx.stamp;
+}
+
+/** Returns `style` with a patch applied: `null`/`undefined` values delete the field, others are canonicalized. */
+export function stylePatchApply(
+  /** Style to start from (not mutated). */
+  style: JsonObject,
+  /** Fields to set (`null` resets). */
+  patch: JsonObject,
+): JsonObject {
+  const out = { ...style };
+  for (const [field, value] of Object.entries(patch)) {
+    if (value === null || value === undefined) delete out[field];
+    else out[field] = styleCanonical(value);
+  }
+  return out;
+}
+
+/** Expands symbol specs into symbols (characters without an explicit style take `inherited`), validating atom creates. */
+export function symbolsFromSpecs(
+  /** Editing state (allocates atom keys). */
+  ctx: EditContext,
+  /** Specs to expand. */
+  specs: readonly SymSpec[],
+  /** Style for characters and atoms without an explicit one. */
+  inherited: JsonObject,
+): Sym[] {
+  return specs.flatMap((spec) => symsFromSpec(ctx, spec, inherited));
 }
 
 /** The paragraph with `key`, or a `CoreError`. */
@@ -338,16 +362,6 @@ function atomCreateValidate(create: AtomCreate): void {
   if ((create.type === "richLink" || create.type === "image") && !httpsIs(create.uri)) {
     throw new CoreError("invalidAtom", `${create.type} needs an https URL, got "${create.uri}"`);
   }
-}
-
-/** Returns `style` with a patch applied: `null`/`undefined` values delete the field, others are canonicalized. */
-function stylePatchApply(style: JsonObject, patch: JsonObject): JsonObject {
-  const out = { ...style };
-  for (const [field, value] of Object.entries(patch)) {
-    if (value === null || value === undefined) delete out[field];
-    else out[field] = styleCanonical(value);
-  }
-  return out;
 }
 
 /** True when `style` explicitly carries every `where` value. */

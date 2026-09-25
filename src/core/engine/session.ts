@@ -62,6 +62,22 @@ export interface SessionOptions {
   /** Snapshot cache. */ cache?: DocCache;
   /** Docs client. */ client: DocsClient;
   /** Drive client. */ drive: DriveApi;
+  /** What earlier attempts of this run already created and sent (the transaction re-runs the program against it). */ ledger?: Ledger;
+}
+
+/** What a run has already done, carried across re-runs of its program (D38). */
+export interface Ledger {
+  /** Real ids of documents created this run, by alias. */ docs: Map<string, string>;
+  /** Documents whose content landed; re-runs serve their pinned originals. */ pinned: Map<
+    string,
+    { final: string; json: GoogleDoc }
+  >;
+  /** Real ids of tabs created this run, per document, by creation order. */ tabs: Map<string, string[]>;
+}
+
+/** An empty ledger. */
+export function ledgerCreate(): Ledger {
+  return { docs: new Map(), pinned: new Map(), tabs: new Map() };
 }
 
 /** Document-level changes the flush applies outside the content batch. */
@@ -83,7 +99,8 @@ export interface DocState {
   /** True when created this run. */ isNew: boolean;
   /** JSON the original model was parsed from. */ json: GoogleDoc;
   /** The model as loaded. */ original: DocModel;
-  /** Created-tab counter (provisional ids `new:tab:<n>`). */ tabCounter: number;
+  /** Alias it was created under this run (bound to a real document by the ledger). */ createdAs?: string;
+  /** Created-tab counter (provisional ids `new:tab:<n>`, or the ledger's real ids). */ tabCounter: number;
   /** Blocks and atoms deleted. */ tombstones: Tombstone[];
 }
 
@@ -116,12 +133,18 @@ export class CoreSession implements Session {
   async docOpen(docId: string, o: { alias?: string; forceFetch?: boolean } = {}): Promise<DocHandle> {
     const existing = this.docs.get(docId);
     if (existing) return new DocHandleImpl(this, existing);
-    const loaded = await docLoad(docId, {
-      cache: this.opts.cache,
-      client: this.opts.client,
-      forceFetch: o.forceFetch,
-      keys: this.keys,
-    });
+    const pinned = this.opts.ledger?.pinned.get(docId);
+    const loaded = pinned
+      ? {
+          json: structuredClone(pinned.json),
+          model: docModelParse(structuredClone(pinned.json), { docId, keys: this.keys }),
+        }
+      : await docLoad(docId, {
+          cache: this.opts.cache,
+          client: this.opts.client,
+          forceFetch: o.forceFetch,
+          keys: this.keys,
+        });
     const state: DocState = {
       alias: o.alias,
       current: structuredClone(loaded.model),
@@ -139,6 +162,13 @@ export class CoreSession implements Session {
 
   /** Creates a document: blank, or a copy of `from` as it was loaded (a Drive copy made before any content lands). */
   async docCreate(o: { alias: string; from?: DocHandle; title: string }): Promise<DocHandle> {
+    // Once the create phase made it, it's the real document.
+    const realId = this.opts.ledger?.docs.get(o.alias);
+    if (realId) {
+      const handle = await this.docOpen(realId, { alias: o.alias, forceFetch: !this.opts.ledger?.pinned.has(realId) });
+      (this.docs.get(realId) as DocState).createdAs = o.alias;
+      return handle;
+    }
     const docId = `new:${o.alias}`;
     if (this.docs.has(docId)) throw new CoreError("internal", `alias "${o.alias}" is already used`);
     const source = o.from ? this.docs.get(o.from.docId) : undefined;
@@ -253,6 +283,28 @@ class DocHandleImpl implements DocHandle {
 
   tabCreate(o: { from?: TabHandle; parentTab?: string; position?: TabPosition; title: string }): TabHandle {
     const doc = this.state.current;
+    const bound = this.session.opts.ledger?.tabs.get(this.docId)?.[this.state.tabCounter];
+    if (bound) {
+      // The create phase already made it (with its final title and place); fill it.
+      this.state.tabCounter++;
+      const existing = doc.tabs.find((t) => t.tabId === bound);
+      if (!existing) throw new CoreError("internal", `created tab ${bound} is missing`);
+      if (o.from) {
+        const fromHandle = o.from as TabHandleImpl;
+        const source = fromHandle.model();
+        const target = this.session.target(this.state, existing);
+        const blanks = existing.blocks.map((b) => b.key);
+        blocksCopy(
+          { doc: fromHandle.docModel(), keys: source.blocks.map((b) => b.key), tab: source },
+          target,
+          { kind: "body" },
+          0,
+          { force: false, targetDocId: this.docId },
+        );
+        blocksDelete(target, blanks);
+      }
+      return new TabHandleImpl(this.session, this.state, bound);
+    }
     if (doc.tabs.some((t) => t.title.trim().toLowerCase() === o.title.trim().toLowerCase())) {
       throw new CoreError("tabTitleTaken", `a tab titled "${o.title}" already exists`);
     }

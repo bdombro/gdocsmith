@@ -11,7 +11,7 @@ import type {
 import type { GoogleDoc } from "~/core/types.ts";
 import blankDoc from "../model/blankDoc.json";
 import type { JsonObject } from "../model/rawJson.ts";
-import { requestsEmulate } from "./emulate.ts";
+import { EmulatorError, requestsEmulate } from "./emulate.ts";
 
 /** One call recorded in `FakeGoogle.callLog`, for assertions like "batchUpdate was called once per doc". */
 export interface FakeGoogleCall {
@@ -56,7 +56,15 @@ export class FakeGoogle implements DocsClient, DriveApi {
       throw new Error(`The required revision ID '${opts.requiredRevisionId}' does not match the latest revision.`);
     }
     this.beforeBatchUpdate?.(documentId);
-    const { json, replies } = requestsEmulate(doc.json, requests as JsonObject[]);
+    let emulated: ReturnType<typeof requestsEmulate>;
+    try {
+      emulated = requestsEmulate(doc.json, requests as JsonObject[]);
+    } catch (err) {
+      // The API names the failing request.
+      if (err instanceof EmulatorError) throw new Error(`Invalid requests[${err.requestIndex}]: ${err.message}`);
+      throw err;
+    }
+    const { json, replies } = emulated;
     doc.json = json;
     doc.revision += 1;
     return JSON.stringify({ documentId, replies, writeControl: { requiredRevisionId: this.#revisionId(doc) } });
@@ -116,7 +124,9 @@ export class FakeGoogle implements DocsClient, DriveApi {
 
   async getDocument(documentId: string): Promise<GoogleDoc> {
     this.callLog.push({ args: [documentId], method: "getDocument" });
-    return structuredClone(this.#docRequire(documentId).json);
+    const doc = this.#docRequire(documentId);
+    // Like the API, every read reports the current revision.
+    return { ...structuredClone(doc.json), revisionId: this.#revisionId(doc) } as GoogleDoc;
   }
 
   async listPermissions(fileId: string): Promise<DrivePermission[]> {

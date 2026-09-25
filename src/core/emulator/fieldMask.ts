@@ -16,18 +16,20 @@ export function parseFields(
     : [];
 }
 
-/** Applies a field-masked style patch (F10): a listed field absent (or `null`) in `patch` resets to inherited; otherwise it's set (canonicalized). */
+/** Returns a copy of `base` with a field-masked style patch applied (F10): a listed field absent (or `null`) in `patch` resets to inherited; otherwise it's set (canonicalized). Never mutates `base`, since tape cells share style objects. */
 export function applyStyleFields(
-  /** Style object to mutate in place. */
-  target: JsonObject,
+  /** Style to start from (not mutated). */
+  base: JsonObject,
   /** Patch payload (only `fields`-listed keys are consulted). */
   patch: JsonObject,
   /** Field names this request's mask lists. */
   fields: readonly string[],
-): void {
+): JsonObject {
+  const target = { ...base };
   for (const field of fields) {
     const value = patch[field];
     if (value === undefined || value === null) delete target[field];
     else target[field] = styleCanonical(value);
   }
+  return target;
 }

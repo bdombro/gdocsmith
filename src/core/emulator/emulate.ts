@@ -1,8 +1,16 @@
 /* Applies Docs API batchUpdate requests to an EmulatorState tape (see G3 M3). */
 
 import type { GoogleDoc } from "~/core/types.ts";
+import {
+  DATE_ELEMENT_DEFAULTS,
+  LINK_CHROME_COLOR,
+  SECTION_STYLE_DEFAULT,
+  TEXT_STYLE_INHERIT_DROP_FIELDS,
+} from "../model/apiFacts.ts";
+import blankTab from "../model/blankTab.json";
 import { listPresetInfer, listPresetTable } from "../model/lists.ts";
-import type { JsonObject } from "../model/rawJson.ts";
+import type { JsonObject, RawDocumentTab } from "../model/rawJson.ts";
+import { styleCanonical, styleEqual } from "../model/styleValues.ts";
 import type { BulletPreset } from "../model/types.ts";
 import {
   deleteTableColumn,
@@ -18,7 +26,15 @@ import {
   updateTableRowStyle,
 } from "./emulateTables.ts";
 import { applyStyleFields, parseFields } from "./fieldMask.ts";
-import { docStateBuild, docStateJson, type EmulatorState, type NlPara, type TabState, type TapeCell } from "./tape.ts";
+import {
+  docStateBuild,
+  docStateJson,
+  type EmulatorState,
+  type NlPara,
+  type TabState,
+  type TapeCell,
+  tabStateBuild,
+} from "./tape.ts";
 
 /** Reason an emulated request was rejected. */
 export type EmulatorErrorCode =
@@ -26,6 +42,7 @@ export type EmulatorErrorCode =
   | "DELETE_NEWLINE_BEFORE_STRUCTURE"
   | "DELETE_PARTIAL_STRUCTURE"
   | "INSERT_OUTSIDE_PARAGRAPH"
+  | "INVALID_FIELD"
   | "RANGE_AT_SEGMENT_END"
   | "SURROGATE_SPLIT"
   | "TAB_REQUIRED"
@@ -45,7 +62,7 @@ export class EmulatorError extends Error {
 
 /** Per-batch mutable context: which request is running, and counters for minting new heading/list/image/tab ids. */
 export interface EmulateContext {
-  idCounters: { heading: number; image: number; list: number; tab: number };
+  idCounters: { chip: number; heading: number; image: number; list: number; tab: number };
   requestIndex: number;
 }
 
@@ -57,12 +74,33 @@ export function requestsEmulate(
   requests: readonly JsonObject[],
 ): { json: GoogleDoc; replies: JsonObject[] } {
   const state = docStateBuild(json);
-  const ctx: EmulateContext = { idCounters: { heading: 0, image: 0, list: 0, tab: 0 }, requestIndex: 0 };
+  const ctx: EmulateContext = { idCounters: idCountersSeed(json), requestIndex: 0 };
   const replies = requests.map((req, i) => {
     ctx.requestIndex = i;
     return requestApply(state, req, ctx);
   });
   return { json: docStateJson(state), replies };
+}
+
+/** Minted-id prefixes, by counter. */
+const MINT_PREFIXES = {
+  chip: "emu.chip.",
+  heading: "emu.h.",
+  image: "emu.io.",
+  list: "emu.list.",
+  tab: "emu.t.",
+} as const;
+
+/** Starts each id counter past the highest id an earlier batch already minted into `json`, so ids stay unique across batches. */
+function idCountersSeed(json: GoogleDoc): EmulateContext["idCounters"] {
+  const text = JSON.stringify(json);
+  const counters = { chip: 0, heading: 0, image: 0, list: 0, tab: 0 };
+  for (const [counter, prefix] of Object.entries(MINT_PREFIXES) as Array<[keyof typeof counters, string]>) {
+    for (const match of text.matchAll(new RegExp(`${prefix.replace(/\./g, "\\.")}(\\d+)`, "g"))) {
+      counters[counter] = Math.max(counters[counter], Number(match[1]));
+    }
+  }
+  return counters;
 }
 
 /** Dispatches one request to its handler by its single top-level key. */
@@ -81,7 +119,8 @@ function requestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext
   if (req.updateSectionStyle) return updateSectionStyleRequestApply(state, req.updateSectionStyle as JsonObject, ctx);
   if (req.insertPerson)
     return insertAtomRequestApply(state, req.insertPerson as JsonObject, ctx, "person", "personProperties");
-  if (req.insertDate) return insertAtomRequestApply(state, req.insertDate as JsonObject, ctx, "date", "dateProperties");
+  if (req.insertDate)
+    return insertAtomRequestApply(state, req.insertDate as JsonObject, ctx, "dateElement", "dateElementProperties");
   if (req.insertRichLink)
     return insertAtomRequestApply(state, req.insertRichLink as JsonObject, ctx, "richLink", "richLinkProperties");
   if (req.insertInlineImage) return insertInlineImageRequestApply(state, req.insertInlineImage as JsonObject, ctx);
@@ -225,6 +264,23 @@ export function paragraphSplitAt(
   }
 }
 
+/** Tape indices of the newline of every paragraph that overlaps `[start, end)` (paragraph requests apply to each such paragraph). */
+function paragraphNewlinesOverlapping(tape: TapeCell[], start: number, end: number): number[] {
+  const out: number[] = [];
+  for (let i = start; i < Math.max(end, start + 1) && i < tape.length; i++) {
+    let nl = i;
+    while (nl < tape.length && tape[nl].t !== "nl") {
+      if (tape[nl].t !== "char" && tape[nl].t !== "atom" && tape[nl].t !== "atomCont") break;
+      nl++;
+    }
+    if (tape[nl]?.t === "nl") {
+      out.push(nl);
+      i = nl;
+    }
+  }
+  return out;
+}
+
 /** Validates that `idx` names a position inside a paragraph (F5): not past the segment end, and not on a structural marker or atom continuation. */
 export function insertPositionValidate(tab: TabState, idx: number, ctx: EmulateContext): void {
   if (idx === tab.tape.length) {
@@ -266,7 +322,19 @@ export function styleForInsertAt(tape: TapeCell[], idx: number): JsonObject {
 function deleteContentRangeRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
   const { end, start, tab } = rangeResolve(state, req.range as JsonObject, ctx);
   deleteRangeValidate(tab, start, end, ctx);
+  // Merge identity (F7): a delete starting strictly inside paragraph A that consumes A's newline leaves
+  // one paragraph carrying A's whole state; one starting at a paragraph's start removes it cleanly.
+  let aNl = start;
+  while (aNl < end && tab.tape[aNl].t !== "nl") aNl++;
+  const aPara =
+    aNl < end && start > paragraphStartBefore(tab.tape, start) ? (tab.tape[aNl] as { para: NlPara }).para : undefined;
   tab.tape.splice(start, end - start);
+  if (aPara) {
+    let survivor = start;
+    while (tab.tape[survivor] && tab.tape[survivor].t !== "nl") survivor++;
+    const nl = tab.tape[survivor];
+    if (nl?.t === "nl") nl.para = aPara;
+  }
   return {};
 }
 
@@ -370,44 +438,94 @@ function isLowSurrogate(ch: string): boolean {
 function updateTextStyleRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
   const { end, start, tab } = rangeResolve(state, req.range as JsonObject, ctx);
   const fields = parseFields(req.fields);
-  const patch = (req.textStyle as JsonObject) ?? {};
+  const patch = linkNormalize((req.textStyle as JsonObject) ?? {}, tab.tabId);
   for (let i = start; i < end; i++) {
     const cell = tab.tape[i];
     if (cell.t === "atomCont") continue;
-    const styleRef = styleRefFor(cell);
-    if (!styleRef)
+    if (cell.t !== "char" && cell.t !== "nl" && cell.t !== "atom")
       throw new EmulatorError(
         "INSERT_OUTSIDE_PARAGRAPH",
         ctx.requestIndex,
         `text style range at index ${i} covers a non-text element`,
       );
-    applyStyleFields(styleRef, patch, fields);
+    cell.style = textStyleApply(tab, i, cell.style ?? {}, patch, fields);
   }
+  // Whole-paragraph rule (F10): a range covering all of a paragraph's text also restyles its newline (never its link).
+  const nl = tab.tape[end];
+  const nlFields = fields.filter((f) => f !== "link");
+  const coversText = end > start && tab.tape[end - 1].t !== "nl" && paragraphStartBefore(tab.tape, end - 1) >= start;
+  if (nl?.t === "nl" && coversText && nlFields.length) nl.style = textStyleApply(tab, end, nl.style, patch, nlFields);
   return {};
 }
 
-/** Returns the mutable style object a text-style update should write into, allocating one for an atom that had none yet. */
-function styleRefFor(cell: TapeCell): JsonObject | undefined {
-  if (cell.t === "char" || cell.t === "nl") return cell.style;
-  if (cell.t === "atom") {
-    if (!cell.style) cell.style = {};
-    return cell.style;
+/** Normalizes a `{headingId}` link to the `{heading: {id, tabId}}` form the API reads back (F17). */
+function linkNormalize(patch: JsonObject, tabId: string): JsonObject {
+  const link = patch.link as JsonObject | undefined;
+  if (!link || typeof link.headingId !== "string") return patch;
+  return { ...patch, link: { heading: { id: link.headingId, tabId: (link.tabId as string | undefined) ?? tabId } } };
+}
+
+/** Applies a text-style patch to one cell's style, mirroring the API's link chrome and its dropping of values equal to the inherited ones (F17). */
+function textStyleApply(
+  tab: TabState,
+  index: number,
+  style: JsonObject,
+  patch: JsonObject,
+  fields: string[],
+): JsonObject {
+  const next = applyStyleFields(style, patch, fields);
+  if (fields.includes("link")) {
+    if (patch.link) {
+      if (!fields.includes("underline")) next.underline = true;
+      if (!fields.includes("foregroundColor")) next.foregroundColor = styleCanonical(LINK_CHROME_COLOR);
+    } else {
+      if (!fields.includes("underline") && next.underline === true) delete next.underline;
+      if (!fields.includes("foregroundColor") && styleEqual(next.foregroundColor, styleCanonical(LINK_CHROME_COLOR)))
+        delete next.foregroundColor;
+    }
   }
-  return undefined;
+  for (const field of TEXT_STYLE_INHERIT_DROP_FIELDS) {
+    if (!fields.includes(field) || next[field] === undefined) continue;
+    if (styleEqual(next[field], inheritedTextStyleValue(tab, index, field))) delete next[field];
+  }
+  return next;
+}
+
+/** The value a text-style field inherits at tape `index`: the paragraph's named style, else NORMAL_TEXT. */
+function inheritedTextStyleValue(tab: TabState, index: number, field: string): unknown {
+  let nlIndex = index;
+  while (tab.tape[nlIndex] && tab.tape[nlIndex].t !== "nl") nlIndex++;
+  const nl = tab.tape[nlIndex];
+  const type = (nl?.t === "nl" ? (nl.para.style.namedStyleType as string | undefined) : undefined) ?? "NORMAL_TEXT";
+  const styles = ((tab.namedStyles.styles as JsonObject[] | undefined) ?? []).filter(
+    (st) => st.namedStyleType === type || st.namedStyleType === "NORMAL_TEXT",
+  );
+  const own = styles.find((st) => st.namedStyleType === type)?.textStyle as JsonObject | undefined;
+  const normal = styles.find((st) => st.namedStyleType === "NORMAL_TEXT")?.textStyle as JsonObject | undefined;
+  return own?.[field] ?? normal?.[field];
 }
 
 function updateParagraphStyleRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
   const { end, start, tab } = rangeResolve(state, req.range as JsonObject, ctx);
   const fields = parseFields(req.fields);
   const patch = (req.paragraphStyle as JsonObject) ?? {};
-  for (let i = start; i < end; i++) {
-    const cell = tab.tape[i];
-    if (cell.t !== "nl") continue;
-    applyStyleFields(cell.para.style, patch, fields);
+  if (fields.includes("namedStyleType") && typeof patch.namedStyleType !== "string") {
+    throw new EmulatorError(
+      "INVALID_FIELD",
+      ctx.requestIndex,
+      "Named style property is not inherited and cannot be cleared.",
+    );
+  }
+  for (const i of paragraphNewlinesOverlapping(tab.tape, start, end)) {
+    const cell = tab.tape[i] as Extract<TapeCell, { t: "nl" }>;
+    const style = applyStyleFields(cell.para.style, patch, fields);
+    // `direction` reads back explicitly even after a reset (F10).
+    if (style.direction === undefined) style.direction = "LEFT_TO_RIGHT";
+    cell.para = { ...cell.para, style };
     if (fields.includes("namedStyleType")) {
-      const newType = patch.namedStyleType as string | undefined;
+      const newType = patch.namedStyleType as string;
       const wasHeading = Boolean(cell.para.headingId);
-      const becomesHeading = typeof newType === "string" && newType !== "NORMAL_TEXT";
+      const becomesHeading = newType !== "NORMAL_TEXT";
       if (!wasHeading && becomesHeading) cell.para.headingId = mintHeadingId(ctx);
       else if (wasHeading && !becomesHeading) cell.para.headingId = undefined;
     }
@@ -423,7 +541,13 @@ function createParagraphBulletsRequestApply(state: EmulatorState, req: JsonObjec
   return {};
 }
 
-/** Removes and counts leading tab characters (nesting), then joins or mints a list per paragraph in `[start, end)` (G3 M3). */
+/**
+ * Bullets every unbulleted paragraph in `[start, end)` (F11). Already-bulleted paragraphs are left
+ * untouched, leading tabs included. An unbulleted paragraph right after a same-preset list item joins
+ * that list at nesting 0 (its leading tabs are consumed and ignored); otherwise the run becomes one
+ * new list whose leading tabs set nesting. It never joins the following list. Each bulleted paragraph
+ * takes its level's indents, and its bullet takes the level's text style.
+ */
 function createParagraphBulletsApply(
   tab: TabState,
   start: number,
@@ -433,44 +557,75 @@ function createParagraphBulletsApply(
 ): void {
   let pos = start;
   let boundEnd = end;
+  let newListId: string | undefined;
+  let prevMintedHere = false;
   while (pos < boundEnd) {
-    const pStart = pos;
-    let tabCount = 0;
-    while (tab.tape[pos]?.t === "char" && (tab.tape[pos] as Extract<TapeCell, { t: "char" }>).ch === "\t") {
-      tabCount++;
-      pos++;
-    }
-    if (tabCount > 0) {
-      tab.tape.splice(pStart, tabCount);
-      pos -= tabCount;
-      boundEnd -= tabCount;
-    }
+    const pStart = paragraphStartBefore(tab.tape, pos);
     let nlIndex = pos;
     while (tab.tape[nlIndex]?.t !== "nl") nlIndex++;
     const nlCell = tab.tape[nlIndex] as Extract<TapeCell, { t: "nl" }>;
-    const nesting = Math.min(tabCount, 8);
-    nlCell.para.bullet = { listId: listIdForJoin(tab, pStart, bulletPreset, ctx), nestingLevel: nesting } as JsonObject;
+    if (nlCell.para.bullet) {
+      prevMintedHere = false;
+      pos = nlIndex + 1;
+      continue;
+    }
+    let tabCount = 0;
+    while (tab.tape[pStart + tabCount]?.t === "char" && (tab.tape[pStart + tabCount] as { ch: string }).ch === "\t")
+      tabCount++;
+    if (tabCount > 0) {
+      tab.tape.splice(pStart, tabCount);
+      nlIndex -= tabCount;
+      boundEnd -= tabCount;
+    }
+    let listId: string;
+    let nesting: number;
+    const joinId = prevMintedHere ? undefined : sameListBefore(tab, pStart, bulletPreset);
+    if (joinId) {
+      listId = joinId;
+      nesting = 0;
+    } else {
+      newListId ??= listMint(tab, bulletPreset, ctx);
+      listId = newListId;
+      nesting = Math.min(tabCount, 8);
+    }
+    prevMintedHere = listId === newListId;
+    const level =
+      (
+        ((tab.lists[listId] as JsonObject | undefined)?.listProperties as JsonObject | undefined)?.nestingLevels as
+          | JsonObject[]
+          | undefined
+      )?.[nesting] ?? {};
+    const style: JsonObject = { ...nlCell.para.style };
+    for (const field of ["indentFirstLine", "indentStart"]) {
+      if (level[field] !== undefined) style[field] = styleCanonical(level[field]);
+      else delete style[field];
+    }
+    const bullet: JsonObject = { listId, nestingLevel: nesting };
+    if (level.textStyle) bullet.textStyle = level.textStyle;
+    nlCell.para = { ...nlCell.para, bullet, style };
     pos = nlIndex + 1;
   }
 }
 
-/** Joins the list of the paragraph immediately before `pStart` when its inferred preset matches; otherwise mints a new list from the preset table. */
-function listIdForJoin(tab: TabState, pStart: number, bulletPreset: BulletPreset, ctx: EmulateContext): string {
-  if (pStart > 0) {
-    const prev = tab.tape[pStart - 1];
-    if (prev?.t === "nl" && prev.para.bullet) {
-      const prevListId = (prev.para.bullet as JsonObject).listId as string | undefined;
-      const listDef = prevListId ? (tab.lists[prevListId] as JsonObject | undefined) : undefined;
-      const nestingLevels = (listDef?.listProperties as JsonObject | undefined)?.nestingLevels as
-        | JsonObject[]
-        | undefined;
-      if (prevListId && nestingLevels && listPresetInfer(nestingLevels, listPresetTable()) === bulletPreset)
-        return prevListId;
-    }
-  }
+/** The list id of the paragraph immediately before `pStart` when it's a list item whose inferred preset is `bulletPreset`. */
+function sameListBefore(tab: TabState, pStart: number, bulletPreset: BulletPreset): string | undefined {
+  const prev = pStart > 0 ? tab.tape[pStart - 1] : undefined;
+  if (prev?.t !== "nl" || !prev.para.bullet) return undefined;
+  const prevListId = (prev.para.bullet as JsonObject).listId as string | undefined;
+  const listDef = prevListId ? (tab.lists[prevListId] as JsonObject | undefined) : undefined;
+  const nestingLevels = (listDef?.listProperties as JsonObject | undefined)?.nestingLevels as JsonObject[] | undefined;
+  return prevListId && nestingLevels && listPresetInfer(nestingLevels, listPresetTable()) === bulletPreset
+    ? prevListId
+    : undefined;
+}
+
+/** Mints a new list whose definition is the recorded preset's nine levels. */
+function listMint(tab: TabState, bulletPreset: BulletPreset, ctx: EmulateContext): string {
   const listId = mintListId(ctx);
   const presetLevels = listPresetTable()[bulletPreset];
-  tab.lists[listId] = { listProperties: { nestingLevels: presetLevels ?? Array.from({ length: 9 }, () => ({})) } };
+  tab.lists[listId] = {
+    listProperties: { nestingLevels: structuredClone(presetLevels ?? Array.from({ length: 9 }, () => ({}))) },
+  };
   return listId;
 }
 
@@ -487,34 +642,38 @@ function deleteParagraphBulletsRequestApply(state: EmulatorState, req: JsonObjec
  * flat and does not depend on the paragraph's prior nesting level.
  */
 function deleteParagraphBulletsApply(tab: TabState, start: number, end: number): void {
-  for (let i = start; i < end; i++) {
-    const cell = tab.tape[i];
-    if (cell.t !== "nl" || !cell.para.bullet) continue;
-    cell.para.bullet = undefined;
+  for (const i of paragraphNewlinesOverlapping(tab.tape, start, end)) {
+    const cell = tab.tape[i] as Extract<TapeCell, { t: "nl" }>;
+    if (!cell.para.bullet) continue;
     const style: JsonObject = { ...cell.para.style, indentStart: { unit: "PT" } };
     delete style.indentFirstLine;
-    cell.para.style = style;
+    cell.para = { ...cell.para, bullet: undefined, style };
   }
 }
 
 export function mintHeadingId(ctx: EmulateContext): string {
   ctx.idCounters.heading += 1;
-  return `emu.h.${ctx.idCounters.heading}`;
+  return `${MINT_PREFIXES.heading}${ctx.idCounters.heading}`;
 }
 
 export function mintListId(ctx: EmulateContext): string {
   ctx.idCounters.list += 1;
-  return `emu.list.${ctx.idCounters.list}`;
+  return `${MINT_PREFIXES.list}${ctx.idCounters.list}`;
 }
 
 function mintInlineObjectId(ctx: EmulateContext): string {
   ctx.idCounters.image += 1;
-  return `emu.io.${ctx.idCounters.image}`;
+  return `${MINT_PREFIXES.image}${ctx.idCounters.image}`;
+}
+
+function mintChipId(ctx: EmulateContext): string {
+  ctx.idCounters.chip += 1;
+  return `${MINT_PREFIXES.chip}${ctx.idCounters.chip}`;
 }
 
 function mintTabId(ctx: EmulateContext): string {
   ctx.idCounters.tab += 1;
-  return `emu.t.${ctx.idCounters.tab}`;
+  return `${MINT_PREFIXES.tab}${ctx.idCounters.tab}`;
 }
 
 // --- insertPageBreak / insertSectionBreak / updateSectionStyle ---
@@ -542,33 +701,98 @@ function insertSectionBreakRequestApply(state: EmulatorState, req: JsonObject, c
   const originalKeepsLaterSide = idx === paragraphStartBefore(tab.tape, idx);
   paragraphSplitAt(tab, idx, style, ctx, originalKeepsLaterSide);
   const sectionType = (req.sectionType as string | undefined) ?? "CONTINUOUS";
-  tab.tape.splice(idx + 1, 0, { raw: { sectionStyle: { sectionType } }, t: "sectionBreak" });
+  tab.tape.splice(idx + 1, 0, { raw: { sectionStyle: { ...SECTION_STYLE_DEFAULT, sectionType } }, t: "sectionBreak" });
   return {};
 }
 
-/** Applies a field-masked style patch to every section break (and the tab's leading section) whose index falls in `range`. */
+/** SectionStyle fields the API accepts (`columnCount` is not one, F26). */
+const SECTION_STYLE_FIELDS: ReadonlySet<string> = new Set([
+  "columnProperties",
+  "columnSeparatorStyle",
+  "contentDirection",
+  "defaultFooterId",
+  "defaultHeaderId",
+  "evenPageFooterId",
+  "evenPageHeaderId",
+  "firstPageFooterId",
+  "firstPageHeaderId",
+  "flipPageOrientation",
+  "marginBottom",
+  "marginFooter",
+  "marginHeader",
+  "marginLeft",
+  "marginRight",
+  "marginTop",
+  "pageNumberStart",
+  "sectionType",
+  "useFirstPageHeaderFooter",
+]);
+
+/**
+ * Applies a field-masked style patch to every section break (the tab's leading one included) whose
+ * index falls in `range` (F26): columns need `paddingEnd` each and get server-computed widths, and a
+ * range starting at 0 (the first section) switches a pageless doc to `PAGES`.
+ */
 function updateSectionStyleRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
   const { end, start, tab } = rangeResolve(state, req.range as JsonObject, ctx);
   const fields = parseFields(req.fields);
   const patch = (req.sectionStyle as JsonObject) ?? {};
+  const unknown = Object.keys(patch).find((k) => !SECTION_STYLE_FIELDS.has(k));
+  if (unknown) throw new EmulatorError("INVALID_FIELD", ctx.requestIndex, `Unknown name "${unknown}" in sectionStyle`);
+  const columns = patch.columnProperties as JsonObject[] | undefined;
+  if (fields.includes("columnProperties") && columns?.some((c) => c.paddingEnd === undefined)) {
+    throw new EmulatorError(
+      "INVALID_FIELD",
+      ctx.requestIndex,
+      "Column padding must be set in order to update column properties.",
+    );
+  }
   for (let i = start; i < end; i++) {
     const cell = tab.tape[i];
     if (cell.t !== "sectionBreak") continue;
-    const sectionStyle = { ...((cell.raw.sectionStyle as JsonObject | undefined) ?? {}) };
-    applyStyleFields(sectionStyle, patch, fields);
+    const sectionStyle = applyStyleFields((cell.raw.sectionStyle as JsonObject | undefined) ?? {}, patch, fields);
+    if (Array.isArray(sectionStyle.columnProperties)) {
+      sectionStyle.columnProperties = sectionColumnsSize(
+        tab,
+        sectionStyle,
+        sectionStyle.columnProperties as JsonObject[],
+      );
+    }
     cell.raw.sectionStyle = sectionStyle;
+  }
+  if (start === 0) {
+    const documentFormat = {
+      ...((tab.documentStyle.documentFormat as JsonObject | undefined) ?? {}),
+      documentMode: "PAGES",
+    };
+    tab.documentStyle = { ...tab.documentStyle, documentFormat };
   }
   return {};
 }
 
+/** Gives each section column the width the server computes: (page width − left/right margins − Σ paddingEnd) / n. */
+function sectionColumnsSize(tab: TabState, sectionStyle: JsonObject, columns: JsonObject[]): JsonObject[] {
+  const pt = (d: unknown): number => ((d as JsonObject | undefined)?.magnitude as number | undefined) ?? 0;
+  const pageWidth = pt((tab.documentStyle.pageSize as JsonObject | undefined)?.width);
+  const margins =
+    pt(sectionStyle.marginLeft ?? tab.documentStyle.marginLeft) +
+    pt(sectionStyle.marginRight ?? tab.documentStyle.marginRight);
+  const padding = columns.reduce((sum, c) => sum + pt(c.paddingEnd), 0);
+  const width = (pageWidth - margins - padding) / columns.length;
+  return columns.map((c) => ({ ...c, width: { magnitude: width, unit: "PT" } }));
+}
+
 // --- insertPerson / insertDate / insertRichLink / insertInlineImage ---
 
-/** Inserts a single-index chip atom (person, date, or rich link) at `location`. */
+/** Id field each chip kind is minted under. */
+const CHIP_ID_FIELDS = { dateElement: "dateId", person: "personId", richLink: "richLinkId" } as const;
+
+/** Inserts a single-index chip atom (person, date, or rich link) at `location`, minting its id; dates get the server's defaults (F25). */
 function insertAtomRequestApply(
   state: EmulatorState,
   req: JsonObject,
   ctx: EmulateContext,
-  type: "date" | "person" | "richLink",
+  type: keyof typeof CHIP_ID_FIELDS,
   propertiesField: string,
 ): JsonObject {
   const location = req.location as JsonObject;
@@ -576,8 +800,27 @@ function insertAtomRequestApply(
   const idx = location.index as number;
   insertPositionValidate(tab, idx, ctx);
   const style = styleForInsertAt(tab.tape, idx);
-  tab.tape.splice(idx, 0, { raw: { [type]: { [propertiesField]: req[propertiesField] } }, span: 1, style, t: "atom" });
+  const properties =
+    type === "dateElement" ? dateElementPropertiesFill(req[propertiesField] as JsonObject) : req[propertiesField];
+  const raw = { [type]: { [CHIP_ID_FIELDS[type]]: mintChipId(ctx), [propertiesField]: properties } };
+  tab.tape.splice(idx, 0, { raw, span: 1, style, t: "atom" });
   return {};
+}
+
+/** Fills a date chip's locale/format defaults and, for the default format, its en-US `displayText` in UTC (F25). */
+function dateElementPropertiesFill(props: JsonObject | undefined): JsonObject {
+  const filled: JsonObject = { ...DATE_ELEMENT_DEFAULTS, ...props };
+  const isDefaultFormat =
+    filled.dateFormat === DATE_ELEMENT_DEFAULTS.dateFormat && filled.timeFormat === DATE_ELEMENT_DEFAULTS.timeFormat;
+  if (isDefaultFormat && typeof filled.timestamp === "string" && filled.displayText === undefined) {
+    filled.displayText = new Date(filled.timestamp).toLocaleDateString("en-US", {
+      day: "numeric",
+      month: "short",
+      timeZone: "UTC",
+      year: "numeric",
+    });
+  }
+  return filled;
 }
 
 /** Inserts an inline image: mints a new `inlineObjects` entry with the given `sourceUri`, then a single-index atom referencing it. */
@@ -590,9 +833,10 @@ function insertInlineImageRequestApply(state: EmulatorState, req: JsonObject, ct
   const objectId = mintInlineObjectId(ctx);
   tab.inlineObjects[objectId] = {
     inlineObjectProperties: { embeddedObject: { imageProperties: { sourceUri: req.uri } } },
+    objectId,
   };
   tab.tape.splice(idx, 0, { raw: { inlineObjectElement: { inlineObjectId: objectId } }, span: 1, style, t: "atom" });
-  return {};
+  return { insertInlineImage: { objectId } };
 }
 
 // --- table structural requests ---
@@ -604,7 +848,20 @@ function insertTableRequestApply(state: EmulatorState, req: JsonObject, ctx: Emu
   insertPositionValidate(tab, idx, ctx);
   const style = styleForInsertAt(tab.tape, idx);
   const originalKeepsLaterSide = idx === paragraphStartBefore(tab.tape, idx);
-  insertTable(tab, idx, req.rows as number, req.columns as number, style, (pos) =>
+  // New cells take the insertion point's text style; at a heading's start, also the heading's named text style (F13).
+  let nlIndex = idx;
+  while (tab.tape[nlIndex]?.t !== "nl") nlIndex++;
+  const namedType = (tab.tape[nlIndex] as Extract<TapeCell, { t: "nl" }>).para.style.namedStyleType as
+    | string
+    | undefined;
+  const namedText = ((tab.namedStyles.styles as JsonObject[] | undefined) ?? []).find(
+    (st) => st.namedStyleType === namedType,
+  )?.textStyle as JsonObject | undefined;
+  const cellTextStyle =
+    originalKeepsLaterSide && namedType && namedType !== "NORMAL_TEXT"
+      ? (styleCanonical({ ...namedText, ...style }) as JsonObject)
+      : style;
+  insertTable(tab, idx, req.rows as number, req.columns as number, cellTextStyle, (pos) =>
     paragraphSplitAt(tab, pos, style, ctx, originalKeepsLaterSide),
   );
   return {};
@@ -740,70 +997,82 @@ function pinTableHeaderRowsRequestApply(state: EmulatorState, req: JsonObject, c
 
 // --- tab / document-style requests ---
 
-/** Creates a brand-new tab with a blank template body (leading section break + one empty paragraph). */
+/** Creates a tab from the blank-tab template (F19), placed among its siblings at `index` (default: last); the reply carries its index and nesting level. */
 function addDocumentTabRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
   const tabId = mintTabId(ctx);
   const tabProperties = (req.tabProperties as JsonObject) ?? {};
   const title = (tabProperties.title as string | undefined) ?? "";
   const parentTabId = tabProperties.parentTabId as string | undefined;
-  const index = tabProperties.index as number | undefined;
-  const tab: TabState = {
-    documentStyle: {},
-    footers: {},
-    footnotes: {},
-    headers: {},
-    inlineObjects: {},
-    lists: {},
-    namedRanges: {},
-    namedStyles: { styles: [] },
-    parentTabId,
-    positionedObjects: {},
-    tabId,
-    tape: [
-      { raw: { sectionStyle: {} }, t: "sectionBreak" },
-      { para: { style: {} }, style: {}, t: "nl" },
-    ],
-    title,
-  };
-  if (typeof index === "number") state.tabs.splice(index, 0, tab);
-  else state.tabs.push(tab);
-  return { tabProperties: { index, parentTabId, tabId, title } };
+  const tab = tabStateBuild(tabId, title, parentTabId, structuredClone(blankTab) as RawDocumentTab);
+  const siblings = tabSiblings(state, parentTabId);
+  const index = Math.min((tabProperties.index as number | undefined) ?? siblings.length, siblings.length);
+  tabsInsert(state, [tab], parentTabId, index);
+  const nestingLevel = tabDepth(state, tab);
+  const reply: JsonObject = { index, tabId, title };
+  if (parentTabId) reply.parentTabId = parentTabId;
+  if (nestingLevel) reply.nestingLevel = nestingLevel;
+  return { addDocumentTab: { tabProperties: reply } };
 }
 
-/** Deletes a tab and every descendant tab (matched by `parentTabId`, transitively). */
+/** Deletes a tab and every descendant tab (F19). */
 function deleteTabRequestApply(state: EmulatorState, req: JsonObject): JsonObject {
-  const tabId = req.tabId as string;
-  const toRemove = new Set<string>([tabId]);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const tab of state.tabs) {
-      if (tab.parentTabId && toRemove.has(tab.parentTabId) && !toRemove.has(tab.tabId)) {
-        toRemove.add(tab.tabId);
-        changed = true;
-      }
-    }
-  }
-  state.tabs = state.tabs.filter((t) => !toRemove.has(t.tabId));
+  const [from, to] = tabSubtreeRange(state, req.tabId as string);
+  state.tabs.splice(from, to - from);
   return {};
 }
 
-/** Applies a field-masked patch to a tab's `title` and/or `index` (a move). */
+/** Applies a field-masked patch to a tab's `title` and/or `index` among its siblings (a move); `tabProperties.tabId` names the tab (F19). */
 function updateDocumentTabPropertiesRequestApply(
   state: EmulatorState,
   req: JsonObject,
   ctx: EmulateContext,
 ): JsonObject {
-  const tab = tabResolve(state, req.tabId as string, ctx.requestIndex);
-  const fields = parseFields(req.fields);
   const patch = (req.tabProperties as JsonObject) ?? {};
+  const tab = tabResolve(state, patch.tabId as string, ctx.requestIndex);
+  const fields = parseFields(req.fields);
   if (fields.includes("title") && typeof patch.title === "string") tab.title = patch.title;
   if (fields.includes("index") && typeof patch.index === "number") {
-    const from = state.tabs.indexOf(tab);
-    state.tabs.splice(from, 1);
-    state.tabs.splice(patch.index, 0, tab);
+    const [from, to] = tabSubtreeRange(state, tab.tabId);
+    const moved = state.tabs.splice(from, to - from);
+    tabsInsert(state, moved, tab.parentTabId, Math.min(patch.index, tabSiblings(state, tab.parentTabId).length));
   }
   return {};
+}
+
+/** Tabs sharing `parentTabId` (root tabs when undefined), in order. */
+function tabSiblings(state: EmulatorState, parentTabId: string | undefined): TabState[] {
+  return state.tabs.filter((t) => t.parentTabId === parentTabId);
+}
+
+/** Depth of a tab (0 for root tabs). */
+function tabDepth(state: EmulatorState, tab: TabState): number {
+  let depth = 0;
+  let parent = tab.parentTabId;
+  while (parent) {
+    depth++;
+    parent = state.tabs.find((t) => t.tabId === parent)?.parentTabId;
+  }
+  return depth;
+}
+
+/** `[start, end)` of a tab and its descendants in the DFS-ordered `state.tabs`. */
+function tabSubtreeRange(state: EmulatorState, tabId: string): [number, number] {
+  const from = state.tabs.findIndex((t) => t.tabId === tabId);
+  if (from < 0) return [0, 0];
+  const depth = tabDepth(state, state.tabs[from]);
+  let to = from + 1;
+  while (to < state.tabs.length && tabDepth(state, state.tabs[to]) > depth) to++;
+  return [from, to];
+}
+
+/** Inserts DFS-ordered `tabs` (a subtree) as the `index`-th child of `parentTabId`. */
+function tabsInsert(state: EmulatorState, tabs: TabState[], parentTabId: string | undefined, index: number): void {
+  const siblings = tabSiblings(state, parentTabId);
+  let at: number;
+  if (index < siblings.length) at = state.tabs.indexOf(siblings[index]);
+  else if (siblings.length) at = tabSubtreeRange(state, siblings[siblings.length - 1].tabId)[1];
+  else at = parentTabId ? tabSubtreeRange(state, parentTabId)[1] : state.tabs.length;
+  state.tabs.splice(at, 0, ...tabs);
 }
 
 /** Applies a field-masked patch (dotted paths allowed, e.g. `pageSize.width`) to a tab's document style. */

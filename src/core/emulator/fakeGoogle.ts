@@ -9,6 +9,7 @@ import type {
   DrivePermissionInput,
 } from "~/core/gws.ts";
 import type { GoogleDoc } from "~/core/types.ts";
+import blankDoc from "../model/blankDoc.json";
 import type { JsonObject } from "../model/rawJson.ts";
 import { requestsEmulate } from "./emulate.ts";
 
@@ -168,28 +169,7 @@ export class FakeGoogle implements DocsClient, DriveApi {
   }
 }
 
-/** A blank single-tab document: leading section break + one empty paragraph, matching what `documents.create` actually returns (see G1 `docCreate.ts`). */
+/** A blank single-tab document, as `documents.create` returns it (recorded live in `blankDoc.json`, F24). */
 function blankDocJson(documentId: string, title: string): GoogleDoc {
-  return {
-    documentId,
-    revisionId: "rev-1",
-    tabs: [
-      {
-        documentTab: {
-          body: {
-            content: [
-              { endIndex: 1, sectionBreak: { sectionStyle: {} }, startIndex: 0 },
-              {
-                endIndex: 2,
-                paragraph: { elements: [{ endIndex: 2, startIndex: 1, textRun: { content: "\n", textStyle: {} } }] },
-                startIndex: 1,
-              },
-            ],
-          },
-        },
-        tabProperties: { tabId: "t.0", title: "Tab 1" },
-      },
-    ],
-    title,
-  } as unknown as GoogleDoc;
+  return { ...structuredClone(blankDoc), documentId, revisionId: "rev-1", title } as unknown as GoogleDoc;
 }

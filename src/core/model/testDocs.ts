@@ -217,7 +217,7 @@ function atomJsonBuild(type: AtomType): JsonObject {
   const variantKey: Record<AtomType, string> = {
     autoText: "autoText",
     columnBreak: "columnBreak",
-    date: "date",
+    date: "dateElement",
     equation: "equation",
     footnoteRef: "footnoteReference",
     horizontalRule: "horizontalRule",

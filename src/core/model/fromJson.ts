@@ -261,7 +261,7 @@ function atomFromElement(el: RawParagraphElement, keys: KeyAllocator): Atom {
   const variants: Array<{ style?: JsonObject; type: AtomType }> = [
     { style: el.person?.textStyle, type: "person" },
     { style: el.richLink?.textStyle, type: "richLink" },
-    { style: el.date?.textStyle, type: "date" },
+    { style: el.dateElement?.textStyle, type: "date" },
     { style: el.inlineObjectElement?.textStyle, type: "image" },
     { style: el.footnoteReference?.textStyle, type: "footnoteRef" },
     { style: el.horizontalRule?.textStyle, type: "horizontalRule" },
@@ -273,7 +273,7 @@ function atomFromElement(el: RawParagraphElement, keys: KeyAllocator): Atom {
   const keyOf: Record<AtomType, keyof RawParagraphElement> = {
     autoText: "autoText",
     columnBreak: "columnBreak",
-    date: "date",
+    date: "dateElement",
     equation: "equation",
     footnoteRef: "footnoteReference",
     horizontalRule: "horizontalRule",

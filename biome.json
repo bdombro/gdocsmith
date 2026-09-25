@@ -23,7 +23,7 @@
     "lineWidth": 120
   },
   "files": {
-    "includes": ["**", "!scripts/mcp.mjs", "!dist/**"]
+    "includes": ["**", "!scripts/mcp.mjs", "!dist/**", "!**/__fixtures__/**"]
   },
   "overrides": [
     {

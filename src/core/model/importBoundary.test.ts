@@ -38,9 +38,9 @@ describe("import boundary", () => {
     expect(violations).toEqual([]);
   });
 
-  test("v2 production files use no Bun.* APIs", () => {
+  test("v2 production files use no Bun.* APIs or import.meta.dir", () => {
     const violations = productionFiles()
-      .filter((file) => /\bBun\./.test(readFileSync(file, "utf8")))
+      .filter((file) => /\bBun\.|import\.meta\.dir\b/.test(readFileSync(file, "utf8")))
       .map((file) => file);
     expect(violations).toEqual([]);
   });

@@ -70,7 +70,7 @@ export interface EmulatorState {
 const ATOM_KEYS = [
   "autoText",
   "columnBreak",
-  "date",
+  "dateElement",
   "equation",
   "footnoteReference",
   "horizontalRule",
@@ -130,7 +130,12 @@ function tabsFlattenDfs(raw: RawTab): TabState[] {
 }
 
 /** Builds one tab's tape and ancillary maps. */
-function tabStateBuild(tabId: string, title: string, parentTabId: string | undefined, dt: RawDocumentTab): TabState {
+export function tabStateBuild(
+  tabId: string,
+  title: string,
+  parentTabId: string | undefined,
+  dt: RawDocumentTab,
+): TabState {
   const tape: TapeCell[] = [];
   for (const el of dt.body?.content ?? []) tapeAppendElement(tape, el);
   return {

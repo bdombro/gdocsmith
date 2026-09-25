@@ -56,8 +56,8 @@ export type RawRichLink = RawSuggested & {
   textStyle?: JsonObject;
 };
 
-/** Docs API auto-updating date chip. */
-export type RawDate = RawSuggested & { dateProperties?: JsonObject; textStyle?: JsonObject };
+/** Docs API date chip (read back as `dateElement`; the server fills locale/format/displayText). */
+export type RawDate = RawSuggested & { dateElementProperties?: JsonObject; dateId?: string; textStyle?: JsonObject };
 
 /** Docs API inline image/drawing reference. */
 export type RawInlineObjectElement = RawSuggested & { inlineObjectId?: string; textStyle?: JsonObject };
@@ -88,7 +88,7 @@ export type RawAutoText = RawSuggested & { textStyle?: JsonObject; type?: string
 export type RawParagraphElement = {
   autoText?: RawAutoText;
   columnBreak?: RawColumnBreak;
-  date?: RawDate;
+  dateElement?: RawDate;
   endIndex?: number;
   equation?: RawEquation;
   footnoteReference?: RawFootnoteReference;

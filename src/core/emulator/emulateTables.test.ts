@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { docModelParse } from "../model/fromJson.ts";
 import { KeyAllocator } from "../model/keys.ts";
 import { docJsonBuild } from "../model/testDocs.ts";
-import type { TableBlock } from "../model/types.ts";
+import type { ParagraphBlock, TableBlock } from "../model/types.ts";
 import { requestsEmulate } from "./emulate.ts";
 
 function parse(json: ReturnType<typeof docJsonBuild>) {
@@ -46,6 +46,29 @@ describe("emulateTables", () => {
     expect(table.columns).toHaveLength(3);
     const doc = parse(out);
     expect(doc.tabs[0].blocks.map((b) => b.kind)).toEqual(["paragraph", "table", "paragraph"]);
+  });
+
+  test("insertTable writes the API's explicit row, cell, paragraph, and column defaults (F13)", () => {
+    const json = docJsonBuild({
+      tabs: [{ blocks: [{ content: [{ style: { bold: true }, text: "before" }], kind: "paragraph" }] }],
+    });
+    const table = tableIn(
+      requestsEmulate(json, [{ insertTable: { columns: 3, location: { index: 7 }, rows: 1 } }]).json,
+    );
+    expect(table.columns.map((c) => c.props)).toEqual(
+      Array.from({ length: 3 }, () => ({ width: { magnitude: 175, unit: "PT" }, widthType: "FIXED_WIDTH" })),
+    );
+    expect(table.rows[0].style).toEqual({ minRowHeight: { magnitude: 0, unit: "PT" } });
+    const cell = table.rows[0].cells[0];
+    expect(cell.style).toMatchObject({
+      columnSpan: 1,
+      contentAlignment: "TOP",
+      paddingTop: { magnitude: 5 },
+      rowSpan: 1,
+    });
+    const p = cell.blocks[0] as ParagraphBlock;
+    expect(p.style).toMatchObject({ lineSpacing: 100, namedStyleType: "NORMAL_TEXT", spacingMode: "COLLAPSE_LISTS" });
+    expect(p.newline.style).toEqual({ bold: true });
   });
 
   test("insertTableRow below copies the reference row's and cells' style", () => {
@@ -94,7 +117,7 @@ describe("emulateTables", () => {
     expect(table.rows[1].cells).toHaveLength(1);
   });
 
-  test("mergeTableCells then unmergeTableCells round-trips the span", () => {
+  test("mergeTableCells sets the span and row height; unmergeTableCells writes explicit 1x1 (F21)", () => {
     const merged = requestsEmulate(twoByTwo, [
       {
         mergeTableCells: {
@@ -108,6 +131,7 @@ describe("emulateTables", () => {
     ]);
     const mergedTable = tableIn(merged.json);
     expect(mergedTable.rows[0].cells[0].style).toMatchObject({ columnSpan: 2, rowSpan: 1 });
+    expect(mergedTable.rows[0].style).toMatchObject({ minRowHeight: { magnitude: 21, unit: "PT" } });
 
     const unmerged = requestsEmulate(merged.json, [
       {
@@ -121,8 +145,7 @@ describe("emulateTables", () => {
       },
     ]);
     const unmergedTable = tableIn(unmerged.json);
-    expect(unmergedTable.rows[0].cells[0].style.columnSpan).toBeUndefined();
-    expect(unmergedTable.rows[0].cells[0].style.rowSpan).toBeUndefined();
+    expect(unmergedTable.rows[0].cells[0].style).toMatchObject({ columnSpan: 1, rowSpan: 1 });
   });
 
   test("updateTableCellStyle, updateTableRowStyle, updateTableColumnProperties, pinTableHeaderRows", () => {
@@ -168,6 +191,8 @@ describe("emulateTables", () => {
     const step4 = requestsEmulate(twoByTwo, [
       { pinTableHeaderRows: { pinnedHeaderRowsCount: 1, tableStartLocation: { index: tableStartIndex } } },
     ]);
-    expect(tableIn(step4.json)).toBeDefined();
+    const pinned = tableIn(step4.json);
+    expect(pinned.rows[0].style.tableHeader).toBe(true);
+    expect(pinned.rows[1].style.tableHeader).toBeUndefined();
   });
 });

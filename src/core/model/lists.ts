@@ -1,7 +1,6 @@
 /* List presets, membership-kind classification, and level indentation defaults (see G3 D9). */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import listPresets from "./listPresets.json";
 import type { RawListNestingLevel } from "./rawJson.ts";
 import { styleEqual } from "./styleValues.ts";
 import type { BulletPreset, DocModel, ListDef } from "./types.ts";
@@ -39,19 +38,9 @@ export type PresetLevels = readonly RawListNestingLevel[];
 export type PresetTable = Partial<Record<BulletPreset, PresetLevels>>;
 
 const GLYPH_FIELDS = ["bulletAlignment", "glyphFormat", "glyphSymbol", "glyphType"] as const;
-const PRESET_TABLE_PATH = join(import.meta.dir, "listPresets.json");
-
-let cachedPresetTable: PresetTable | undefined;
-
-/** Loads the recorded preset table (empty `{}` until G3 M5 populates `listPresets.json`). */
+/** Returns the recorded preset table (G3 M5, `listPresets.json`). */
 export function listPresetTable(): PresetTable {
-  if (!cachedPresetTable) {
-    const loaded: PresetTable = existsSync(PRESET_TABLE_PATH)
-      ? JSON.parse(readFileSync(PRESET_TABLE_PATH, "utf8"))
-      : {};
-    cachedPresetTable = loaded;
-  }
-  return cachedPresetTable;
+  return listPresets as PresetTable;
 }
 
 /**

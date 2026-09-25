@@ -1,6 +1,6 @@
 /* Compares two DocModels under the equality contract the emulator self-check and differential tests rely on (see G3 D14). */
 
-import { styleEqual } from "./styleValues.ts";
+import { styleEqual, styleFieldsChanged } from "./styleValues.ts";
 import type {
   Block,
   CellModel,
@@ -62,7 +62,8 @@ function tabCompare(expected: TabModel, actual: TabModel, opts: CompareOptions, 
   if (expectedParent !== actual.parentTabId) {
     diffs.push(`${path}: parentTabId expected ${expectedParent}, got ${actual.parentTabId}`);
   }
-  if (!styleEqual(expected.documentStyle, actual.documentStyle)) diffs.push(`${path}: documentStyle differs`);
+  styleCompare(path, "documentStyle", expected.documentStyle, actual.documentStyle, diffs);
+  styleCompare(path, "leadingSectionStyle", expected.leadingSectionStyle, actual.leadingSectionStyle, diffs);
   if (expected.blocks.length !== actual.blocks.length) {
     diffs.push(`${path}: block count expected ${expected.blocks.length}, got ${actual.blocks.length}`);
     return;
@@ -85,7 +86,7 @@ function blockCompare(path: string, expected: Block, actual: Block, opts: Compar
   } else if (expected.kind === "toc" && actual.kind === "toc") {
     if (!styleEqual(expected.raw, actual.raw)) diffs.push(`${path}: TOC content differs`);
   } else if (expected.kind === "sectionBreak" && actual.kind === "sectionBreak") {
-    if (!styleEqual(expected.sectionStyle, actual.sectionStyle)) diffs.push(`${path}: sectionStyle differs`);
+    styleCompare(path, "sectionStyle", expected.sectionStyle, actual.sectionStyle, diffs);
   }
 }
 
@@ -97,12 +98,10 @@ function paragraphCompare(
   opts: CompareOptions,
   diffs: string[],
 ): void {
-  if (!styleEqual(expected.style, actual.style)) diffs.push(`${path}: style differs`);
+  styleCompare(path, "style", expected.style, actual.style, diffs);
   headingIdCompare(path, expected, actual, opts, diffs);
   bulletCompare(path, expected.bullet, actual.bullet, diffs);
-  if (!styleEqual(expected.newline.style, actual.newline.style)) {
-    diffs.push(`${path}: newline style differs`);
-  }
+  styleCompare(path, "newline style", expected.newline.style, actual.newline.style, diffs);
   if (expected.inlines.length !== actual.inlines.length) {
     diffs.push(`${path}: inline count expected ${expected.inlines.length}, got ${actual.inlines.length}`);
     return;
@@ -171,7 +170,7 @@ function inlineCompare(path: string, expected: Inline, actual: Inline, diffs: st
   }
   if (expected.kind === "text" && actual.kind === "text") {
     if (expected.text !== actual.text) diffs.push(`${path}: text expected "${expected.text}", got "${actual.text}"`);
-    if (!styleEqual(expected.style, actual.style)) diffs.push(`${path}: style differs`);
+    styleCompare(path, "style", expected.style, actual.style, diffs);
     return;
   }
   if (expected.kind !== "atom" || actual.kind !== "atom") return;
@@ -180,7 +179,7 @@ function inlineCompare(path: string, expected: Inline, actual: Inline, diffs: st
     if (!styleEqual(expected.create, actual.create)) diffs.push(`${path}: atom create fields differ`);
     return;
   }
-  if (!styleEqual(expected.raw, actual.raw)) diffs.push(`${path}: atom payload differs`);
+  styleCompare(path, "atom payload", expected.raw ?? {}, actual.raw ?? {}, diffs);
 }
 
 /** Compares one pair of corresponding tables: row/column count, row/cell style, and cell content. */
@@ -193,6 +192,10 @@ function tableCompare(
 ): void {
   if (expected.columns.length !== actual.columns.length) {
     diffs.push(`${path}: column count expected ${expected.columns.length}, got ${actual.columns.length}`);
+  } else {
+    expected.columns.forEach((column, i) => {
+      styleCompare(`${path} column ${i}`, "props", column.props, actual.columns[i].props, diffs);
+    });
   }
   if (expected.rows.length !== actual.rows.length) {
     diffs.push(`${path}: row count expected ${expected.rows.length}, got ${actual.rows.length}`);
@@ -205,7 +208,7 @@ function tableCompare(
 
 /** Compares one pair of corresponding rows: style and cell contents. */
 function rowCompare(path: string, expected: RowModel, actual: RowModel, opts: CompareOptions, diffs: string[]): void {
-  if (!styleEqual(expected.style, actual.style)) diffs.push(`${path}: style differs`);
+  styleCompare(path, "style", expected.style, actual.style, diffs);
   if (expected.cells.length !== actual.cells.length) {
     diffs.push(`${path}: cell count expected ${expected.cells.length}, got ${actual.cells.length}`);
     return;
@@ -223,7 +226,7 @@ function cellCompare(
   opts: CompareOptions,
   diffs: string[],
 ): void {
-  if (!styleEqual(expected.style, actual.style)) diffs.push(`${path}: style differs`);
+  styleCompare(path, "style", expected.style, actual.style, diffs);
   if (expected.blocks.length !== actual.blocks.length) {
     diffs.push(`${path}: paragraph count expected ${expected.blocks.length}, got ${actual.blocks.length}`);
     return;
@@ -231,4 +234,12 @@ function cellCompare(
   expected.blocks.forEach((p, i) => {
     paragraphCompare(`${path} paragraph ${i}`, p, actual.blocks[i], opts, diffs);
   });
+}
+
+/** Pushes `<path>: <label> differs (<fields>)` when two style objects aren't equal, naming the top-level fields that differ. */
+function styleCompare(path: string, label: string, expected: object, actual: object, diffs: string[]): void {
+  if (styleEqual(expected, actual)) return;
+  const fields = [...new Set([...Object.keys(expected), ...Object.keys(actual)])].sort();
+  const changed = styleFieldsChanged(expected as Record<string, unknown>, actual as Record<string, unknown>, fields);
+  diffs.push(`${path}: ${label} differs (${changed.join(", ")})`);
 }

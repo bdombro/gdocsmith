@@ -75,7 +75,7 @@ describe("requestsEmulate", () => {
     expect(blocks[1].bullet).toEqual({ listId: "kix.l1", nestingLevel: 1, textStyle: undefined });
   });
 
-  test("deleteContentRange merges paragraphs; the later newline's properties survive (F7)", () => {
+  test("deleteContentRange starting inside A merges into one paragraph carrying A's state (F7)", () => {
     const json = docJsonBuild({
       tabs: [
         {
@@ -92,6 +92,23 @@ describe("requestsEmulate", () => {
     expect(doc.tabs[0].blocks).toHaveLength(1);
     const p = doc.tabs[0].blocks[0] as ParagraphBlock;
     expect(p.inlines).toEqual([{ kind: "text", style: {}, text: "AABB" }]);
+    expect(p.style.namedStyleType).toBe("HEADING_1");
+  });
+
+  test("deleteContentRange starting at A's start removes A cleanly (F7)", () => {
+    const json = docJsonBuild({
+      tabs: [
+        {
+          blocks: [
+            { content: ["AAA"], kind: "paragraph", style: { namedStyleType: "HEADING_1" } },
+            { content: ["BBB"], kind: "paragraph", style: { namedStyleType: "HEADING_2" } },
+          ],
+        },
+      ],
+    });
+    const { json: out } = requestsEmulate(json, [{ deleteContentRange: { range: { endIndex: 6, startIndex: 1 } } }]);
+    const p = parse(out).tabs[0].blocks[0] as ParagraphBlock;
+    expect(p.inlines).toEqual([{ kind: "text", style: {}, text: "BB" }]);
     expect(p.style.namedStyleType).toBe("HEADING_2");
   });
 
@@ -203,6 +220,93 @@ describe("requestsEmulate", () => {
     expect(blocks[0].bullet?.listId).toBe(blocks[1].bullet?.listId);
   });
 
+  test("createParagraphBullets (F11): joined items drop their tabs at nesting 0; bulleted items are untouched; the following list is never joined", () => {
+    const bullet = (startIndex: number, endIndex: number) => ({
+      createParagraphBullets: { bulletPreset: "BULLET_DISC_CIRCLE_SQUARE", range: { endIndex, startIndex } },
+    });
+    // "a" [1,3) "\tb" [3,6) "\tc" [6,9) "d" [9,11)
+    const json = docJsonBuild({
+      tabs: [{ blocks: ["a", "\tb", "\tc", "d"].map((t) => ({ content: [t], kind: "paragraph" as const })) }],
+    });
+    const listed = requestsEmulate(json, [bullet(1, 3), bullet(9, 11)]).json;
+    const [a, b, c, d] = parse(listed).tabs[0].blocks as ParagraphBlock[];
+    expect(a.bullet?.listId).not.toBe(d.bullet?.listId);
+    const joined = parse(requestsEmulate(listed, [bullet(3, 6)]).json).tabs[0].blocks as ParagraphBlock[];
+    expect(joined[1].bullet).toMatchObject({
+      listId: a.bullet?.listId,
+      nestingLevel: 0,
+      textStyle: { underline: false },
+    });
+    expect(joined[1].inlines).toMatchObject([{ text: "b" }]);
+    expect(joined[1].style).toMatchObject({ indentFirstLine: { magnitude: 18 }, indentStart: { magnitude: 36 } });
+    // c follows the plain paragraph b in `listed`, so it starts a new list with tab-based nesting, never joining d's list.
+    const fresh = parse(requestsEmulate(listed, [bullet(6, 9)]).json).tabs[0].blocks as ParagraphBlock[];
+    expect(fresh[2].bullet?.nestingLevel).toBe(1);
+    expect(fresh[2].bullet?.listId).not.toBe(d.bullet?.listId);
+    expect(fresh[2].style).toMatchObject({ indentFirstLine: { magnitude: 54 }, indentStart: { magnitude: 72 } });
+    const again = parse(requestsEmulate(listed, [bullet(1, 3)]).json).tabs[0].blocks as ParagraphBlock[];
+    expect(again[0].bullet).toEqual(a.bullet);
+    expect(b.bullet).toBeUndefined();
+    expect(c.bullet).toBeUndefined();
+  });
+
+  test("updateTextStyle restyles the newline only when the range covers all of the paragraph's text (F10)", () => {
+    const json = docJsonBuild({ tabs: [{ blocks: [{ content: ["ab"], kind: "paragraph" }] }] });
+    const bold = (endIndex: number) => ({
+      updateTextStyle: { fields: "bold", range: { endIndex, startIndex: 1 }, textStyle: { bold: true } },
+    });
+    const whole = parse(requestsEmulate(json, [bold(3)]).json).tabs[0].blocks[0] as ParagraphBlock;
+    expect(whole.newline.style).toEqual({ bold: true });
+    const partial = parse(requestsEmulate(json, [bold(2)]).json).tabs[0].blocks[0] as ParagraphBlock;
+    expect(partial.newline.style).toEqual({});
+    expect(partial.inlines).toMatchObject([
+      { style: { bold: true }, text: "a" },
+      { style: {}, text: "b" },
+    ]);
+  });
+
+  test("updateTextStyle link chrome (F17): added unless masked, stripped on clear; {headingId} normalizes", () => {
+    const json = docJsonBuild({ tabs: [{ blocks: [{ content: ["ab"], kind: "paragraph" }] }] });
+    (json.tabs as Array<{ documentTab: { namedStyles: unknown } }>)[0].documentTab.namedStyles = {
+      styles: [
+        {
+          namedStyleType: "NORMAL_TEXT",
+          textStyle: { foregroundColor: { color: { rgbColor: {} } }, underline: false },
+        },
+      ],
+    };
+    const link = (textStyle: object, fields: string) => ({
+      updateTextStyle: { fields, range: { endIndex: 3, startIndex: 1 }, textStyle },
+    });
+    const chrome = { color: { rgbColor: { blue: 0.8, green: 0.33333334, red: 0.06666667 } } };
+    const linked = requestsEmulate(json, [link({ link: { url: "https://x.test" } }, "link")]).json;
+    const p = parse(linked).tabs[0].blocks[0] as ParagraphBlock;
+    expect(p.inlines[0].style).toEqual({ foregroundColor: chrome, link: { url: "https://x.test" }, underline: true });
+    expect(p.newline.style).toEqual({});
+    const cleared = parse(requestsEmulate(linked, [link({}, "link")]).json).tabs[0].blocks[0] as ParagraphBlock;
+    expect(cleared.inlines[0].style).toEqual({});
+    const masked = requestsEmulate(json, [
+      link({ link: { headingId: "h.1" }, underline: false }, "link,underline,foregroundColor"),
+    ]).json;
+    const m = parse(masked).tabs[0].blocks[0] as ParagraphBlock;
+    expect(m.inlines[0].style).toEqual({ link: { heading: { id: "h.1", tabId: "t.0" } } });
+  });
+
+  test("updateParagraphStyle refuses to clear namedStyleType and keeps an explicit direction (F10)", () => {
+    const json = docJsonBuild({ tabs: [{ blocks: [{ content: ["a"], kind: "paragraph" }] }] });
+    const update = (paragraphStyle: object) => ({
+      updateParagraphStyle: {
+        fields: "direction,namedStyleType",
+        paragraphStyle,
+        range: { endIndex: 3, startIndex: 1 },
+      },
+    });
+    expect(() => requestsEmulate(json, [update({})])).toThrow(/Named style property is not inherited/);
+    const p = parse(requestsEmulate(json, [update({ namedStyleType: "NORMAL_TEXT" })]).json).tabs[0]
+      .blocks[0] as ParagraphBlock;
+    expect(p.style).toEqual({ direction: "LEFT_TO_RIGHT", namedStyleType: "NORMAL_TEXT" });
+  });
+
   test("deleteParagraphBullets removes membership and resets indent flat (indentFirstLine dropped, indentStart explicit-empty)", () => {
     const json = docJsonBuild({
       tabs: [
@@ -221,6 +325,32 @@ describe("requestsEmulate", () => {
     expect(p.bullet).toBeUndefined();
     expect(p.style.indentStart).toEqual({ magnitude: 0, unit: "PT" });
     expect(p.style.indentFirstLine).toBeUndefined();
+  });
+
+  test("minted ids stay unique across batches applied to the same document", () => {
+    const json = docJsonBuild({
+      tabs: [
+        {
+          blocks: [
+            { content: ["a"], kind: "paragraph" },
+            { content: ["b"], kind: "paragraph" },
+          ],
+        },
+      ],
+    });
+    const heading = (startIndex: number) => ({
+      updateParagraphStyle: {
+        fields: "namedStyleType",
+        paragraphStyle: { namedStyleType: "HEADING_1" },
+        range: { endIndex: startIndex + 1, startIndex },
+      },
+    });
+    const once = requestsEmulate(json, [heading(1)]).json;
+    const twice = requestsEmulate(once, [heading(3)]).json;
+    const [a, b] = parse(twice).tabs[0].blocks as ParagraphBlock[];
+    expect(a.headingId).toBeDefined();
+    expect(b.headingId).toBeDefined();
+    expect(a.headingId).not.toBe(b.headingId);
   });
 
   // --- one negative test per error code ---

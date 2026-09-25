@@ -90,6 +90,12 @@ Avoid needless extraction: keep single-use helpers in the calling file by defaul
 - Domain engine lives in `src/core/`; `dump: true` and `kind: query` extract metadata and matches into `dumped`.
 - Auth is `gws auth export` credentials; do not invent Google OAuth in this app.
 
+## Dev loop
+
+- **Installed Claude Code plugin**: `~/.claude/plugins/installed_plugins.json` points at a cached copy under `~/.claude/plugins/cache/gdocsmith/gdocsmith/<version>`, not this repo. Reconnecting the MCP server in a live session does **not** refresh that cache. Run `just plugin-claude-update` after any change you want an interactive Claude Code session to pick up, then restart Claude Code.
+- **`claude plugin update` is version-gated, not content-diffed**: it compares `plugin.json`'s `version` field and skips the copy entirely if the version already matches, even if the repo's files (including a freshly rebuilt `scripts/mcp.mjs`) have changed. Verified: rebuilding the bundle with an unbumped version left the installed copy stale; `claude plugin uninstall` + `claude plugin install` forced a full fresh copy that picked up the change. `plugin-claude-update` handles this by falling back to uninstall+install when the post-update check still shows a mismatch.
+- **Local argsbarg development**: `just argsbarg-local` links `../bun-argsbarg` via `bun add argsbarg@file:../bun-argsbarg` (flat symlinks; safe, no recursive copy since gdocsmith is outside that repo). `just argsbarg-published <version>` switches back. Do **not** run `bun add`/`bun install` inside `bun-argsbarg`'s own `examples/*` directories from within gdocsmith's workflow — those examples depend on `file:../..` (their own parent repo), and materializing that self-referential link recursively copies without bound (confirmed: 85MB+ and growing before hitting `ENAMETOOLONG`). If an example needs local type resolution, use a single manual symlink (`ln -s ../../.. node_modules/argsbarg`) instead of a package-manager install.
+
 ## Engineering & Triage Principles
 
 ### 1. Not All Failures Need Fixing

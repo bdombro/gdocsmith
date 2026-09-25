@@ -126,6 +126,23 @@ just build
 
 # Link the repo into ~/.cursor/plugins/local/gdocsmith for local Cursor testing
 just install-plugin-cursor
+
+# Refresh the installed Claude Code plugin from this repo (restart Claude Code afterwards)
+just plugin-claude-update
+```
+
+### Developing against a local argsbarg checkout
+
+gdocsmith depends on [argsbarg](https://github.com/bdombro/bun-argsbarg), a separate repo. To develop against a sibling `../bun-argsbarg` checkout instead of the published npm release:
+
+```bash
+# Switch to the local checkout (re-run after each argsbarg edit)
+just argsbarg-local
+
+# ...develop, run just check...
+
+# Switch back to a published release, e.g. after argsbarg cuts a new version
+just argsbarg-published 7.1.1
 ```
 
 

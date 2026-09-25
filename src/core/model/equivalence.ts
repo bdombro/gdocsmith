@@ -68,26 +68,18 @@ function tabCompare(expected: TabModel, actual: TabModel, opts: CompareOptions, 
     return;
   }
   expected.blocks.forEach((block, i) => {
-    const isBodyLast = i === expected.blocks.length - 1;
-    blockCompare(`${path} block ${i}`, block, actual.blocks[i], opts, diffs, isBodyLast);
+    blockCompare(`${path} block ${i}`, block, actual.blocks[i], opts, diffs);
   });
 }
 
 /** Compares one pair of corresponding blocks (must share the same `kind`). */
-function blockCompare(
-  path: string,
-  expected: Block,
-  actual: Block,
-  opts: CompareOptions,
-  diffs: string[],
-  isBodyLast: boolean,
-): void {
+function blockCompare(path: string, expected: Block, actual: Block, opts: CompareOptions, diffs: string[]): void {
   if (expected.kind !== actual.kind) {
     diffs.push(`${path}: kind expected "${expected.kind}", got "${actual.kind}"`);
     return;
   }
   if (expected.kind === "paragraph" && actual.kind === "paragraph") {
-    paragraphCompare(path, expected, actual, opts, diffs, isBodyLast);
+    paragraphCompare(path, expected, actual, opts, diffs);
   } else if (expected.kind === "table" && actual.kind === "table") {
     tableCompare(path, expected, actual, opts, diffs);
   } else if (expected.kind === "toc" && actual.kind === "toc") {
@@ -104,12 +96,11 @@ function paragraphCompare(
   actual: ParagraphBlock,
   opts: CompareOptions,
   diffs: string[],
-  isBodyLast: boolean,
 ): void {
   if (!styleEqual(expected.style, actual.style)) diffs.push(`${path}: style differs`);
   headingIdCompare(path, expected, actual, opts, diffs);
   bulletCompare(path, expected.bullet, actual.bullet, diffs);
-  if (!isBodyLast && !styleEqual(expected.newline.style, actual.newline.style)) {
+  if (!styleEqual(expected.newline.style, actual.newline.style)) {
     diffs.push(`${path}: newline style differs`);
   }
   if (expected.inlines.length !== actual.inlines.length) {
@@ -238,6 +229,6 @@ function cellCompare(
     return;
   }
   expected.blocks.forEach((p, i) => {
-    paragraphCompare(`${path} paragraph ${i}`, p, actual.blocks[i], opts, diffs, i === expected.blocks.length - 1);
+    paragraphCompare(`${path} paragraph ${i}`, p, actual.blocks[i], opts, diffs);
   });
 }

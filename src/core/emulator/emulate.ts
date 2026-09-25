@@ -140,17 +140,6 @@ export function rangeResolve(
   };
 }
 
-/** Throws `RANGE_AT_SEGMENT_END` when a style/bullet range's `end` reaches the segment's final newline (see G3 F9). */
-export function segmentEndValidate(tab: TabState, end: number, ctx: EmulateContext): void {
-  if (end === tab.tape.length) {
-    throw new EmulatorError(
-      "RANGE_AT_SEGMENT_END",
-      ctx.requestIndex,
-      "range must end before the segment's final newline",
-    );
-  }
-}
-
 // --- insertText ---
 
 function insertTextRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
@@ -380,7 +369,6 @@ function isLowSurrogate(ch: string): boolean {
 
 function updateTextStyleRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
   const { end, start, tab } = rangeResolve(state, req.range as JsonObject, ctx);
-  segmentEndValidate(tab, end, ctx);
   const fields = parseFields(req.fields);
   const patch = (req.textStyle as JsonObject) ?? {};
   for (let i = start; i < end; i++) {
@@ -410,7 +398,6 @@ function styleRefFor(cell: TapeCell): JsonObject | undefined {
 
 function updateParagraphStyleRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
   const { end, start, tab } = rangeResolve(state, req.range as JsonObject, ctx);
-  segmentEndValidate(tab, end, ctx);
   const fields = parseFields(req.fields);
   const patch = (req.paragraphStyle as JsonObject) ?? {};
   for (let i = start; i < end; i++) {
@@ -432,7 +419,6 @@ function updateParagraphStyleRequestApply(state: EmulatorState, req: JsonObject,
 
 function createParagraphBulletsRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
   const { end, start, tab } = rangeResolve(state, req.range as JsonObject, ctx);
-  segmentEndValidate(tab, end, ctx);
   createParagraphBulletsApply(tab, start, end, req.bulletPreset as BulletPreset, ctx);
   return {};
 }
@@ -490,7 +476,6 @@ function listIdForJoin(tab: TabState, pStart: number, bulletPreset: BulletPreset
 
 function deleteParagraphBulletsRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
   const { end, start, tab } = rangeResolve(state, req.range as JsonObject, ctx);
-  segmentEndValidate(tab, end, ctx);
   deleteParagraphBulletsApply(tab, start, end);
   return {};
 }

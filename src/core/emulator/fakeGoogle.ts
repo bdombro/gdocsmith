@@ -28,9 +28,9 @@ interface FakeDoc {
 
 /**
  * In-memory `DocsClient` + `DriveApi` for tests, backed entirely by `requestsEmulate`. Revisions
- * are `rev-<N>`, incrementing on every successful `batchUpdate`; a mismatched
- * `requiredRevisionId` throws the same message text real `batchUpdate` uses on conflict (a
- * placeholder pending G3 M5's recorded text).
+ * are `rev-<N>` (an internal placeholder; real revision ids are long opaque tokens, but nothing
+ * depends on the format matching), incrementing on every successful `batchUpdate`; a mismatched
+ * `requiredRevisionId` throws the real message text recorded live in G3 M5.
  */
 export class FakeGoogle implements DocsClient, DriveApi {
   /** Every call made through this instance, in order. */
@@ -52,7 +52,7 @@ export class FakeGoogle implements DocsClient, DriveApi {
     this.callLog.push({ args: [documentId, requests, opts], method: "batchUpdate" });
     const doc = this.#docRequire(documentId);
     if (opts.requiredRevisionId && opts.requiredRevisionId !== this.#revisionId(doc)) {
-      throw new Error("The document revision ID provided does not match the current revision");
+      throw new Error(`The required revision ID '${opts.requiredRevisionId}' does not match the latest revision.`);
     }
     this.beforeBatchUpdate?.(documentId);
     const { json, replies } = requestsEmulate(doc.json, requests as JsonObject[]);

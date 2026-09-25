@@ -280,13 +280,32 @@ describe("requestsEmulate", () => {
     ).toThrowError(expect.objectContaining({ code: "SURROGATE_SPLIT" }) as unknown as EmulatorError);
   });
 
-  test("RANGE_AT_SEGMENT_END: a style range ending at the segment's final newline", () => {
+  test("a style/bullet range may freely reach the segment's true end (F9 corrected)", () => {
     const json = docJsonBuild({ tabs: [{ blocks: [{ content: ["a"], kind: "paragraph" }] }] });
-    expect(() =>
-      requestsEmulate(json, [
-        { updateTextStyle: { fields: "bold", range: { endIndex: 3, startIndex: 1 }, textStyle: { bold: true } } },
-      ]),
-    ).toThrowError(expect.objectContaining({ code: "RANGE_AT_SEGMENT_END" }) as unknown as EmulatorError);
+    const { json: out } = requestsEmulate(json, [
+      { updateTextStyle: { fields: "bold", range: { endIndex: 3, startIndex: 1 }, textStyle: { bold: true } } },
+    ]);
+    const p = parse(out).tabs[0].blocks[0] as ParagraphBlock;
+    expect(p.newline.style).toEqual({ bold: true });
+
+    const empty = docJsonBuild({ tabs: [{ blocks: [{ content: [], kind: "paragraph" }] }] });
+    const { json: emptyOut } = requestsEmulate(empty, [
+      {
+        updateParagraphStyle: {
+          fields: "alignment",
+          paragraphStyle: { alignment: "CENTER" },
+          range: { endIndex: 2, startIndex: 1 },
+        },
+      },
+    ]);
+    expect((parse(emptyOut).tabs[0].blocks[0] as ParagraphBlock).style.alignment).toBe("CENTER");
+  });
+
+  test("RANGE_AT_SEGMENT_END: insertText at index === segment length (the one real segment-end restriction)", () => {
+    const json = docJsonBuild({ tabs: [{ blocks: [{ content: ["a"], kind: "paragraph" }] }] });
+    expect(() => requestsEmulate(json, [{ insertText: { location: { index: 3 }, text: "x" } }])).toThrowError(
+      expect.objectContaining({ code: "RANGE_AT_SEGMENT_END" }) as unknown as EmulatorError,
+    );
   });
 
   test("TAB_REQUIRED: a request on a multi-tab document with no tabId", () => {

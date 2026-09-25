@@ -98,38 +98,22 @@ async function releaseRun(
   /** Options controlling execution. */
   options: ReleaseOptions,
 ): Promise<void> {
-  const checkResult = options.dryRun
-    ? await $`bun run biome check $(rg --files src scripts tests -g '*.ts' -g '*.tsx') && bun run tsc --noEmit && bun test src`.nothrow()
-    : await $`just check`.nothrow();
-  if (checkResult.exitCode !== 0) process.exit(checkResult.exitCode);
-
   const currentVersion = versionCurrentRead();
   const newVersion = semverBumpApply(currentVersion, bump);
-  console.log(`Releasing ${currentVersion} → ${newVersion}`);
 
   if (options.dryRun) {
-    const currentChanges = await $`git status --short --untracked-files=all`.text();
-    const releasePaths = [
-      ".claude-plugin/plugin.json",
-      ".cursor-plugin/plugin.json",
-      "CHANGELOG.md",
-      "docs/cli-schema.json",
-      "docs/cli.md",
-      "docs/mcp.md",
-      "package.json",
-      "scripts/mcp.mjs",
-      "src/program.ts",
-    ];
-    console.log("[dry-run] Read-only lint, typecheck, and unit-test checks passed.");
-    console.log(`[dry-run] Would update release files:\n${releasePaths.join("\n")}`);
-    console.log("[dry-run] Would commit all tracked and untracked changes with git add -A.");
-    console.log(`[dry-run] Current working-tree changes:\n${currentChanges.trim() || "(none)"}`);
     console.log(
-      `[dry-run] Would build, generate docs, commit, tag v${newVersion}, push, and create the GitHub release.`,
+      `Releasing ${currentVersion} → ${newVersion}\n` +
+        "[dry-run] Would run just check, bump the version and changelog, build, generate docs, " +
+        `commit all changes with git add -A, tag v${newVersion}, push, and create the GitHub release.`,
     );
     return;
   }
 
+  const checkResult = await $`just check`.nothrow();
+  if (checkResult.exitCode !== 0) process.exit(checkResult.exitCode);
+
+  console.log(`Releasing ${currentVersion} → ${newVersion}`);
   versionUpdate(newVersion);
   changelogUpdate(newVersion);
 

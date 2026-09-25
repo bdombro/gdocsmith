@@ -87,7 +87,7 @@ _plugin-claude-check:
     @p="$(jq -r '.plugins["gdocsmith@gdocsmith"][0].installPath' ~/.claude/plugins/installed_plugins.json)"; cmp -s "$p/scripts/mcp.mjs" scripts/mcp.mjs && echo "installed plugin matches build: $p" || { echo "installed plugin is stale: $p" >&2; exit 1; }
 
 # Bump version, build, publish release
-release *ARGS: schemagen
+release *ARGS:
     bun scripts/release.ts {{ARGS}}
 
 # Run the CLI from source once

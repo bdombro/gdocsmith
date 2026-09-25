@@ -14,12 +14,15 @@ import { tabMarkdownExport } from "./export.ts";
 import { markdownPut, type Placement } from "./put.ts";
 
 /** A document, a mutable copy, and helpers to export, write, and plan. */
-function setup(blocks: BlockSpec[]) {
+function setup(blocks: BlockSpec[], listLevels?: readonly unknown[]) {
+  const nestingLevels = structuredClone([
+    ...(listLevels ?? listPresetTable().BULLET_DISC_CIRCLE_SQUARE ?? []),
+  ]) as JsonObject[];
   const json = docJsonBuild({
     tabs: [
       {
         blocks,
-        lists: { "kix.p": { listProperties: { nestingLevels: listPresetTable().BULLET_DISC_CIRCLE_SQUARE } } },
+        lists: { "kix.p": { listProperties: { nestingLevels } } },
         title: "Main",
       },
     ],
@@ -49,6 +52,10 @@ function setup(blocks: BlockSpec[]) {
 
 const para = (text: string): BlockSpec => ({ content: [text], kind: "paragraph" });
 const kinds = (requests: JsonObject[]) => requests.map((r) => Object.keys(r)[0]);
+const mixedListLevels: JsonObject[] = [
+  { glyphFormat: "%0.", glyphType: "DECIMAL", startNumber: 1 },
+  { glyphSymbol: "•", glyphType: "GLYPH_TYPE_UNSPECIFIED" },
+];
 const code = (fn: () => unknown) => {
   try {
     fn();
@@ -57,6 +64,17 @@ const code = (fn: () => unknown) => {
     return (err as { code: string }).code;
   }
 };
+
+function mixedListSetup() {
+  return setup(
+    [
+      { bullet: { listId: "kix.p" }, content: ["step"], kind: "paragraph" },
+      { bullet: { listId: "kix.p", nestingLevel: 1 }, content: ["detail"], kind: "paragraph" },
+      para("unrelated"),
+    ],
+    mixedListLevels,
+  );
+}
 
 describe("markdownPut", () => {
   test("unchanged markdown changes nothing (both modes)", () => {
@@ -133,17 +151,44 @@ describe("markdownPut", () => {
     expect(a.inlines[1]).toMatchObject({ create: { email: "p@x.test", type: "person" } });
   });
 
-  test("numbered steps with bullet details: the details become numbered sub-items, with a note", () => {
+  test("new mixed-kind nested lists are refused before mutation", () => {
     const s = setup([para("intro")]);
-    const report = s.write("1. step one\n   - detail\n   - more\n1. step two", { kind: "append" });
-    const [, one, d1, d2, two] = s.final.tabs[0].blocks as ParagraphBlock[];
-    for (const p of [d1, d2, two]) expect(p.bullet?.listId).toBe(one.bullet?.listId as string);
-    expect([one, d1, d2, two].map((p) => p.bullet?.nestingLevel)).toEqual([0, 1, 1, 0]);
-    expect(report.notes).toEqual([
-      "nested bullet items became number items: Google Docs can't nest a different kind of list inside another",
-    ]);
+    expect(code(() => s.write("1. step one\n   - detail\n1. step two", { kind: "append" }))).toBe("unsupportedSyntax");
+    expect((s.final.tabs[0].blocks[0] as ParagraphBlock).inlines[0]).toMatchObject({ text: "intro" });
+    expect(s.final.tabs[0].blocks).toHaveLength(1);
+  });
+
+  test("same-kind nested list items remain supported", () => {
+    const s = setup([para("intro")]);
+    s.write("1. step\n   1. detail", { kind: "append" });
+    const items = (s.final.tabs[0].blocks as ParagraphBlock[]).slice(1);
+    expect(items.map((item) => item.bullet?.nestingLevel)).toEqual([0, 1]);
     expect(s.plan().check.diffs).toEqual([]);
-    expect(s.exportMd(true)).toBe("intro\n\n1. step one\n   1. detail\n   1. more\n1. step two\n");
+  });
+
+  test("an unchanged UI-created mixed-kind list round-trips; editing its mixed item is refused", () => {
+    const s = mixedListSetup();
+    const md = s.exportMd();
+    expect(md).toContain("1. step\n   - detail");
+    expect(s.write(md).changed).toBe(false);
+    expect(code(() => s.write(md.replace("- detail", "- changed detail")))).toBe("unsupportedSyntax");
+    expect((s.final.tabs[0].blocks[1] as ParagraphBlock).inlines[0]).toMatchObject({ text: "detail" });
+  });
+
+  test("removing an existing mixed-kind nested item remains supported", () => {
+    const s = mixedListSetup();
+    const md = s.exportMd();
+    expect(s.write(md.replace("   - detail\n", "")).changed).toBe(true);
+    expect(s.plan().check.diffs).toEqual([]);
+    expect(s.exportMd()).not.toContain("detail");
+  });
+
+  test("unrelated edits preserve an existing UI-created mixed-kind list", () => {
+    const s = mixedListSetup();
+    const md = s.exportMd();
+    expect(s.write(md.replace("unrelated", "changed outside list")).changed).toBe(true);
+    expect(s.exportMd()).toContain("1. step\n   - detail");
+    expect(s.plan().check.diffs).toEqual([]);
   });
 
   test("headings of every level (H1–H6) are created and read back", () => {

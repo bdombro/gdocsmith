@@ -38,7 +38,7 @@ import {
 import { paragraphSymbols, type Sym } from "../model/symbols.ts";
 import type { Atom, AtomCreate, Block, DocModel, ParagraphBlock, TableBlock, TabModel } from "../model/types.ts";
 import { anchorResolve, paragraphText, type RangeRef, type ResolvedRange, rangeResolve } from "./anchors.ts";
-import { blockDiff } from "./blockDiff.ts";
+import { type BlockEdit, blockDiff } from "./blockDiff.ts";
 import { parsedCanonical } from "./canonical.ts";
 import {
   markdownParse,
@@ -154,6 +154,7 @@ export function markdownPut(
     stylesNew: state.stylesNew,
     stylesOld: projection.styles,
   });
+  mixedKindListRefuse(p0, p1.blocks, edits);
   movesRefuse(edits, p0, p1.blocks, projected, projection.styles, state.stylesNew);
   const container = containerOf(tab, range.containerRef);
   // Cursor: where the next new block goes (after the previous block's owned invisible paragraphs, D25).
@@ -218,6 +219,44 @@ function movesRefuse(
       );
     }
   }
+}
+
+/** Refuses new or edited nested list items whose written kind differs from their parent list. */
+function mixedKindListRefuse(
+  oldBlocks: readonly ParsedBlock[],
+  newBlocks: readonly ParsedBlock[],
+  edits: readonly BlockEdit[],
+): void {
+  for (const edit of edits) {
+    if (edit.kind === "delete") continue;
+    const next = newBlocks[edit.n];
+    if (edit.kind === "insert") {
+      if (next.kind === "listItem" && next.list?.written) mixedKindListError(next);
+      continue;
+    }
+    const previous = oldBlocks[edit.o];
+    const previousMixed = previous.kind === "listItem" && previous.list?.written !== undefined;
+    const nextMixed = next.kind === "listItem" && next.list?.written !== undefined;
+    if (!previousMixed && !nextMixed) continue;
+    const unchangedMixed =
+      edit.kind === "keep" &&
+      previous.kind === "listItem" &&
+      next.kind === "listItem" &&
+      previous.list?.kind === next.list?.kind &&
+      previous.list?.depth === next.list?.depth &&
+      previous.list?.written === next.list?.written;
+    if (unchangedMixed) continue;
+    if (nextMixed || next.kind === "listItem") mixedKindListError(nextMixed ? next : previous);
+  }
+}
+
+/** Explains how to make a mismatched nested list representable. */
+function mixedKindListError(block: ParsedBlock): never {
+  const list = block.list as NonNullable<ParsedBlock["list"]>;
+  throw new CoreError(
+    "unsupportedSyntax",
+    `nested ${list.written ?? "different-kind"} items can't be authored or changed under a ${list.kind} list; Google Docs can't represent mixed-kind nesting. Use ${list.kind} markers for nested items`,
+  );
 }
 
 /** State of one put. */

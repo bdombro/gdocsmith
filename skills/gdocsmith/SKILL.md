@@ -82,8 +82,12 @@ the current run.
 ## Not Supported
 
 The tool preserves but cannot create headers, footnotes, equations, drawings,
-charts, TOCs, bookmarks, checkbox state, or Drive-hosted image content. A nested
-list of a different kind becomes its parent list's kind.
+charts, TOCs, bookmarks, checkbox state, or Drive-hosted image content. Markdown
+cannot author or edit a nested list item whose kind differs from its parent; the
+run refuses that input, and `force` cannot bypass it. Removing the mismatched
+nested item is supported. Use the same list kind for nested items, or use `edit`
+for a literal text change that leaves list membership alone. Existing UI-created
+mixed-kind lists survive unchanged exports and unrelated edits.
 
 ## Recipes
 

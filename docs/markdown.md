@@ -35,6 +35,14 @@ fails safely instead of applying an edit to a stale document.
 Use `markdownFile` to write an edited export back. For small changes, pass
 `markdown` directly.
 
+Nested list items must use the same list kind as their parent. Markdown writes
+refuse newly authored or edited mixed-kind nesting instead of changing its
+meaning. Existing UI-created mixed-kind lists are preserved by unchanged exports
+and unrelated edits; removing a mismatched nested item is supported. Use
+same-kind markers for nested lists, or use `edit` for a literal text replacement
+that leaves list membership unchanged. `force` does not make unsupported
+markdown representable.
+
 ## Tokens
 
 Position tokens preserve atomic content and prevent an accidental rewrite from

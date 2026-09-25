@@ -370,6 +370,27 @@ describe("run execution pipeline", () => {
     expect(res.ok).toBe(true);
   });
 
+  test("force does not bypass unsupported mixed-kind list syntax or send requests", async () => {
+    const docId = "doc-mixed-list-1234567890123456789";
+    const g = fakeGoogle({ [docId]: [{ blocks: [para("start")], title: "Main" }] });
+    const run: GdocsmithRun = {
+      steps: [
+        {
+          append: true,
+          doc: docId,
+          force: true,
+          kind: "write",
+          markdown: "1. numbered parent\n   - bullet child",
+        },
+      ],
+    };
+
+    await expect(runExecute(run, { cache: memCache(), client: g, drive: g })).rejects.toThrow(
+      /unsupportedSyntax|nested bullet items.*can't be authored or changed under a number list/,
+    );
+    expect(g.callLog.filter((call) => call.method === "batchUpdate")).toHaveLength(0);
+  });
+
   test("run-level cap spills the largest payloads", async () => {
     const doc1Id = "doc-spill1-1234567890123456789";
     const doc2Id = "doc-spill2-1234567890123456789";

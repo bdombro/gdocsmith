@@ -57,6 +57,11 @@ describe("markdownParse: blocks", () => {
     expect(listIndentationNormalize("1. a\n  - b")).toBe("1. a\n   - b");
   });
 
+  test("nested items retain the kind their markdown marker wrote", () => {
+    const { blocks } = parse("1. step\n   - detail");
+    expect(blocks[1].list).toMatchObject({ depth: 1, kind: "number", written: "bullet" });
+  });
+
   test("code fences become code lines (fence info dropped)", () => {
     const { blocks } = parse("```ts\nlet a = *x*;\n\nb\n```");
     expect(blocks.map((b) => [b.kind, b.codeGroup, b.spans[0].kind === "text" ? b.spans[0].text : ""])).toEqual([

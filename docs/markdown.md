@@ -78,3 +78,9 @@ size, weight, bold, italic, underline, strike, baseline offset, and small caps.
 Read-only tables, equations, drawings, charts, TOCs, column breaks, positioned
 objects, and some chips are preserved when untouched. The lens refuses edits that
 would require recreating unsupported content.
+
+Display-only flattening: hard line breaks inside a table cell (U+000B) are
+flattened to a single space for the markdown view so the table renders as one
+valid markdown table while the underlying model (and any hard breaks it
+contains) remains unchanged and read-only. Complex tables remain refused on
+attempted edits or moves.

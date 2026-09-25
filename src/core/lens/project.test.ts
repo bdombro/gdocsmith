@@ -150,4 +150,21 @@ describe("projectionBuild", () => {
     expect(heading.spans[0]).toMatchObject({ marks: {} });
     expect(heading.spans[0]).not.toHaveProperty("directive");
   });
+
+  test("hard-break table projection flattens text without changing source or marks", () => {
+    const table: BlockSpec = {
+      cells: [
+        [[{ content: ["Heading"] }], [{ content: ["H1\u000bH2"] }]],
+        [[{ content: ["Label"] }], [{ content: [{ style: { bold: true }, text: "Body\u000bNext" }] }]],
+      ],
+      kind: "table",
+    };
+    const tab = tabOf([p("pre"), table, p("post")]);
+    const original = structuredClone(tab);
+    const projectedTable = project(tab).blocks[1].table;
+    expect(projectedTable?.readOnly).toBe(true);
+    expect(projectedTable?.rows[0][1]).toMatchObject([{ kind: "text", text: "H1 H2" }]);
+    expect(projectedTable?.rows[1][1]).toMatchObject([{ kind: "text", marks: { bold: true }, text: "Body Next" }]);
+    expect(tab).toEqual(original);
+  });
 });

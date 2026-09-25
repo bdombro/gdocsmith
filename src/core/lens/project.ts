@@ -477,7 +477,9 @@ function tableProject(
       // A read-only cell shows its paragraphs on one line.
       return cell.blocks.flatMap((p, i) => [
         ...(i > 0 ? [{ kind: "text" as const, marks: {}, text: " " }] : []),
-        ...spansProject(tab, p, tokens, base, styles, mode).spans,
+        ...spansProject(tab, p, tokens, base, styles, mode).spans.map((span) =>
+          span.kind === "text" ? { ...span, text: span.text.replaceAll("\u000b", " ") } : span,
+        ),
       ]);
     }),
   );

@@ -120,10 +120,14 @@ before sending; preserve the no-send self-check guarantee meanwhile.
 ### Corpus and Comment Verification
 
 The local lens-corpus test is read-only and skips when its SQLite cache is
-absent. With the current default-home cache, it fails GetPut for one tab in both
-markdown modes (24 blocks read back, expected 23). Running the full check with
-an empty temporary `HOME` passes but exercises no real corpus; it is not corpus
-evidence. Keep the local failure visible until investigated.
+absent. On 2026-09-25, the populated default-home corpus and full check passed
+after correcting table-cell hard-break projection. Previously, a table rendered
+as two paragraphs, causing GetPut to read 24 blocks instead of 23 in both modes.
+Synthetic regressions verify unchanged write-back and unrelated edits preserve
+the original table. On 2026-09-25, the targeted live GetPut test passed against a
+disposable copy, confirming zero content writes in both modes, unchanged state
+after fresh fetches, and permanent cleanup. The MCP wire suite also passed all
+30 source and bundle tests.
 
 Guard tests exercise synthetic comments and suggestions offline. The live suite
 cannot create those anchors through the API, and no UI-authored comment fixture

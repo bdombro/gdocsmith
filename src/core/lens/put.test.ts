@@ -11,6 +11,7 @@ import { type BlockSpec, docJsonBuild } from "../model/testDocs.ts";
 import type { DocModel, ParagraphBlock } from "../model/types.ts";
 import { docPlanSelfCheck, docReconcile } from "../reconcile/reconcile.ts";
 import { tabMarkdownExport } from "./export.ts";
+import { markdownParse } from "./parse.ts";
 import { markdownPut, type Placement } from "./put.ts";
 
 /** A document, a mutable copy, and helpers to export, write, and plan. */
@@ -223,6 +224,35 @@ describe("markdownPut", () => {
     expect(s.exportMd()).toContain(
       "| Name | Role | Age |\n| --- | :-: | --- |\n| Ada | Eng | 37 |\n| Bob | Ops | 41 |",
     );
+  });
+
+  test("hard-break tables survive write-back and unrelated edits but remain read-only", () => {
+    for (const bodyBreak of [false, true]) {
+      for (const plain of [false, true]) {
+        const table: BlockSpec = {
+          cells: bodyBreak
+            ? [
+                [[{ content: ["Heading"] }], [{ content: ["Details"] }]],
+                [[{ content: ["Label"] }], [{ content: [{ style: { bold: true }, text: "First\u000bSecond" }] }]],
+              ]
+            : [[[{ content: ["Heading"] }], [{ content: ["First\u000bSecond"] }]]],
+          kind: "table",
+        };
+        const state = setup([para("intro"), table, para("after")]);
+        const original = structuredClone(state.final);
+        const markdown = state.exportMd(plain);
+        const parsed = markdownParse(markdown, { doc: state.final, tab: state.target.tab });
+        expect(parsed.blocks.map((block) => block.kind)).toEqual(["paragraph", "table", "paragraph"]);
+        expect(state.write(markdown).changed).toBe(false);
+        expect(state.final).toEqual(original);
+        expect(state.plan().plan.contentRequests).toEqual([]);
+
+        expect(state.write(markdown.replace("intro", "intro edited")).changed).toBe(true);
+        expect(state.final.tabs[0].blocks[1]).toEqual(original.tabs[0].blocks[1]);
+        expect(state.plan().check.equal).toBe(true);
+        expect(code(() => state.write(state.exportMd(plain).replace("First", "Changed")))).toBe("readOnlyTable");
+      }
+    }
   });
 
   test("a read-only table can't change or move", () => {

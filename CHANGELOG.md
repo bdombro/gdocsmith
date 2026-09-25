@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release `--dry-run` now prints the planned actions and exits without checks or mutations.
 - Markdown writes refuse new or edited nested list items whose marker kind differs from the parent; unchanged existing mixed-kind lists remain preserved.
 
+### Fixed
+- Preserve hard line breaks inside table cells in the model while flattening them for the markdown view so read-only complex tables render as a single markdown table and unchanged write-back is a no-op.
+
 ## [2.0.0] - 2026-09-25
 
 ### Changed (BREAKING)

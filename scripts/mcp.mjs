@@ -23292,7 +23292,7 @@ function tableProject(tab, t, tokens, base, styles, mode) {
       readOnly = true;
     return cell.blocks.flatMap((p, i) => [
       ...i > 0 ? [{ kind: "text", marks: {}, text: " " }] : [],
-      ...spansProject(tab, p, tokens, base, styles, mode).spans
+      ...spansProject(tab, p, tokens, base, styles, mode).spans.map((span) => span.kind === "text" ? { ...span, text: span.text.replaceAll("\v", " ") } : span)
     ]);
   }));
   const columnCount = t.columns.length;

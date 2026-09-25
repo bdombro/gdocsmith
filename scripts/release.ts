@@ -98,12 +98,37 @@ async function releaseRun(
   /** Options controlling execution. */
   options: ReleaseOptions,
 ): Promise<void> {
-  const testResult = await $`just test`.nothrow();
-  if (testResult.exitCode !== 0) process.exit(testResult.exitCode);
+  const checkResult = options.dryRun
+    ? await $`bun run biome check $(rg --files src scripts tests -g '*.ts' -g '*.tsx') && bun run tsc --noEmit && bun test src`.nothrow()
+    : await $`just check`.nothrow();
+  if (checkResult.exitCode !== 0) process.exit(checkResult.exitCode);
 
   const currentVersion = versionCurrentRead();
   const newVersion = semverBumpApply(currentVersion, bump);
   console.log(`Releasing ${currentVersion} → ${newVersion}`);
+
+  if (options.dryRun) {
+    const currentChanges = await $`git status --short --untracked-files=all`.text();
+    const releasePaths = [
+      ".claude-plugin/plugin.json",
+      ".cursor-plugin/plugin.json",
+      "CHANGELOG.md",
+      "docs/cli-schema.json",
+      "docs/cli.md",
+      "docs/mcp.md",
+      "package.json",
+      "scripts/mcp.mjs",
+      "src/program.ts",
+    ];
+    console.log("[dry-run] Read-only lint, typecheck, and unit-test checks passed.");
+    console.log(`[dry-run] Would update release files:\n${releasePaths.join("\n")}`);
+    console.log("[dry-run] Would commit all tracked and untracked changes with git add -A.");
+    console.log(`[dry-run] Current working-tree changes:\n${currentChanges.trim() || "(none)"}`);
+    console.log(
+      `[dry-run] Would build, generate docs, commit, tag v${newVersion}, push, and create the GitHub release.`,
+    );
+    return;
+  }
 
   versionUpdate(newVersion);
   changelogUpdate(newVersion);
@@ -113,11 +138,6 @@ async function releaseRun(
 
   const docgenResult = await $`just docgen`.nothrow();
   if (docgenResult.exitCode !== 0) process.exit(docgenResult.exitCode);
-
-  if (options.dryRun) {
-    console.log(`[dry-run] Would commit, tag v${newVersion}, and create GitHub release.`);
-    return;
-  }
 
   await gitCommitAndTag(newVersion);
   await releaseGithubCreate(`v${newVersion}`);

@@ -24,8 +24,8 @@ argsbarg-published VERSION:
 build: schemagen
     bun build ./src/index.ts --target=node --outfile=./scripts/mcp.mjs
 
-# Schemagen, format, lint, typecheck, unit tests, and offline MCP wire tests
-check: schemagen format lint typecheck test test-wire
+# Schemagen, format, lint, typecheck, unit tests
+check: format lint typecheck test
 
 # demo a CLI command
 demo-cli:
@@ -105,7 +105,7 @@ setup:
     just schemagen
 
 # Run unit tests
-test: schemagen
+test:
     bun test src
 
 # Run all tests

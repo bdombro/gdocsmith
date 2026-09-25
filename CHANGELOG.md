@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (BREAKING)
+- `run` now accepts ten v2 step kinds instead of the v1 operation names. No compatibility aliases are retained; migrate calls using this map:
+
+| v1 | v2 |
+| --- | --- |
+| `docOpen` | `doc open` |
+| `docCreate` | `doc create` |
+| `docCreate` with `fromDoc` | `doc copy` |
+| `docCreate` with `fromDoc` and `fromTab` | `doc create`, then `write from` |
+| `docRename` / `docTrash` / `docDelete` | `doc rename` / `trash` / `delete` |
+| `docPermissionAdd` / `List` / `Remove` | `share add` / `list` / `remove` |
+| `markdownInsert` | `write` with `after`, `before`, or `append` |
+| `replace`, `innerText`, `replaceMarkdown` | `write` with `replace: {node}` or `{text}` |
+| `replaceSection` | `write` with `replace: {section}` |
+| `sectionCopy`, `tabPopulate`, `cloneNode(s)` | `write from` |
+| `textReplace` | `edit` |
+| `remove`, `dangerousRemoveSection` | `remove` with `{node}` or `{section}` |
+| surgical table operations, `tableStyle` | `table` |
+| surgical style, bullets, `namedStyleType`, alignment, runs | `style` |
+| `tabCreate`, `tabRename`, `tabMove`, `tabReorder`, `tabDelete` | `tab` |
+| `pageSetup` | `page` |
+
+- The result shape is now `diff`, `docs`, `dryRun`, `ok`, `phases`, `steps`, and `warnings`. Runs plan against an in-memory model and check guards before sending; live sends happen in phases and may partially land if a later phase fails. Errors identify landed and unsent work. Large query and diff outputs spill to files.
+
 ### Added
+- MCP `initialize` instructions and the `gdocsmith://docs/skill` resource; `edit.expectCount`; `query.saveTo`; and `write.markdownFile` for edited markdown exports.
 - v2 live fixture workflow: copies the IPP fixture, queries its outline, rewrites scoped content, preserves child headings and fragile content, copies a tab, adds a table row, performs a counted edit, and permanently deletes the test copy after the suite. Live conformance now pools 95 tab-isolated scenarios into one scratch document while retaining separate document-global and expected-error cases, reducing API round trips without reducing coverage.
 - v2 reference: rewrote mechanics, markdown, safeguards, architecture, feature, runbook, image, comment, style, and E2E documentation for the model-first run surface.
 - v2 guidance: rewrote the gdocsmith skill, README, and repository instructions around the ten v2 step kinds, model-first planning, anchors, markdown exports, guards, phased sends, and current development workflow.
@@ -50,6 +75,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `sectionCopy` without an anchor appends to the end of the target tab when it lacks the source heading (previously failed)
 - argsbarg `^7.1.1` — MCP tool errors now arrive in full (previously truncated to the first line, hiding recovery hints like "pass force: true" or the list of near-miss candidates on an unresolved anchor)
 - argsbarg `^7.1.2` — a schema validation error inside one step's `kind`-discriminated union (e.g. an unknown or misspelled step kind) now reports one targeted line (`unknown kind "x" (expected one of: …)`) instead of the previous 100+ line dump of every branch's unrelated errors; the MCP server also negotiates protocol version per request (was pinned to `2024-11-05`) and warns on stderr at startup if any tool definition would be truncated by Claude Code or Cursor's per-tool read limits. Known: `examples/mcp-plugin/scripts/mcp.mjs` still embeds argsbarg's pre-negotiation protocol code; out of scope for gdocsmith
+
+### Removed
+- Removed v1-only controls without a v2 equivalent: `dump`, `quiet`, run-level `force` and `pageSetup`, `markdownStyles`, `h1IsTitle`, text fallback aliases, detached `element`/`elements` JSON, `docClose`, `duplicateTableRow`, `columnCount`, `fileOrganizer`/`organizer` roles, `moveToNewOwnersRoot`, `internal` share scope, tab `index`, and query `nestingLevels`, `rows`, `cols`, `sameList`, `stylesOnly`, and `full`.
+- v2 does not create or edit headers/footers, footnote content, Drive-hosted images, image sizes, named ranges, bookmarks, comments or suggestions, checkbox checked states, tables of contents, or list definitions. Existing content is preserved where possible.
 
 ### Fixed
 - `DocCache.get` returned an uncloned snapshot on a SQLite cache hit (both the fresh and stale-revalidating branches), and every in-flight in-memory dedupe caller shared one Gdoc instance. In the long-lived MCP server, a dry run's in-place tape mutation of that shared object could poison what a later, unrelated live write would compile against. Both paths now return an isolated `structuredClone`, matching the memory-cache and hard-validate paths, which already cloned

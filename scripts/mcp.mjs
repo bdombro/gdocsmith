@@ -18058,175 +18058,83 @@ class Cli {
   }
 }
 // README.md
-var README_default = `![Logo](logo.png)
+var README_default = `# gdocsmith
 
+\`gdocsmith\` gives agents one transactional \`run\` tool for reading and editing
+Google Docs. It works from document structure and markdown rather than character
+offsets, preserving untouched content whenever possible.
 
+## How It Works
 
-# gdocsmith - ai plugin
+Each run validates all steps, loads documents into an in-memory model, plans a
+minimal Google Docs request set, evaluates safety findings, and then sends work
+in revision-locked phases. \`dryRun: true\` returns the same plan without sending.
 
-**The missing intelligence layer between AI coding agents and Google Docs.**
-
-Giving an AI agent direct access to Google APIs is a recipe for disaster. Because the native API is very limited and finicky, agents routinely make mistakes and aren't able to detect or recover from many mistakes. It's common to completely break a page, butcher the layout, make so many mistakes that it's not worth using AI at all.
-
-\`gdocsmith\` helps agents avoid mistakes altogether, while also reducing effort 10x.
-
-## Why Google Docs breaks AI agents
-
-The native Docs API was designed for batch backend scripts, not LLMs:
-
-1. **Fragile character offsets**: Edits rely on absolute character indices (\`startIndex\`/\`endIndex\`). Any upstream edit shifts every offset, guaranteeing off-by-one errors and clobbered headings.
-2. **No native Markdown**: Inserting basic Markdown requires dozens of deeply nested JSON structures (\`insertText\`, \`updateTextStyle\`, \`createParagraphBullets\`).
-3. **Destructive rewrites**: Because surgical edits are hard, agents wipe whole sections—destroying inline human comments, suggestion tracks, and revision history.
-4. **No structural awareness**: No way to query document outlines, check list nesting, diff changes, or clone nodes.
-5. **Silent formatting corruption**: A single missing newline or misordered list call silently breaks document layout.
-
-
-
-## How gdocsmith fixes it
-
-\`gdocsmith\` gives agents safe, surgical hands:
-
-- **Stable scoped IDs (**\`h.arch.9a1b\`**)**: Outline nodes use heading-scoped checksums instead of volatile character offsets, letting agents target content reliably across revisions.
-- **Native Markdown**: Agents author in standard Markdown (headings, lists, tables, callouts, code blocks); gdocsmith compiles it directly into native Google Docs styled elements.
-- **Semantic color & callout queries (**\`fontColors: ["red"]\`**,** \`["!default"]\`**)**: Find warnings, blockers, and review marks by color name or exclusion without decoding raw RGB floats.
-- **2D table & list scoping (**\`rows\`**,** \`cols\`**,** \`sameList\`**)**: Target specific cells (\`h.arch.table.0.1.3c8f\`) without clobbering column widths, and treat bullet lists as logical subtrees.
-- **Zero turn tax**: Batch document creation, tab management, queries, and edits into a single 5-second tool call with in-memory aliasing (\`as:\` → \`doc:\`, \`tab:\`).
-- **Anti-demolition guardrails**: Blocks agents from deleting and recreating unchanged text, protecting human comments and version history ([docs/guards.md](docs/guards.md)).
-- **Single declarative MCP tool**: One \`run\` workflow contract instead of 15+ chatty tools, cutting prompt bloat and hallucinations.
-- **Aesthetic defaults**: Native Google Docs styling presets prevent ugly agent formatting hacks ([docs/style.md](docs/style.md)).
-
-
-
-## How it works
-
-Workflows run in three simple steps:
-
-1. **Inspect**: Query headings, bullet trees, table rows/cols, or text colors (\`query\`). Matches return stable IDs (e.g. \`h.arch.9a1b\`, cell \`h.arch.table.0.1.3c8f\`).
-2. **Mutate**: Target verified IDs with surgical edits or Markdown insertions (\`nodeAt\`, \`nodeAfter\`, \`nodeBefore\`, \`nodeUnder\`).
-3. **Batch**: Chain creation (\`docCreate\`), tabs (\`tabCreate\`), and insertions in one pass using aliases (\`as: "spec"\` → \`doc: "spec"\`).
-
-
-
-### Workflow Example
+Use the smallest scope that covers the change: query an outline, query markdown
+for a section or node, make the edit, then inspect the returned diff and result.
 
 \`\`\`json
 {
-  "dryRun": false,
   "steps": [
-    { "kind": "docCreate", "title": "Architecture RFC", "as": "rfc" },
-    {
-      "kind": "markdownInsert",
-      "doc": "rfc",
-      "markdown": "# Architecture RFC\\n\\n## Overview\\n\\nThis RFC proposes the document transformation pipeline.\\n\\n## Components\\n\\n- Ingestion engine\\n- Transformation pipeline"
-    },
-    {
-      "kind": "query",
-      "doc": "rfc",
-      "contains": "Components",
-      "as": "componentsHeading"
-    }
+    { "kind": "doc", "action": "create", "as": "rfc", "title": "Architecture RFC" },
+    { "kind": "write", "doc": "rfc", "append": true, "markdown": "# Architecture RFC\\n\\n## Overview\\n\\nDraft content." },
+    { "kind": "query", "doc": "rfc", "output": "outline" }
   ]
 }
 \`\`\`
 
-The query result in \`dumped.componentsHeading\` contains the matching node ID (\`h.comp.2c4e\`), which can be targeted in subsequent steps without computing character offsets.
+## MCP Tools
 
-## Installation & Setup
+- \`run\`: Read and edit Google Docs through ordered \`doc\`, \`query\`, \`write\`,
+  \`edit\`, \`remove\`, \`style\`, \`table\`, \`tab\`, \`share\`, and \`page\` steps.
+- \`status\`: Report the installed version.
 
+The MCP server exposes the gdocsmith skill at \`gdocsmith://docs/skill\`.
 
+## Install
 
-### 1. Cursor Plugin
+### Cursor
 
-Recommended: import directly from GitHub — Cursor Dashboard → **Settings → Plugins → Team Marketplaces → Import**, then enter \`https://github.com/bdombro/gdocsmith\`. Once published to the [official marketplace](https://cursor.com/marketplace/publish), install via \`/add-plugin gdocsmith\` or the Customize sidebar.
+Import \`https://github.com/bdombro/gdocsmith\` from Cursor's Team Marketplaces.
 
-### 2. Claude Code Plugin
-
-Recommended: add the GitHub repo as a marketplace, then install:
+### Claude Code
 
 \`\`\`bash
 /plugin marketplace add bdombro/gdocsmith
 /plugin install gdocsmith@gdocsmith
 \`\`\`
 
-### 3. Authentication
+### Authentication
 
-\`gdocsmith\` uses credentials from the official Google Workspace CLI (\`[gws](https://github.com/googleworkspace/cli)\`). If you have \`gws\` installed and authenticated (\`gws auth login\`), no additional setup is required.
-
-## MCP Tools
-
-- \`run\` *(Primary)*: Execute an ordered Google Docs workflow from JSON (\`steps\` with \`kind\`).
-- \`status\`: Print application version and verify environment health.
-
-
-
-## CLI Usage (Testing & Debugging)
-
-The CLI is provided for local testing, dry runs, and piping JSON workflows during development:
+Authenticate the Google Workspace CLI before using the plugin:
 
 \`\`\`bash
-gdocsmith run < workflow.json
+gws auth login
+gws auth export
 \`\`\`
 
-See [docs/cli.md](docs/cli.md) for full CLI documentation and options.
-
-## Contributing / Local Development
+## Local Development
 
 \`\`\`bash
 git clone https://github.com/bdombro/gdocsmith.git
 cd gdocsmith
-
-# Install dependencies and generate schemas
 just setup
-
-# Schemagen, format, lint, typecheck, and tests
 just check
-
-# Bundle the standalone Node MCP server script
 just build
-
-# Link the repo into ~/.cursor/plugins/local/gdocsmith for local Cursor testing
-just install-plugin-cursor
-
-# Refresh the installed Claude Code plugin from this repo (restart Claude Code afterwards)
-just plugin-claude-update
 \`\`\`
 
-### Developing against a local argsbarg checkout
-
-gdocsmith depends on [argsbarg](https://github.com/bdombro/bun-argsbarg), a separate repo. To develop against a sibling \`../bun-argsbarg\` checkout instead of the published npm release:
-
-\`\`\`bash
-# Switch to the local checkout (re-run after each argsbarg edit)
-just argsbarg-local
-
-# ...develop, run just check...
-
-# Switch back to a published release, e.g. after argsbarg cuts a new version
-just argsbarg-published 7.1.1
-\`\`\`
-
-
+\`just plugin-claude-update\` refreshes the installed Claude Code plugin and then
+requires a Claude Code restart. During argsbarg work, use \`just argsbarg-local\`;
+return to npm with \`just argsbarg-published 7.1.2\` before committing.
 
 ## Documentation
 
-
-| Need                                | File                                                   |
-| ----------------------------------- | ------------------------------------------------------ |
-| Agent skill router                  | [skills/gdocsmith/SKILL.md](skills/gdocsmith/SKILL.md) |
-| MCP server reference                | [docs/mcp.md](docs/mcp.md)                             |
-| CLI reference (testing & debugging) | [docs/cli.md](docs/cli.md)                             |
-| Architecture / maintainer guide     | [docs/architecture.md](docs/architecture.md)           |
-| Edit loop & runbook                 | [docs/runbook-diagram.md](docs/runbook-diagram.md)     |
-| Selectors & DOM ops                 | [docs/mechanics.md](docs/mechanics.md)                 |
-| Aesthetic & formatting taste        | [docs/style.md](docs/style.md)                         |
-| Markdown ingestion                  | [docs/markdown.md](docs/markdown.md)                   |
-| Feature matrix & API limits         | [docs/features.md](docs/features.md)                   |
-| Guardrails & anti-demolition        | [docs/guards.md](docs/guards.md)                       |
-| Images                              | [docs/images.md](docs/images.md)                       |
-| Comments                            | [docs/comments.md](docs/comments.md)                   |
-
-
-`;
+- [Agent skill](skills/gdocsmith/SKILL.md)
+- [MCP reference](docs/mcp.md)
+- [CLI reference](docs/cli.md)
+- [Architecture](docs/architecture.md)
+- [Markdown lens](docs/markdown.md)
+- [Guards](docs/guards.md)`;
 
 // scripts/createIdentity.ts
 var identityCreate = {
@@ -18242,7 +18150,7 @@ var identityCreate = {
 var createIdentity = identityCreate;
 
 // skills/gdocsmith/SKILL.md
-var SKILL_default = "---\nid: gdocsmith\nname: gdocsmith\ndescription: >-\n  Surgical Google Docs authoring via declarative workflow steps (docCreate, docOpen, query, markdownInsert, replace, docPermissionAdd).\n  Always use the gdocsmith MCP tool `run`. NEVER calculate character offsets or write raw documents.batchUpdate scripts.\nenabled: true\n---\n\n# gdocsmith\n\nDeclarative Google Docs authoring via the `run` MCP tool. No raw batchUpdate scripts, no character offsets.\n\n> **Auth:** `gws auth export` credentials.\n> **Rule:** Every workflow step must have `kind: <WorkflowStepKind>`. Always check the `run` tool's `inputSchema` for complete parameter definitions.\n\n## Core Rules\n\n1. **Explicit document opening & statelessness:** `docOpen` with `doc: <rawId>` and `as: <alias>`. Document aliases exist only within that single `run` call. Every step touching a doc must specify `doc: <alias>` (`docCreate` binds `as`, with optional `fromDoc:` to clone).\n2. **Anchor scoping:** `nodeAt`, `nodeAfter`, `nodeBefore`, and `nodeUnder` ALWAYS reference headings or node IDs in the **target document** (`doc:`), never IDs from a source document.\n3. **Headings vs. sections:** Use `replace` (or `replaceMarkdown`) to rename a heading in place. By default, `replaceSection` replaces the *entire* outline tree under that heading (and guards reject deleting child subsections under any heading level without `force: true`). Use `replaceSection` on leaf headings (headings without child subsections, like `Overview & Problem Statement`, `Motivation`, `Decisions`) to diff and update section body. To update a specific paragraph or placeholder under a heading while preserving child subsections, use `replaceMarkdown` with `find: <placeholderText>` (or `nodeAt: <placeholderText|scopedId>`) to insert rich formatted markdown (lists, bold, links), or `textReplace` for plain string edits.\n4. **Creation-time tab positioning & fidelity:** When creating documents from a template tab, use `docCreate` with `fromDoc`, `fromTab`, `tabTitle`, and `tabAs` (e.g. `kind: \"docCreate\", title: \"Project Specification\", as: \"plan\", fromDoc: \"template\", fromTab: \"Spec Template\", tabTitle: \"Overview\", tabAs: \"overviewTab\"`). This seeds and renames the root `t.0` tab in a single step, leaves no orphan `Tab 1`, and permanently protects against Google Docs API 500 rename bugs. (For existing tabs in open documents, `tabPopulate` is also available). For subsequent tabs, use `tabCreate` with `title`, `as`, `afterTab: <title|id>`, and optional `fromTab`. Tab titles must be unique across the document. Avoid post-hoc `tabRename` or `tabMove` on cloned template docs due to Google Docs API 500 bugs on documents lacking a root `t.0` tab. Never `tabDelete` the root `t.0` tab: it cannot be recreated, and its absence breaks `tabRename` and `tabMove` for the life of the document. Google Docs REST API has no native tab duplication request; `docCreate`, `tabCreate`, and `tabPopulate` transfer AST nodes with styles, headings, bullets, tables, person/date/richLink chips, and public/internal images. If leftovers cannot be reconstructed (Drive-only drawing objects, equations, footnotes, unsupported chips, TOC), they reject by default and instruct duplicating in the Google Docs UI (right-click tab > Duplicate); pass `force: true` to proceed with lossy conversion (placeholders / omitted footnotes).\n5. **Symbolic links:** Use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown. gdocsmith automatically compiles them to native Google Docs deep links.\n6. **Content field conventions:** Use `markdown: \"...\"` for markdown steps (`replaceSection`, `replaceMarkdown`, `markdownInsert`). Use `replace: \"...\"` (or `text: \"...\"`) for text steps (`replace`, `textReplace`). For querying document outlines, use `output: \"outline\"` or `output: \"headings\"`.\n7. **Execution & dry runs:** Execute mutations directly. `dryRun: true` is an optional diagnostic for previewing diffs when troubleshooting, not a required prerequisite before edits. Do not get stuck in repetitive dry-run loops. If Auto-review blocks an action, immediately retry with the standard approval flag (`requestSmartModeApproval: true` or `request_smart_mode_approval: true`).\n8. **List formatting & continuation:** Standard CommonMark nested lists (sub-items indented with 2–4 spaces under ordered or unordered items) compile cleanly into Google Docs nested list levels. In Google Docs, numbered lists continue and auto-increment automatically across nested sub-bullet runs; do not flatten lists or avoid nesting out of concern for list continuity.\n9. **Template placeholders & child fixtures:** In cloned templates, sections often have placeholder paragraphs (e.g. `*Placeholder: ...*`) alongside child fixtures (subsections with tables or chips). In 2-phase workflows, query the outline or nodes first (`kind: query`), or target the placeholder text directly using `replaceMarkdown` (`kind: \"replaceMarkdown\", doc: \"...\", tab: \"...\", find: \"Placeholder: ...\", markdown: \"...\"`). This replaces the placeholder with rich formatted markdown (lists, bold, links) without modifying child subsections. Do not use `replaceSection` on a parent heading if you want to preserve its child subsections.\n10. **Workflow phase batching:** Minimize turn round-trips by batching steps into three focused phases:\n    - **Phase 1: Discover:** Single `run` querying source outlines and notes (`kind: docOpen`, `kind: query`).\n    - **Phase 2: Create & Structure:** Single `run` creating the target doc with its initial root tab seeded from a template (`kind: docCreate` with `fromDoc`, `fromTab`, `tabTitle`, `tabAs`) and creating remaining tabs with final titles and positions (`kind: tabCreate` with `title`, `as`, `afterTab`).\n    - **Phase 3: Populate & Link:** Single `run` transferring sections, updating placeholders, and inserting cross-tab links (`kind: sectionCopy`, `kind: replaceMarkdown`, `kind: markdownInsert`).\n\n    Do not query for a `scopedId` you do not need: anchors accept heading titles and literal text, so `nodeAt: \"Decisions\"` or `find: \"Placeholder: ...\"` targets a node directly in the same `run` that mutates it. Query first only when you must *discover* what is in the document. Note that query aliases (`as`) are read-only dumps and are rejected as mutation anchors — `scopedId`s embed a content checksum, so one captured earlier in a batch may be stale by the time a later step runs.\n11. **Trust the result:** A `run` is atomic — on error nothing was applied, so there is no partial state to inspect. Steps that change nothing are rejected, so `ok: true` means every step changed the document. Batch the whole edit; do not re-query between mutations.\n12. **`contains` is a substring match:** case-insensitive, no word boundaries — `\"ci\"` also matches \"efficient\", `\"D4\"` matches \"D40\". Each hit echoes a bracketed `match` snippet (`…effi[ci]ent…`); check it. Over-broad filters are rejected once the result is too large to read — narrow with `tab`, `nodeUnder`, `nodeKinds`, or use `output: \"markdown\"`.\n13. **Cache freshness:** Document snapshots are cached server-side (~10s stale-while-revalidate, ~5min hard revalidate) across `run` calls, even though aliases reset each call. If a doc may have been edited outside gdocsmith since your last read and you need a guaranteed-fresh copy, pass `forceFetch: true` on `docOpen` (or `docCreate` with `fromDoc`).\n\n## Canonical Recipes\n\n### 1. Dump Document as Markdown\n```json\n{\n  \"steps\": [\n    { \"kind\": \"docOpen\", \"doc\": \"<documentId>\", \"as\": \"myDoc\" },\n    { \"kind\": \"query\", \"doc\": \"myDoc\", \"as\": \"docMd\", \"output\": \"markdown\" }\n  ]\n}\n```\n\n### 2. Create Multi-Tab Doc & Insert Markdown (Single Pass)\n```json\n{\n  \"steps\": [\n    { \"kind\": \"docCreate\", \"title\": \"Project Plan\", \"as\": \"plan\" },\n    { \"kind\": \"markdownInsert\", \"doc\": \"plan\", \"markdown\": \"# Overview\\n\\nIntro copy...\" },\n    { \"kind\": \"tabCreate\", \"doc\": \"plan\", \"as\": \"exec\", \"title\": \"Execution\", \"afterTab\": \"Main\" },\n    { \"kind\": \"markdownInsert\", \"doc\": \"plan\", \"tab\": \"Execution\", \"markdown\": \"# Execution\\n\\nSee [Overview](tab:Main#Overview).\" }\n  ]\n}\n```\n\n### 3. Server-Side Section Transfer Across Documents\n```json\n{\n  \"steps\": [\n    { \"kind\": \"docOpen\", \"doc\": \"<sourceDocId>\", \"as\": \"source\" },\n    { \"kind\": \"docOpen\", \"doc\": \"<targetDocId>\", \"as\": \"target\" },\n    { \"kind\": \"sectionCopy\", \"fromDoc\": \"source\", \"fromSection\": \"Decisions\", \"doc\": \"target\", \"nodeAt\": \"Decisions\" }\n  ]\n}\n```\n\n### 4. Query Outline & Replace Leaf Section\n```json\n{\n  \"steps\": [\n    { \"kind\": \"docOpen\", \"doc\": \"<documentId>\", \"as\": \"myDoc\" },\n    { \"kind\": \"query\", \"doc\": \"myDoc\", \"as\": \"outline\", \"output\": \"outline\" },\n    { \"kind\": \"replaceSection\", \"doc\": \"myDoc\", \"nodeAt\": \"Decisions\", \"markdown\": \"## Decisions\\n\\n- D1: New choice\" }\n  ]\n}\n```\n\n### 5. Manage Document Permissions\n```json\n{\n  \"steps\": [\n    { \"kind\": \"docOpen\", \"doc\": \"<documentId>\", \"as\": \"myDoc\" },\n    { \"kind\": \"docPermissionAdd\", \"doc\": \"myDoc\", \"scope\": \"internal\", \"role\": \"commenter\" },\n    { \"kind\": \"docPermissionAdd\", \"doc\": \"myDoc\", \"email\": \"teammate@example.com\", \"role\": \"writer\" },\n    { \"kind\": \"docPermissionList\", \"doc\": \"myDoc\", \"as\": \"perms\" }\n  ]\n}\n```\n\n### 6. Configure Page Geometry or Toggle Pageless Mode\n```json\n{\n  \"steps\": [\n    { \"kind\": \"docOpen\", \"doc\": \"<documentId>\", \"as\": \"myDoc\" },\n    { \"kind\": \"pageSetup\", \"doc\": \"myDoc\", \"tab\": \"Spec Template\", \"mode\": \"PAGELESS\" }\n  ]\n}\n```\n\n### 7. Replace Template Placeholders While Preserving Subsections\n```json\n{\n  \"steps\": [\n    { \"kind\": \"docOpen\", \"doc\": \"<documentId>\", \"as\": \"myDoc\" },\n    {\n      \"kind\": \"replaceMarkdown\",\n      \"doc\": \"myDoc\",\n      \"tab\": \"Spec\",\n      \"find\": \"Placeholder: Replace with architectural specification and component breakdown.\",\n      \"markdown\": \"### Architecture\\n\\n1. **Core Service**: Handles packet routing.\\n2. **Beacon Array**: Calibrates quantum frequencies.\"\n    }\n  ]\n}\n```\n\n### 8. Force-Fresh Read After a Suspected External Edit\n```json\n{\n  \"steps\": [\n    { \"kind\": \"docOpen\", \"doc\": \"<documentId>\", \"as\": \"myDoc\", \"forceFetch\": true },\n    { \"kind\": \"query\", \"doc\": \"myDoc\", \"as\": \"outline\", \"output\": \"outline\" }\n  ]\n}\n```\n\n### 9. Multi-Tab Doc from Template Tabs (Single-Step Root Tab Seeding)\n```json\n{\n  \"steps\": [\n    { \"kind\": \"docOpen\", \"doc\": \"<templateDocId>\", \"as\": \"template\" },\n    {\n      \"kind\": \"docCreate\",\n      \"title\": \"Project Specification\",\n      \"fromDoc\": \"template\",\n      \"fromTab\": \"Spec Template\",\n      \"tabTitle\": \"Overview\",\n      \"tabAs\": \"overviewTab\",\n      \"as\": \"plan\"\n    },\n    {\n      \"kind\": \"tabCreate\",\n      \"doc\": \"plan\",\n      \"title\": \"Architecture\",\n      \"fromDoc\": \"template\",\n      \"fromTab\": \"Spec Template\",\n      \"afterTab\": \"overviewTab\",\n      \"as\": \"archTab\"\n    }\n  ]\n}\n```\n";
+var SKILL_default = "---\nid: gdocsmith\nname: gdocsmith\ndescription: >-\n  Read and edit Google Docs with the gdocsmith run tool: outline and markdown\n  queries, markdown writes into sections or nodes, find/replace, styles, tables,\n  tabs, sharing, and page setup. Use for any Google Docs task; never compute\n  character offsets or call the Docs API directly.\nenabled: true\n---\n\n# gdocsmith\n\nUse the `run` tool for Google Docs work. Do not calculate character offsets or\nsend Docs API requests yourself.\n\nThe v2 kinds are `doc`, `edit`, `page`, `query`, `remove`, `share`, `style`,\n`tab`, `table`, and `write`.\n\n## Workflow\n\n1. Query an outline, then query markdown for the smallest relevant scope.\n2. Make the smallest change that solves the request.\n3. Trust the returned diff, created IDs, warnings, and per-step result at `steps[i]`.\n\nOne `run` call applies its steps to an in-memory document model before sending.\n`dryRun: true` performs the same planning without sending anything.\n\n## Addressing\n\n`doc` is either a raw document ID or an alias established by an earlier `doc`\nstep. A `tab` may be a tab ID or a unique title.\n\nUse one anchor key at a time:\n\n- `{ \"section\": \"Heading\" }` targets the heading and its subtree.\n- `{ \"node\": \"anchor\" }` targets a node or table cell from a nodes query.\n- `{ \"text\": \"unique phrase\" }` targets the one matching node.\n- `{ \"body\": true }` targets a whole tab where that scope is allowed.\n\nIDs can change when content changes. Query again after a forceful edit or a\npartial send failure.\n\n## Judgment\n\n- Use `edit` for literal find-and-replace.\n- Use `write` for markdown or `from` content.\n- Use `write` with `replace` rather than rebuilding unrelated content.\n- Use `table` only for table structure or cell styling.\n- Ask before setting `force: true`; it only waives findings from that step.\n- Do not delete root tab `t.0` unless the user explicitly approves it.\n\n## Sending\n\nAll validation, planning, and guards run before anything is sent. Sending then\nhappens in phases. If a later phase fails, the error names what landed; query\nthe document again before retrying.\n\n## Markdown Lens\n\nMarkdown queries are editable views. Keep their frontmatter, style directives,\nand position tokens when writing them back. Use `markdownFile` after editing an\nexported file. Links to headings and tabs are written as real Docs links.\n\n## Large Results\n\nLarge query results and diffs are written to files. Read the returned paths. To\ncontrol a markdown export location, set `saveTo` to an absolute directory in the\nworkspace, edit the file, then use `markdownFile` in a `write` step.\n\n## Errors And Guards\n\nRefusals name comments, suggestions, named ranges, links, or items that Docs\ncannot recreate. Fix the scope first. Use `force: true` only after the user has\naccepted the listed loss.\n\n## Cache\n\nSet `fresh: true` on a `doc` open step when a document may have changed outside\nthe current run.\n\n## Not Supported\n\nThe tool preserves but cannot create headers, footnotes, equations, drawings,\ncharts, TOCs, bookmarks, checkbox state, or Drive-hosted image content. A nested\nlist of a different kind becomes its parent list's kind.\n\n## Recipes\n\n### 1. Read An Outline And Section\n\n```json\n{\n  \"steps\": [\n    { \"kind\": \"query\", \"doc\": \"<documentId>\", \"output\": \"outline\" },\n    { \"kind\": \"query\", \"doc\": \"<documentId>\", \"at\": { \"section\": \"Overview\" }, \"output\": \"markdown\" }\n  ]\n}\n```\n\n### 2. Rewrite A Section\n\n```json\n{\n  \"steps\": [\n    { \"kind\": \"write\", \"doc\": \"<documentId>\", \"replace\": { \"section\": \"Overview\" }, \"markdown\": \"## Overview\\n\\nRewritten content.\" }\n  ]\n}\n```\n\n### 3. Replace A Placeholder\n\n```json\n{\n  \"steps\": [\n    { \"kind\": \"write\", \"doc\": \"<documentId>\", \"replace\": { \"text\": \"TODO: Add notes\" }, \"markdown\": \"Concrete notes.\" }\n  ]\n}\n```\n\n### 4. Replace Text With A Count Check\n\n```json\n{\n  \"steps\": [\n    { \"kind\": \"edit\", \"doc\": \"<documentId>\", \"at\": { \"section\": \"Mission\" }, \"find\": \"pigeon\", \"replace\": \"falcon\", \"expectCount\": 2 }\n  ]\n}\n```\n\n### 5. Create A Document And Tabs\n\n```json\n{\n  \"steps\": [\n    { \"kind\": \"doc\", \"action\": \"create\", \"as\": \"target\", \"title\": \"New Specification\" },\n    { \"kind\": \"tab\", \"action\": \"rename\", \"doc\": \"target\", \"tab\": \"t.0\", \"title\": \"Summary\" },\n    { \"kind\": \"write\", \"doc\": \"target\", \"append\": true, \"from\": { \"doc\": \"<sourceId>\", \"tab\": \"t.0\" } },\n    { \"kind\": \"tab\", \"action\": \"create\", \"doc\": \"target\", \"title\": \"Details\", \"from\": { \"doc\": \"<sourceId>\", \"tab\": \"Details\" } }\n  ]\n}\n```\n\n### 6. Copy A Cross-Document Section\n\n```json\n{\n  \"steps\": [\n    { \"kind\": \"write\", \"doc\": \"<targetId>\", \"after\": { \"section\": \"Background\" }, \"from\": { \"doc\": \"<sourceId>\", \"section\": \"Goals\" } }\n  ]\n}\n```\n\n### 7. Insert And Style A Table Row\n\n```json\n{\n  \"steps\": [\n    { \"kind\": \"table\", \"action\": \"insertRow\", \"doc\": \"<documentId>\", \"at\": { \"section\": \"Capacity Matrix\" }, \"row\": 0, \"position\": \"below\", \"cells\": [\"Jitter\", \"< 5ms\", \"Nominal\"] },\n    { \"kind\": \"table\", \"action\": \"style\", \"doc\": \"<documentId>\", \"at\": { \"section\": \"Capacity Matrix\" }, \"row\": 0, \"style\": { \"background\": \"#F3F4F6\", \"pinnedHeaderRows\": 1 } }\n  ]\n}\n```\n\n### 8. Clear A Matching Text Color\n\n```json\n{\n  \"steps\": [\n    { \"kind\": \"style\", \"doc\": \"<documentId>\", \"at\": { \"section\": \"Overview\" }, \"where\": { \"foregroundColor\": \"#333333\" }, \"text\": { \"foregroundColor\": null } }\n  ]\n}\n```\n\n### 9. Share And Make Pageless\n\n```json\n{\n  \"steps\": [\n    { \"kind\": \"share\", \"action\": \"add\", \"doc\": \"<documentId>\", \"scope\": \"domain\", \"domain\": \"example.com\", \"role\": \"commenter\" },\n    { \"kind\": \"page\", \"doc\": \"<documentId>\", \"pageless\": true }\n  ]\n}\n```\n\n### 10. Export, Edit, And Write Back\n\n```json\n{\n  \"steps\": [\n    { \"kind\": \"query\", \"doc\": \"<documentId>\", \"output\": \"markdown\", \"saveTo\": \"/absolute/workspace/export\" },\n    { \"kind\": \"write\", \"doc\": \"<documentId>\", \"replace\": { \"section\": \"Overview\" }, \"markdownFile\": \"/absolute/workspace/export/overview.md\" }\n  ]\n}\n```";
 
 // src/core/gws.ts
 import { execFile as execFile2 } from "node:child_process";

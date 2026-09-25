@@ -2,156 +2,194 @@
 id: gdocsmith
 name: gdocsmith
 description: >-
-  Surgical Google Docs authoring via declarative workflow steps (docCreate, docOpen, query, markdownInsert, replace, docPermissionAdd).
-  Always use the gdocsmith MCP tool `run`. NEVER calculate character offsets or write raw documents.batchUpdate scripts.
+  Read and edit Google Docs with the gdocsmith run tool: outline and markdown
+  queries, markdown writes into sections or nodes, find/replace, styles, tables,
+  tabs, sharing, and page setup. Use for any Google Docs task; never compute
+  character offsets or call the Docs API directly.
 enabled: true
 ---
 
 # gdocsmith
 
-Declarative Google Docs authoring via the `run` MCP tool. No raw batchUpdate scripts, no character offsets.
+Use the `run` tool for Google Docs work. Do not calculate character offsets or
+send Docs API requests yourself.
 
-> **Auth:** `gws auth export` credentials.
-> **Rule:** Every workflow step must have `kind: <WorkflowStepKind>`. Always check the `run` tool's `inputSchema` for complete parameter definitions.
+The v2 kinds are `doc`, `edit`, `page`, `query`, `remove`, `share`, `style`,
+`tab`, `table`, and `write`.
 
-## Core Rules
+## Workflow
 
-1. **Explicit document opening & statelessness:** `docOpen` with `doc: <rawId>` and `as: <alias>`. Document aliases exist only within that single `run` call. Every step touching a doc must specify `doc: <alias>` (`docCreate` binds `as`, with optional `fromDoc:` to clone).
-2. **Anchor scoping:** `nodeAt`, `nodeAfter`, `nodeBefore`, and `nodeUnder` ALWAYS reference headings or node IDs in the **target document** (`doc:`), never IDs from a source document.
-3. **Headings vs. sections:** Use `replace` (or `replaceMarkdown`) to rename a heading in place. By default, `replaceSection` replaces the *entire* outline tree under that heading (and guards reject deleting child subsections under any heading level without `force: true`). Use `replaceSection` on leaf headings (headings without child subsections, like `Overview & Problem Statement`, `Motivation`, `Decisions`) to diff and update section body. To update a specific paragraph or placeholder under a heading while preserving child subsections, use `replaceMarkdown` with `find: <placeholderText>` (or `nodeAt: <placeholderText|scopedId>`) to insert rich formatted markdown (lists, bold, links), or `textReplace` for plain string edits.
-4. **Creation-time tab positioning & fidelity:** When creating documents from a template tab, use `docCreate` with `fromDoc`, `fromTab`, `tabTitle`, and `tabAs` (e.g. `kind: "docCreate", title: "Project Specification", as: "plan", fromDoc: "template", fromTab: "Spec Template", tabTitle: "Overview", tabAs: "overviewTab"`). This seeds and renames the root `t.0` tab in a single step, leaves no orphan `Tab 1`, and permanently protects against Google Docs API 500 rename bugs. (For existing tabs in open documents, `tabPopulate` is also available). For subsequent tabs, use `tabCreate` with `title`, `as`, `afterTab: <title|id>`, and optional `fromTab`. Tab titles must be unique across the document. Avoid post-hoc `tabRename` or `tabMove` on cloned template docs due to Google Docs API 500 bugs on documents lacking a root `t.0` tab. Never `tabDelete` the root `t.0` tab: it cannot be recreated, and its absence breaks `tabRename` and `tabMove` for the life of the document. Google Docs REST API has no native tab duplication request; `docCreate`, `tabCreate`, and `tabPopulate` transfer AST nodes with styles, headings, bullets, tables, person/date/richLink chips, and public/internal images. If leftovers cannot be reconstructed (Drive-only drawing objects, equations, footnotes, unsupported chips, TOC), they reject by default and instruct duplicating in the Google Docs UI (right-click tab > Duplicate); pass `force: true` to proceed with lossy conversion (placeholders / omitted footnotes).
-5. **Symbolic links:** Use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown. gdocsmith automatically compiles them to native Google Docs deep links.
-6. **Content field conventions:** Use `markdown: "..."` for markdown steps (`replaceSection`, `replaceMarkdown`, `markdownInsert`). Use `replace: "..."` (or `text: "..."`) for text steps (`replace`, `textReplace`). For querying document outlines, use `output: "outline"` or `output: "headings"`.
-7. **Execution & dry runs:** Execute mutations directly. `dryRun: true` is an optional diagnostic for previewing diffs when troubleshooting, not a required prerequisite before edits. Do not get stuck in repetitive dry-run loops. If Auto-review blocks an action, immediately retry with the standard approval flag (`requestSmartModeApproval: true` or `request_smart_mode_approval: true`).
-8. **List formatting & continuation:** Standard CommonMark nested lists (sub-items indented with 2–4 spaces under ordered or unordered items) compile cleanly into Google Docs nested list levels. In Google Docs, numbered lists continue and auto-increment automatically across nested sub-bullet runs; do not flatten lists or avoid nesting out of concern for list continuity.
-9. **Template placeholders & child fixtures:** In cloned templates, sections often have placeholder paragraphs (e.g. `*Placeholder: ...*`) alongside child fixtures (subsections with tables or chips). In 2-phase workflows, query the outline or nodes first (`kind: query`), or target the placeholder text directly using `replaceMarkdown` (`kind: "replaceMarkdown", doc: "...", tab: "...", find: "Placeholder: ...", markdown: "..."`). This replaces the placeholder with rich formatted markdown (lists, bold, links) without modifying child subsections. Do not use `replaceSection` on a parent heading if you want to preserve its child subsections.
-10. **Workflow phase batching:** Minimize turn round-trips by batching steps into three focused phases:
-    - **Phase 1: Discover:** Single `run` querying source outlines and notes (`kind: docOpen`, `kind: query`).
-    - **Phase 2: Create & Structure:** Single `run` creating the target doc with its initial root tab seeded from a template (`kind: docCreate` with `fromDoc`, `fromTab`, `tabTitle`, `tabAs`) and creating remaining tabs with final titles and positions (`kind: tabCreate` with `title`, `as`, `afterTab`).
-    - **Phase 3: Populate & Link:** Single `run` transferring sections, updating placeholders, and inserting cross-tab links (`kind: sectionCopy`, `kind: replaceMarkdown`, `kind: markdownInsert`).
+1. Query an outline, then query markdown for the smallest relevant scope.
+2. Make the smallest change that solves the request.
+3. Trust the returned diff, created IDs, warnings, and per-step result at `steps[i]`.
 
-    Do not query for a `scopedId` you do not need: anchors accept heading titles and literal text, so `nodeAt: "Decisions"` or `find: "Placeholder: ..."` targets a node directly in the same `run` that mutates it. Query first only when you must *discover* what is in the document. Note that query aliases (`as`) are read-only dumps and are rejected as mutation anchors — `scopedId`s embed a content checksum, so one captured earlier in a batch may be stale by the time a later step runs.
-11. **Trust the result:** A `run` is atomic — on error nothing was applied, so there is no partial state to inspect. Steps that change nothing are rejected, so `ok: true` means every step changed the document. Batch the whole edit; do not re-query between mutations.
-12. **`contains` is a substring match:** case-insensitive, no word boundaries — `"ci"` also matches "efficient", `"D4"` matches "D40". Each hit echoes a bracketed `match` snippet (`…effi[ci]ent…`); check it. Over-broad filters are rejected once the result is too large to read — narrow with `tab`, `nodeUnder`, `nodeKinds`, or use `output: "markdown"`.
-13. **Cache freshness:** Document snapshots are cached server-side (~10s stale-while-revalidate, ~5min hard revalidate) across `run` calls, even though aliases reset each call. If a doc may have been edited outside gdocsmith since your last read and you need a guaranteed-fresh copy, pass `forceFetch: true` on `docOpen` (or `docCreate` with `fromDoc`).
+One `run` call applies its steps to an in-memory document model before sending.
+`dryRun: true` performs the same planning without sending anything.
 
-## Canonical Recipes
+## Addressing
 
-### 1. Dump Document as Markdown
+`doc` is either a raw document ID or an alias established by an earlier `doc`
+step. A `tab` may be a tab ID or a unique title.
+
+Use one anchor key at a time:
+
+- `{ "section": "Heading" }` targets the heading and its subtree.
+- `{ "node": "anchor" }` targets a node or table cell from a nodes query.
+- `{ "text": "unique phrase" }` targets the one matching node.
+- `{ "body": true }` targets a whole tab where that scope is allowed.
+
+IDs can change when content changes. Query again after a forceful edit or a
+partial send failure.
+
+## Judgment
+
+- Use `edit` for literal find-and-replace.
+- Use `write` for markdown or `from` content.
+- Use `write` with `replace` rather than rebuilding unrelated content.
+- Use `table` only for table structure or cell styling.
+- Ask before setting `force: true`; it only waives findings from that step.
+- Do not delete root tab `t.0` unless the user explicitly approves it.
+
+## Sending
+
+All validation, planning, and guards run before anything is sent. Sending then
+happens in phases. If a later phase fails, the error names what landed; query
+the document again before retrying.
+
+## Markdown Lens
+
+Markdown queries are editable views. Keep their frontmatter, style directives,
+and position tokens when writing them back. Use `markdownFile` after editing an
+exported file. Links to headings and tabs are written as real Docs links.
+
+## Large Results
+
+Large query results and diffs are written to files. Read the returned paths. To
+control a markdown export location, set `saveTo` to an absolute directory in the
+workspace, edit the file, then use `markdownFile` in a `write` step.
+
+## Errors And Guards
+
+Refusals name comments, suggestions, named ranges, links, or items that Docs
+cannot recreate. Fix the scope first. Use `force: true` only after the user has
+accepted the listed loss.
+
+## Cache
+
+Set `fresh: true` on a `doc` open step when a document may have changed outside
+the current run.
+
+## Not Supported
+
+The tool preserves but cannot create headers, footnotes, equations, drawings,
+charts, TOCs, bookmarks, checkbox state, or Drive-hosted image content. A nested
+list of a different kind becomes its parent list's kind.
+
+## Recipes
+
+### 1. Read An Outline And Section
+
 ```json
 {
   "steps": [
-    { "kind": "docOpen", "doc": "<documentId>", "as": "myDoc" },
-    { "kind": "query", "doc": "myDoc", "as": "docMd", "output": "markdown" }
+    { "kind": "query", "doc": "<documentId>", "output": "outline" },
+    { "kind": "query", "doc": "<documentId>", "at": { "section": "Overview" }, "output": "markdown" }
   ]
 }
 ```
 
-### 2. Create Multi-Tab Doc & Insert Markdown (Single Pass)
+### 2. Rewrite A Section
+
 ```json
 {
   "steps": [
-    { "kind": "docCreate", "title": "Project Plan", "as": "plan" },
-    { "kind": "markdownInsert", "doc": "plan", "markdown": "# Overview\n\nIntro copy..." },
-    { "kind": "tabCreate", "doc": "plan", "as": "exec", "title": "Execution", "afterTab": "Main" },
-    { "kind": "markdownInsert", "doc": "plan", "tab": "Execution", "markdown": "# Execution\n\nSee [Overview](tab:Main#Overview)." }
+    { "kind": "write", "doc": "<documentId>", "replace": { "section": "Overview" }, "markdown": "## Overview\n\nRewritten content." }
   ]
 }
 ```
 
-### 3. Server-Side Section Transfer Across Documents
+### 3. Replace A Placeholder
+
 ```json
 {
   "steps": [
-    { "kind": "docOpen", "doc": "<sourceDocId>", "as": "source" },
-    { "kind": "docOpen", "doc": "<targetDocId>", "as": "target" },
-    { "kind": "sectionCopy", "fromDoc": "source", "fromSection": "Decisions", "doc": "target", "nodeAt": "Decisions" }
+    { "kind": "write", "doc": "<documentId>", "replace": { "text": "TODO: Add notes" }, "markdown": "Concrete notes." }
   ]
 }
 ```
 
-### 4. Query Outline & Replace Leaf Section
+### 4. Replace Text With A Count Check
+
 ```json
 {
   "steps": [
-    { "kind": "docOpen", "doc": "<documentId>", "as": "myDoc" },
-    { "kind": "query", "doc": "myDoc", "as": "outline", "output": "outline" },
-    { "kind": "replaceSection", "doc": "myDoc", "nodeAt": "Decisions", "markdown": "## Decisions\n\n- D1: New choice" }
+    { "kind": "edit", "doc": "<documentId>", "at": { "section": "Mission" }, "find": "pigeon", "replace": "falcon", "expectCount": 2 }
   ]
 }
 ```
 
-### 5. Manage Document Permissions
+### 5. Create A Document And Tabs
+
 ```json
 {
   "steps": [
-    { "kind": "docOpen", "doc": "<documentId>", "as": "myDoc" },
-    { "kind": "docPermissionAdd", "doc": "myDoc", "scope": "internal", "role": "commenter" },
-    { "kind": "docPermissionAdd", "doc": "myDoc", "email": "teammate@example.com", "role": "writer" },
-    { "kind": "docPermissionList", "doc": "myDoc", "as": "perms" }
+    { "kind": "doc", "action": "create", "as": "target", "title": "New Specification" },
+    { "kind": "tab", "action": "rename", "doc": "target", "tab": "t.0", "title": "Summary" },
+    { "kind": "write", "doc": "target", "append": true, "from": { "doc": "<sourceId>", "tab": "t.0" } },
+    { "kind": "tab", "action": "create", "doc": "target", "title": "Details", "from": { "doc": "<sourceId>", "tab": "Details" } }
   ]
 }
 ```
 
-### 6. Configure Page Geometry or Toggle Pageless Mode
+### 6. Copy A Cross-Document Section
+
 ```json
 {
   "steps": [
-    { "kind": "docOpen", "doc": "<documentId>", "as": "myDoc" },
-    { "kind": "pageSetup", "doc": "myDoc", "tab": "Spec Template", "mode": "PAGELESS" }
+    { "kind": "write", "doc": "<targetId>", "after": { "section": "Background" }, "from": { "doc": "<sourceId>", "section": "Goals" } }
   ]
 }
 ```
 
-### 7. Replace Template Placeholders While Preserving Subsections
+### 7. Insert And Style A Table Row
+
 ```json
 {
   "steps": [
-    { "kind": "docOpen", "doc": "<documentId>", "as": "myDoc" },
-    {
-      "kind": "replaceMarkdown",
-      "doc": "myDoc",
-      "tab": "Spec",
-      "find": "Placeholder: Replace with architectural specification and component breakdown.",
-      "markdown": "### Architecture\n\n1. **Core Service**: Handles packet routing.\n2. **Beacon Array**: Calibrates quantum frequencies."
-    }
+    { "kind": "table", "action": "insertRow", "doc": "<documentId>", "at": { "section": "Capacity Matrix" }, "row": 0, "position": "below", "cells": ["Jitter", "< 5ms", "Nominal"] },
+    { "kind": "table", "action": "style", "doc": "<documentId>", "at": { "section": "Capacity Matrix" }, "row": 0, "style": { "background": "#F3F4F6", "pinnedHeaderRows": 1 } }
   ]
 }
 ```
 
-### 8. Force-Fresh Read After a Suspected External Edit
+### 8. Clear A Matching Text Color
+
 ```json
 {
   "steps": [
-    { "kind": "docOpen", "doc": "<documentId>", "as": "myDoc", "forceFetch": true },
-    { "kind": "query", "doc": "myDoc", "as": "outline", "output": "outline" }
+    { "kind": "style", "doc": "<documentId>", "at": { "section": "Overview" }, "where": { "foregroundColor": "#333333" }, "text": { "foregroundColor": null } }
   ]
 }
 ```
 
-### 9. Multi-Tab Doc from Template Tabs (Single-Step Root Tab Seeding)
+### 9. Share And Make Pageless
+
 ```json
 {
   "steps": [
-    { "kind": "docOpen", "doc": "<templateDocId>", "as": "template" },
-    {
-      "kind": "docCreate",
-      "title": "Project Specification",
-      "fromDoc": "template",
-      "fromTab": "Spec Template",
-      "tabTitle": "Overview",
-      "tabAs": "overviewTab",
-      "as": "plan"
-    },
-    {
-      "kind": "tabCreate",
-      "doc": "plan",
-      "title": "Architecture",
-      "fromDoc": "template",
-      "fromTab": "Spec Template",
-      "afterTab": "overviewTab",
-      "as": "archTab"
-    }
+    { "kind": "share", "action": "add", "doc": "<documentId>", "scope": "domain", "domain": "example.com", "role": "commenter" },
+    { "kind": "page", "doc": "<documentId>", "pageless": true }
+  ]
+}
+```
+
+### 10. Export, Edit, And Write Back
+
+```json
+{
+  "steps": [
+    { "kind": "query", "doc": "<documentId>", "output": "markdown", "saveTo": "/absolute/workspace/export" },
+    { "kind": "write", "doc": "<documentId>", "replace": { "section": "Overview" }, "markdownFile": "/absolute/workspace/export/overview.md" }
   ]
 }
 ```

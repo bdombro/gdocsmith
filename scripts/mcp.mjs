@@ -34169,216 +34169,6 @@ function resultBuild(run, txResult, stepOutcomes, aliases) {
     warnings
   };
 }
-// src/commands/run/__generated__/GdocsmithRunResultSchema.json
-var GdocsmithRunResultSchema_default = {
-  $schema: "http://json-schema.org/draft-07/schema#",
-  type: "object",
-  properties: {
-    diff: {
-      $ref: "#/definitions/RunDiff",
-      description: "Unified diff across all modified tabs."
-    },
-    docs: {
-      type: "array",
-      items: {
-        $ref: "#/definitions/RunDoc"
-      },
-      description: "Documents touched or created."
-    },
-    dryRun: {
-      type: "boolean",
-      description: "True when dry-run previewed without writing."
-    },
-    ok: {
-      type: "boolean",
-      const: true,
-      description: "Status confirmation."
-    },
-    phases: {
-      type: "array",
-      items: {
-        $ref: "#/definitions/RunPhase"
-      },
-      description: "Phased execution breakdown."
-    },
-    steps: {
-      type: "array",
-      items: {
-        $ref: "#/definitions/RunStepResult"
-      },
-      description: "Per-step execution results."
-    },
-    warnings: {
-      type: "array",
-      items: {
-        type: "string"
-      },
-      description: "Warnings generated during run."
-    }
-  },
-  required: ["diff", "docs", "dryRun", "ok", "phases", "steps", "warnings"],
-  additionalProperties: false,
-  definitions: {
-    RunDiff: {
-      type: "object",
-      properties: {
-        file: {
-          type: "string",
-          description: "Saved diff path when too large."
-        },
-        tabs: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              added: {
-                type: "number"
-              },
-              doc: {
-                type: "string"
-              },
-              removed: {
-                type: "number"
-              },
-              tab: {
-                type: "string"
-              }
-            },
-            required: ["added", "doc", "removed", "tab"],
-            additionalProperties: false
-          },
-          description: "Summary of changes per tab."
-        },
-        text: {
-          type: "string",
-          description: "Full unified diff text."
-        }
-      },
-      required: ["tabs"],
-      additionalProperties: false,
-      description: "Structured unified diff returned in run result."
-    },
-    RunDoc: {
-      type: "object",
-      properties: {
-        alias: {
-          type: "string",
-          description: "Document alias if bound during run."
-        },
-        created: {
-          type: "boolean",
-          description: "True when created this run."
-        },
-        id: {
-          type: "string",
-          description: "Document ID."
-        },
-        tabs: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              id: {
-                type: "string"
-              },
-              title: {
-                type: "string"
-              }
-            },
-            required: ["id", "title"],
-            additionalProperties: false
-          },
-          description: "Document tabs."
-        },
-        title: {
-          type: "string",
-          description: "Document title."
-        },
-        url: {
-          type: "string",
-          description: "Web URL for document."
-        }
-      },
-      required: ["id", "tabs", "title"],
-      additionalProperties: false,
-      description: "Document touched or created in a run."
-    },
-    RunPhase: {
-      type: "object",
-      properties: {
-        name: {
-          type: "string",
-          description: "Phase name."
-        },
-        requests: {
-          type: "number",
-          description: "Total requests planned in this phase."
-        },
-        sent: {
-          type: "boolean",
-          description: "True if requests were sent and landed."
-        }
-      },
-      required: ["name", "requests", "sent"],
-      additionalProperties: false,
-      description: "Phase execution report."
-    },
-    RunStepResult: {
-      type: "object",
-      properties: {
-        created: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              id: {
-                type: "string"
-              },
-              kind: {
-                type: "string"
-              },
-              text: {
-                type: "string"
-              }
-            },
-            required: ["id", "kind", "text"],
-            additionalProperties: false
-          },
-          description: "Newly created blocks, tabs, or documents."
-        },
-        data: {
-          description: "Structured output data."
-        },
-        files: {
-          type: "array",
-          items: {
-            type: "string"
-          },
-          description: "Paths of written or spilled files."
-        },
-        kind: {
-          $ref: "#/definitions/StepKind",
-          description: "Step kind."
-        },
-        outline: {
-          description: "Outline returned alongside markdown queries or saveTo."
-        },
-        replaced: {
-          type: "number",
-          description: "Number of replacements made."
-        }
-      },
-      required: ["kind"],
-      additionalProperties: false,
-      description: "Result for a single step."
-    },
-    StepKind: {
-      type: "string",
-      enum: ["doc", "edit", "page", "query", "remove", "share", "style", "tab", "table", "write"],
-      description: "Every step kind."
-    }
-  }
-};
 // src/commands/run/__generated__/GdocsmithRunSchema.json
 var GdocsmithRunSchema_default = {
   $schema: "http://json-schema.org/draft-07/schema#",
@@ -34396,7 +34186,9 @@ var GdocsmithRunSchema_default = {
       description: "Steps, applied in order to an in-memory copy before sending."
     }
   },
-  required: ["steps"],
+  required: [
+    "steps"
+  ],
   additionalProperties: false,
   definitions: {
     GdocsmithStep: {
@@ -34439,7 +34231,14 @@ var GdocsmithRunSchema_default = {
       properties: {
         action: {
           type: "string",
-          enum: ["copy", "create", "delete", "open", "rename", "trash"],
+          enum: [
+            "copy",
+            "create",
+            "delete",
+            "open",
+            "rename",
+            "trash"
+          ],
           description: "delete is permanent; trash is recoverable."
         },
         as: {
@@ -34464,7 +34263,10 @@ var GdocsmithRunSchema_default = {
           description: "Title (create/copy/rename)."
         }
       },
-      required: ["action", "kind"],
+      required: [
+        "action",
+        "kind"
+      ],
       additionalProperties: false,
       description: "Open, create, copy, rename, trash, or delete a doc."
     },
@@ -34509,7 +34311,12 @@ var GdocsmithRunSchema_default = {
           description: "Tab ID or title (default: all tabs)."
         }
       },
-      required: ["doc", "find", "kind", "replace"],
+      required: [
+        "doc",
+        "find",
+        "kind",
+        "replace"
+      ],
       additionalProperties: false,
       description: "Find and replace plain text; replaces every match in scope."
     },
@@ -34559,7 +34366,10 @@ var GdocsmithRunSchema_default = {
         },
         orientation: {
           type: "string",
-          enum: ["LANDSCAPE", "PORTRAIT"],
+          enum: [
+            "LANDSCAPE",
+            "PORTRAIT"
+          ],
           description: "Orientation."
         },
         pageless: {
@@ -34568,7 +34378,14 @@ var GdocsmithRunSchema_default = {
         },
         size: {
           type: "string",
-          enum: ["A3", "A4", "A5", "LEGAL", "LETTER", "TABLOID"],
+          enum: [
+            "A3",
+            "A4",
+            "A5",
+            "LEGAL",
+            "LETTER",
+            "TABLOID"
+          ],
           description: "Paper size."
         },
         tab: {
@@ -34580,7 +34397,10 @@ var GdocsmithRunSchema_default = {
           description: "Custom page width PT (with height)."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: "Page setup for every tab, or one tab."
     },
@@ -34625,7 +34445,11 @@ var GdocsmithRunSchema_default = {
         },
         output: {
           type: "string",
-          enum: ["markdown", "nodes", "outline"],
+          enum: [
+            "markdown",
+            "nodes",
+            "outline"
+          ],
           description: "outline (default) | markdown (editable) | nodes (IDs, styles)."
         },
         saveTo: {
@@ -34645,7 +34469,10 @@ var GdocsmithRunSchema_default = {
           description: "Node filters (output nodes)."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: "Read a doc; large results are saved to files."
     },
@@ -34687,7 +34514,17 @@ var GdocsmithRunSchema_default = {
     },
     NodeKind: {
       type: "string",
-      enum: ["codeLine", "empty", "heading", "listItem", "pageBreak", "paragraph", "sectionBreak", "table", "toc"],
+      enum: [
+        "codeLine",
+        "empty",
+        "heading",
+        "listItem",
+        "pageBreak",
+        "paragraph",
+        "sectionBreak",
+        "table",
+        "toc"
+      ],
       description: "Node kinds."
     },
     StepRemove: {
@@ -34715,7 +34552,11 @@ var GdocsmithRunSchema_default = {
           description: "Tab ID or title."
         }
       },
-      required: ["at", "doc", "kind"],
+      required: [
+        "at",
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: "Delete a node, a section (heading + subtree), or a tab body."
     },
@@ -34724,7 +34565,11 @@ var GdocsmithRunSchema_default = {
       properties: {
         action: {
           type: "string",
-          enum: ["add", "list", "remove"],
+          enum: [
+            "add",
+            "list",
+            "remove"
+          ],
           description: "add | list | remove."
         },
         doc: {
@@ -34758,16 +34603,30 @@ var GdocsmithRunSchema_default = {
         },
         role: {
           type: "string",
-          enum: ["commenter", "owner", "reader", "writer"],
+          enum: [
+            "commenter",
+            "owner",
+            "reader",
+            "writer"
+          ],
           description: "Role (add); owner transfers ownership."
         },
         scope: {
           type: "string",
-          enum: ["anyone", "domain", "group", "user"],
+          enum: [
+            "anyone",
+            "domain",
+            "group",
+            "user"
+          ],
           description: "Grantee scope."
         }
       },
-      required: ["action", "doc", "kind"],
+      required: [
+        "action",
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: "Add, list, or remove Drive sharing."
     },
@@ -34808,7 +34667,11 @@ var GdocsmithRunSchema_default = {
           description: "Only restyle runs whose set values match these."
         }
       },
-      required: ["at", "doc", "kind"],
+      required: [
+        "at",
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: "Set text/paragraph style; null resets a property."
     },
@@ -34816,8 +34679,17 @@ var GdocsmithRunSchema_default = {
       type: "object",
       properties: {
         alignment: {
-          type: ["string", "null"],
-          enum: ["CENTER", "END", "JUSTIFIED", "START", null],
+          type: [
+            "string",
+            "null"
+          ],
+          enum: [
+            "CENTER",
+            "END",
+            "JUSTIFIED",
+            "START",
+            null
+          ],
           description: "Alignment."
         },
         bullet: {
@@ -34832,19 +34704,31 @@ var GdocsmithRunSchema_default = {
           description: "List preset; null removes bullets."
         },
         indentEnd: {
-          type: ["number", "null"],
+          type: [
+            "number",
+            "null"
+          ],
           description: "PT."
         },
         indentFirstLine: {
-          type: ["number", "null"],
+          type: [
+            "number",
+            "null"
+          ],
           description: "PT (bullet glyph position)."
         },
         indentStart: {
-          type: ["number", "null"],
+          type: [
+            "number",
+            "null"
+          ],
           description: "PT."
         },
         lineSpacing: {
-          type: ["number", "null"],
+          type: [
+            "number",
+            "null"
+          ],
           description: "100 = single, 200 = double."
         },
         namedStyle: {
@@ -34852,15 +34736,24 @@ var GdocsmithRunSchema_default = {
           description: "NORMAL_TEXT, TITLE, SUBTITLE, HEADING_1–6."
         },
         shading: {
-          type: ["string", "null"],
+          type: [
+            "string",
+            "null"
+          ],
           description: "Fill #RRGGBB."
         },
         spaceAbove: {
-          type: ["number", "null"],
+          type: [
+            "number",
+            "null"
+          ],
           description: "PT."
         },
         spaceBelow: {
-          type: ["number", "null"],
+          type: [
+            "number",
+            "null"
+          ],
           description: "PT."
         }
       },
@@ -34907,39 +34800,66 @@ var GdocsmithRunSchema_default = {
       type: "object",
       properties: {
         backgroundColor: {
-          type: ["string", "null"],
+          type: [
+            "string",
+            "null"
+          ],
           description: "Highlight #RRGGBB."
         },
         bold: {
-          type: ["boolean", "null"],
+          type: [
+            "boolean",
+            "null"
+          ],
           description: "Bold."
         },
         fontFamily: {
-          type: ["string", "null"],
+          type: [
+            "string",
+            "null"
+          ],
           description: "Font."
         },
         fontSize: {
-          type: ["number", "null"],
+          type: [
+            "number",
+            "null"
+          ],
           description: "PT."
         },
         foregroundColor: {
-          type: ["string", "null"],
+          type: [
+            "string",
+            "null"
+          ],
           description: "Text color #RRGGBB."
         },
         italic: {
-          type: ["boolean", "null"],
+          type: [
+            "boolean",
+            "null"
+          ],
           description: "Italic."
         },
         link: {
-          type: ["string", "null"],
+          type: [
+            "string",
+            "null"
+          ],
           description: "Link URL; null removes."
         },
         strikethrough: {
-          type: ["boolean", "null"],
+          type: [
+            "boolean",
+            "null"
+          ],
           description: "Strikethrough."
         },
         underline: {
-          type: ["boolean", "null"],
+          type: [
+            "boolean",
+            "null"
+          ],
           description: "Underline."
         }
       },
@@ -34990,7 +34910,12 @@ var GdocsmithRunSchema_default = {
       properties: {
         action: {
           type: "string",
-          enum: ["create", "delete", "move", "rename"],
+          enum: [
+            "create",
+            "delete",
+            "move",
+            "rename"
+          ],
           description: "create | rename | move | delete."
         },
         after: {
@@ -35027,7 +34952,11 @@ var GdocsmithRunSchema_default = {
           description: "Title (create/rename); unique per doc."
         }
       },
-      required: ["action", "doc", "kind"],
+      required: [
+        "action",
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: "Create, rename, move, or delete a tab."
     },
@@ -35063,7 +34992,16 @@ var GdocsmithRunSchema_default = {
       properties: {
         action: {
           type: "string",
-          enum: ["deleteColumn", "deleteRow", "insertColumn", "insertRow", "merge", "style", "unmerge", "widths"],
+          enum: [
+            "deleteColumn",
+            "deleteRow",
+            "insertColumn",
+            "insertRow",
+            "merge",
+            "style",
+            "unmerge",
+            "widths"
+          ],
           description: "Table operation."
         },
         at: {
@@ -35100,7 +35038,12 @@ var GdocsmithRunSchema_default = {
         },
         position: {
           type: "string",
-          enum: ["above", "below", "left", "right"],
+          enum: [
+            "above",
+            "below",
+            "left",
+            "right"
+          ],
           description: "Insert side: above/below (rows), left/right (columns)."
         },
         row: {
@@ -35122,12 +35065,20 @@ var GdocsmithRunSchema_default = {
         widths: {
           type: "array",
           items: {
-            type: ["number", "null"]
+            type: [
+              "number",
+              "null"
+            ]
           },
           description: "Column widths PT; null = even (widths)."
         }
       },
-      required: ["action", "at", "doc", "kind"],
+      required: [
+        "action",
+        "at",
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: "Change table structure or cell style."
     },
@@ -35135,7 +35086,10 @@ var GdocsmithRunSchema_default = {
       type: "object",
       properties: {
         background: {
-          type: ["string", "null"],
+          type: [
+            "string",
+            "null"
+          ],
           description: "Fill #RRGGBB; null clears."
         },
         borderColor: {
@@ -35160,7 +35114,11 @@ var GdocsmithRunSchema_default = {
         },
         verticalAlign: {
           type: "string",
-          enum: ["BOTTOM", "MIDDLE", "TOP"],
+          enum: [
+            "BOTTOM",
+            "MIDDLE",
+            "TOP"
+          ],
           description: "Vertical alignment."
         }
       },
@@ -35217,9 +35175,265 @@ var GdocsmithRunSchema_default = {
           description: "Tab ID or title."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: "Write markdown or copied content. One content field, one placement."
+    }
+  }
+};
+// src/commands/run/__generated__/GdocsmithRunResultSchema.json
+var GdocsmithRunResultSchema_default = {
+  $schema: "http://json-schema.org/draft-07/schema#",
+  type: "object",
+  properties: {
+    diff: {
+      $ref: "#/definitions/RunDiff",
+      description: "Unified diff across all modified tabs."
+    },
+    docs: {
+      type: "array",
+      items: {
+        $ref: "#/definitions/RunDoc"
+      },
+      description: "Documents touched or created."
+    },
+    dryRun: {
+      type: "boolean",
+      description: "True when dry-run previewed without writing."
+    },
+    ok: {
+      type: "boolean",
+      const: true,
+      description: "Status confirmation."
+    },
+    phases: {
+      type: "array",
+      items: {
+        $ref: "#/definitions/RunPhase"
+      },
+      description: "Phased execution breakdown."
+    },
+    steps: {
+      type: "array",
+      items: {
+        $ref: "#/definitions/RunStepResult"
+      },
+      description: "Per-step execution results."
+    },
+    warnings: {
+      type: "array",
+      items: {
+        type: "string"
+      },
+      description: "Warnings generated during run."
+    }
+  },
+  required: [
+    "diff",
+    "docs",
+    "dryRun",
+    "ok",
+    "phases",
+    "steps",
+    "warnings"
+  ],
+  additionalProperties: false,
+  definitions: {
+    RunDiff: {
+      type: "object",
+      properties: {
+        file: {
+          type: "string",
+          description: "Saved diff path when too large."
+        },
+        tabs: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              added: {
+                type: "number"
+              },
+              doc: {
+                type: "string"
+              },
+              removed: {
+                type: "number"
+              },
+              tab: {
+                type: "string"
+              }
+            },
+            required: [
+              "added",
+              "doc",
+              "removed",
+              "tab"
+            ],
+            additionalProperties: false
+          },
+          description: "Summary of changes per tab."
+        },
+        text: {
+          type: "string",
+          description: "Full unified diff text."
+        }
+      },
+      required: [
+        "tabs"
+      ],
+      additionalProperties: false,
+      description: "Structured unified diff returned in run result."
+    },
+    RunDoc: {
+      type: "object",
+      properties: {
+        alias: {
+          type: "string",
+          description: "Document alias if bound during run."
+        },
+        created: {
+          type: "boolean",
+          description: "True when created this run."
+        },
+        id: {
+          type: "string",
+          description: "Document ID."
+        },
+        tabs: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: {
+                type: "string"
+              },
+              title: {
+                type: "string"
+              }
+            },
+            required: [
+              "id",
+              "title"
+            ],
+            additionalProperties: false
+          },
+          description: "Document tabs."
+        },
+        title: {
+          type: "string",
+          description: "Document title."
+        },
+        url: {
+          type: "string",
+          description: "Web URL for document."
+        }
+      },
+      required: [
+        "id",
+        "tabs",
+        "title"
+      ],
+      additionalProperties: false,
+      description: "Document touched or created in a run."
+    },
+    RunPhase: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Phase name."
+        },
+        requests: {
+          type: "number",
+          description: "Total requests planned in this phase."
+        },
+        sent: {
+          type: "boolean",
+          description: "True if requests were sent and landed."
+        }
+      },
+      required: [
+        "name",
+        "requests",
+        "sent"
+      ],
+      additionalProperties: false,
+      description: "Phase execution report."
+    },
+    RunStepResult: {
+      type: "object",
+      properties: {
+        created: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: {
+                type: "string"
+              },
+              kind: {
+                type: "string"
+              },
+              text: {
+                type: "string"
+              }
+            },
+            required: [
+              "id",
+              "kind",
+              "text"
+            ],
+            additionalProperties: false
+          },
+          description: "Newly created blocks, tabs, or documents."
+        },
+        data: {
+          description: "Structured output data."
+        },
+        files: {
+          type: "array",
+          items: {
+            type: "string"
+          },
+          description: "Paths of written or spilled files."
+        },
+        kind: {
+          $ref: "#/definitions/StepKind",
+          description: "Step kind."
+        },
+        outline: {
+          description: "Outline returned alongside markdown queries or saveTo."
+        },
+        replaced: {
+          type: "number",
+          description: "Number of replacements made."
+        }
+      },
+      required: [
+        "kind"
+      ],
+      additionalProperties: false,
+      description: "Result for a single step."
+    },
+    StepKind: {
+      type: "string",
+      enum: [
+        "doc",
+        "edit",
+        "page",
+        "query",
+        "remove",
+        "share",
+        "style",
+        "tab",
+        "table",
+        "write"
+      ],
+      description: "Every step kind."
     }
   }
 };
@@ -35262,7 +35476,9 @@ var StatusJsonOutputSchema_default = {
       description: "App version from program root."
     }
   },
-  required: ["version"],
+  required: [
+    "version"
+  ],
   additionalProperties: false,
   definitions: {}
 };
@@ -35316,7 +35532,7 @@ var program = {
     enabled: true,
     instructions: MCP_INSTRUCTIONS
   },
-  version: "1.0.6"
+  version: "2.0.0"
 };
 
 // src/index.ts

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-25
+
 ### Changed (BREAKING)
 - `run` now accepts ten v2 step kinds instead of the v1 operation names. No compatibility aliases are retained; migrate calls using this map:
 

@@ -30,5 +30,5 @@ export const program = {
     enabled: true,
     instructions: MCP_INSTRUCTIONS,
   },
-  version: "1.0.6",
+  version: "2.0.0",
 } satisfies CliProgram;

@@ -2,6 +2,7 @@
 
 import type { GoogleDoc } from "~/core/types.ts";
 import type { KeyAllocator } from "./keys.ts";
+import { listPresetsApply } from "./lists.ts";
 import {
   type JsonObject,
   type RawDocumentTab,
@@ -50,7 +51,7 @@ export function docModelParse(
   const tabs: TabModel[] = raw.tabs?.length
     ? raw.tabs.flatMap((tab) => tabsFlattenDfs(tab, opts.keys))
     : [tabParse("t.0", raw.title ?? "", undefined, raw as unknown as RawDocumentTab, opts.keys)];
-  return {
+  const doc: DocModel = {
     docId: opts.docId,
     isNew: false,
     revisionId: raw.revisionId,
@@ -58,6 +59,8 @@ export function docModelParse(
     tabs,
     title: raw.title ?? "",
   };
+  listPresetsApply(doc);
+  return doc;
 }
 
 /** Recursively flattens a `RawTab` (and its `childTabs`) into depth-first `TabModel`s. */

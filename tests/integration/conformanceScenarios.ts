@@ -798,6 +798,25 @@ export const SCENARIOS: Scenario[] = [
       },
     ],
   },
+  // inserting next to merged cells: do the new cells copy the spans?
+  {
+    id: "T3",
+    name: "insertTableColumn right of a horizontally merged head cell",
+    setup: [
+      ...tableBase,
+      (j) => [{ mergeTableCells: { tableRange: { columnSpan: 2, rowSpan: 1, tableCellLocation: cellLoc(j, 0, 0) } } }],
+    ],
+    test: (j) => [{ insertTableColumn: { insertRight: true, tableCellLocation: cellLoc(j, 0, 0) } }],
+  },
+  {
+    id: "T4",
+    name: "insertTableRow below a vertically merged head cell",
+    setup: [
+      ...tableBase,
+      (j) => [{ mergeTableCells: { tableRange: { columnSpan: 1, rowSpan: 2, tableCellLocation: cellLoc(j, 0, 0) } } }],
+    ],
+    test: (j) => [{ insertTableRow: { insertBelow: true, tableCellLocation: cellLoc(j, 0, 0) } }],
+  },
   // table inserted into styled text: what do the new cells inherit?
   {
     id: "T1",

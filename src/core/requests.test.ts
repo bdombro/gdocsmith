@@ -466,3 +466,36 @@ describe("RequestBuilder", () => {
     });
   });
 });
+
+describe("RequestBuilder v2 builders", () => {
+  test("every location and range carries tabId; tab updates name the tab inside tabProperties", () => {
+    const table = { columnIndex: 1, columnSpan: 2, rowIndex: 0, rowSpan: 1, tabId: "t.0", tableStart: 5 };
+    expect(RequestBuilder.tableCellsMerge(table)).toEqual({
+      mergeTableCells: {
+        tableRange: {
+          columnSpan: 2,
+          rowSpan: 1,
+          tableCellLocation: { columnIndex: 1, rowIndex: 0, tableStartLocation: { index: 5, tabId: "t.0" } },
+        },
+      },
+    });
+    expect(
+      RequestBuilder.sectionStyleUpdate(0, 1, { marginTop: { magnitude: 1, unit: "PT" } }, ["marginTop"], "t.0"),
+    ).toEqual({
+      updateSectionStyle: {
+        fields: "marginTop",
+        range: { endIndex: 1, startIndex: 0, tabId: "t.0" },
+        sectionStyle: { marginTop: { magnitude: 1, unit: "PT" } },
+      },
+    });
+    expect(RequestBuilder.documentTabPropertiesUpdate("t.1", { title: "New" }, ["title"])).toEqual({
+      updateDocumentTabProperties: { fields: "title", tabProperties: { tabId: "t.1", title: "New" } },
+    });
+    expect(RequestBuilder.documentTabAdd("Kid", { parentTabId: "t.0" })).toEqual({
+      addDocumentTab: { tabProperties: { parentTabId: "t.0", title: "Kid" } },
+    });
+    expect(RequestBuilder.tableInsert(3, 2, 2, "t.0")).toEqual({
+      insertTable: { columns: 2, location: { index: 3, tabId: "t.0" }, rows: 2 },
+    });
+  });
+});

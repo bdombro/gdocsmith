@@ -2,6 +2,8 @@
 
 import { styleEqual, styleFieldsChanged } from "./styleValues.ts";
 import type {
+  Atom,
+  AtomCreate,
   Block,
   CellModel,
   DocModel,
@@ -98,7 +100,7 @@ function paragraphCompare(
   opts: CompareOptions,
   diffs: string[],
 ): void {
-  styleCompare(path, "style", expected.style, actual.style, diffs);
+  styleCompare(path, "style", paragraphStyleDefaulted(expected.style), paragraphStyleDefaulted(actual.style), diffs);
   headingIdCompare(path, expected, actual, opts, diffs);
   bulletCompare(path, expected.bullet, actual.bullet, diffs);
   styleCompare(path, "newline style", expected.newline.style, actual.newline.style, diffs);
@@ -125,7 +127,8 @@ function headingIdCompare(
     if (actual.headingId) diffs.push(`${path}: expected no headingId, got "${actual.headingId}"`);
     return;
   }
-  if (expected.key.startsWith("n")) {
+  // A new heading, or one the model just made a heading, gets whatever id the API mints.
+  if (expected.key.startsWith("n") || !expected.headingId) {
     if (!actual.headingId) diffs.push(`${path}: new heading paragraph has no headingId`);
     return;
   }
@@ -176,7 +179,7 @@ function inlineCompare(path: string, expected: Inline, actual: Inline, diffs: st
   if (expected.kind !== "atom" || actual.kind !== "atom") return;
   if (expected.type !== actual.type) diffs.push(`${path}: atom type expected "${expected.type}", got "${actual.type}"`);
   if (expected.create) {
-    if (!styleEqual(expected.create, actual.create)) diffs.push(`${path}: atom create fields differ`);
+    if (!atomCreateMatches(expected.create, actual)) diffs.push(`${path}: atom create fields differ`);
     return;
   }
   styleCompare(path, "atom payload", expected.raw ?? {}, actual.raw ?? {}, diffs);
@@ -242,4 +245,25 @@ function styleCompare(path: string, label: string, expected: object, actual: obj
   const fields = [...new Set([...Object.keys(expected), ...Object.keys(actual)])].sort();
   const changed = styleFieldsChanged(expected as Record<string, unknown>, actual as Record<string, unknown>, fields);
   diffs.push(`${path}: ${label} differs (${changed.join(", ")})`);
+}
+
+/** A paragraph style with the fields the API always reads back filled in (`namedStyleType` NORMAL_TEXT, `direction` LEFT_TO_RIGHT), so a sparse model compares equal. */
+function paragraphStyleDefaulted(style: Record<string, unknown>): Record<string, unknown> {
+  return { direction: "LEFT_TO_RIGHT", namedStyleType: "NORMAL_TEXT", ...style };
+}
+
+/** True when an atom read back from the API is what `create` asked for (ids and server-filled fields ignored; images match by type, since their source lives in `inlineObjects`). */
+function atomCreateMatches(create: AtomCreate, actual: Atom): boolean {
+  if (actual.create) return styleEqual(create, actual.create);
+  const raw = (actual.raw ?? {}) as Record<string, Record<string, Record<string, unknown> | undefined> | undefined>;
+  switch (create.type) {
+    case "person":
+      return raw.person?.personProperties?.email === create.email;
+    case "date":
+      return raw.dateElement?.dateElementProperties?.timestamp === create.timestamp;
+    case "richLink":
+      return raw.richLink?.richLinkProperties?.uri === create.uri;
+    default:
+      return actual.type === create.type;
+  }
 }

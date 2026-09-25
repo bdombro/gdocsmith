@@ -995,6 +995,156 @@ export class RequestBuilder {
     }
     return reqs;
   }
+
+  // --- v2 builders (G3 D2): body-only, every location/range carries tabId ---
+
+  /** Inserts text at a body index. */
+  static insertTextAt(index: number, text: string, tabId: string): object {
+    return { insertText: { location: loc(index, undefined, tabId), text } };
+  }
+
+  /** Deletes a body index range. */
+  static contentRangeDelete(startIndex: number, endIndex: number, tabId: string): object {
+    return { deleteContentRange: { range: rng(startIndex, endIndex, undefined, tabId) } };
+  }
+
+  /** Sets (or, for masked fields without a value, resets) text style over a range. */
+  static textStyleUpdate(
+    startIndex: number,
+    endIndex: number,
+    textStyle: Record<string, unknown>,
+    fields: readonly string[],
+    tabId: string,
+  ): object {
+    return {
+      updateTextStyle: { fields: fields.join(","), range: rng(startIndex, endIndex, undefined, tabId), textStyle },
+    };
+  }
+
+  /** Sets (or resets) paragraph style for every paragraph a range overlaps. */
+  static paragraphStyleUpdate(
+    startIndex: number,
+    endIndex: number,
+    paragraphStyle: Record<string, unknown>,
+    fields: readonly string[],
+    tabId: string,
+  ): object {
+    return {
+      updateParagraphStyle: {
+        fields: fields.join(","),
+        paragraphStyle,
+        range: rng(startIndex, endIndex, undefined, tabId),
+      },
+    };
+  }
+
+  /** Inserts an empty rows x columns table at a body index. */
+  static tableInsert(index: number, rows: number, columns: number, tabId: string): object {
+    return { insertTable: { columns, location: loc(index, undefined, tabId), rows } };
+  }
+
+  /** Merges a rectangle of table cells. */
+  static tableCellsMerge(opts: TableRangeOpts): object {
+    return { mergeTableCells: { tableRange: tableRange(opts) } };
+  }
+
+  /** Unmerges the merged cell at a table range's top-left. */
+  static tableCellsUnmerge(opts: TableRangeOpts): object {
+    return { unmergeTableCells: { tableRange: tableRange(opts) } };
+  }
+
+  /** Sets (or resets) cell style over a rectangle of cells. */
+  static tableCellStyleUpdate(
+    opts: TableRangeOpts & { fields: readonly string[]; tableCellStyle: Record<string, unknown> },
+  ): object {
+    return {
+      updateTableCellStyle: {
+        fields: opts.fields.join(","),
+        tableCellStyle: opts.tableCellStyle,
+        tableRange: tableRange(opts),
+      },
+    };
+  }
+
+  /** Sets (or resets) properties of table columns. */
+  static tableColumnPropertiesUpdate(opts: {
+    columnIndices: readonly number[];
+    fields: readonly string[];
+    tabId: string;
+    tableColumnProperties: Record<string, unknown>;
+    tableStart: number;
+  }): object {
+    return {
+      updateTableColumnProperties: {
+        columnIndices: opts.columnIndices,
+        fields: opts.fields.join(","),
+        tableColumnProperties: opts.tableColumnProperties,
+        tableStartLocation: loc(opts.tableStart, undefined, opts.tabId),
+      },
+    };
+  }
+
+  /** Sets (or resets) the style of every section break a range covers (a range starting at 0 is the first section). */
+  static sectionStyleUpdate(
+    startIndex: number,
+    endIndex: number,
+    sectionStyle: Record<string, unknown>,
+    fields: readonly string[],
+    tabId: string,
+  ): object {
+    return {
+      updateSectionStyle: {
+        fields: fields.join(","),
+        range: rng(startIndex, endIndex, undefined, tabId),
+        sectionStyle,
+      },
+    };
+  }
+
+  /** Updates a tab's title and/or index (the tab is named inside `tabProperties`, F19). */
+  static documentTabPropertiesUpdate(
+    tabId: string,
+    properties: { index?: number; title?: string },
+    fields: readonly ("index" | "title")[],
+  ): object {
+    return { updateDocumentTabProperties: { fields: fields.join(","), tabProperties: { ...properties, tabId } } };
+  }
+
+  /** Adds a tab, optionally under a parent and at an index among its siblings. */
+  static documentTabAdd(title: string, opts: { index?: number; parentTabId?: string } = {}): object {
+    return {
+      addDocumentTab: {
+        tabProperties: {
+          ...(opts.index != null ? { index: opts.index } : {}),
+          ...(opts.parentTabId ? { parentTabId: opts.parentTabId } : {}),
+          title,
+        },
+      },
+    };
+  }
+}
+
+/** Where a v2 table-range request points: a table start, a top-left cell, and a span. */
+type TableRangeOpts = {
+  columnIndex: number;
+  columnSpan: number;
+  rowIndex: number;
+  rowSpan: number;
+  tabId: string;
+  tableStart: number;
+};
+
+/** Builds a Docs API TableRange. */
+function tableRange(opts: TableRangeOpts): object {
+  return {
+    columnSpan: opts.columnSpan,
+    rowSpan: opts.rowSpan,
+    tableCellLocation: {
+      columnIndex: opts.columnIndex,
+      rowIndex: opts.rowIndex,
+      tableStartLocation: loc(opts.tableStart, undefined, opts.tabId),
+    },
+  };
 }
 
 /** Builds a Docs API Location object with optional segmentId and tabId. */

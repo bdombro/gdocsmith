@@ -3,8 +3,21 @@
 import type { GoogleDoc } from "~/core/types.ts";
 import { listLevelIndent, listPresetInfer, listPresetTable } from "../model/lists.ts";
 import type { JsonObject } from "../model/rawJson.ts";
-import { styleCanonical } from "../model/styleValues.ts";
 import type { BulletPreset } from "../model/types.ts";
+import {
+  deleteTableColumn,
+  deleteTableRow,
+  insertTable,
+  insertTableColumn,
+  insertTableRow,
+  mergeTableCells,
+  pinTableHeaderRows,
+  unmergeTableCells,
+  updateTableCellStyle,
+  updateTableColumnProperties,
+  updateTableRowStyle,
+} from "./emulateTables.ts";
+import { applyStyleFields, parseFields } from "./fieldMask.ts";
 import { docStateBuild, docStateJson, type EmulatorState, type NlPara, type TabState, type TapeCell } from "./tape.ts";
 
 /** Reason an emulated request was rejected. */
@@ -30,9 +43,9 @@ export class EmulatorError extends Error {
   }
 }
 
-/** Per-batch mutable context: which request is running, and counters for minting new heading/list ids. */
-interface EmulateContext {
-  idCounters: { heading: number; list: number };
+/** Per-batch mutable context: which request is running, and counters for minting new heading/list/image/tab ids. */
+export interface EmulateContext {
+  idCounters: { heading: number; image: number; list: number; tab: number };
   requestIndex: number;
 }
 
@@ -44,7 +57,7 @@ export function requestsEmulate(
   requests: readonly JsonObject[],
 ): { json: GoogleDoc; replies: JsonObject[] } {
   const state = docStateBuild(json);
-  const ctx: EmulateContext = { idCounters: { heading: 0, list: 0 }, requestIndex: 0 };
+  const ctx: EmulateContext = { idCounters: { heading: 0, image: 0, list: 0, tab: 0 }, requestIndex: 0 };
   const replies = requests.map((req, i) => {
     ctx.requestIndex = i;
     return requestApply(state, req, ctx);
@@ -63,6 +76,38 @@ function requestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext
     return createParagraphBulletsRequestApply(state, req.createParagraphBullets as JsonObject, ctx);
   if (req.deleteParagraphBullets)
     return deleteParagraphBulletsRequestApply(state, req.deleteParagraphBullets as JsonObject, ctx);
+  if (req.insertPageBreak) return insertPageBreakRequestApply(state, req.insertPageBreak as JsonObject, ctx);
+  if (req.insertSectionBreak) return insertSectionBreakRequestApply(state, req.insertSectionBreak as JsonObject, ctx);
+  if (req.updateSectionStyle) return updateSectionStyleRequestApply(state, req.updateSectionStyle as JsonObject, ctx);
+  if (req.insertPerson)
+    return insertAtomRequestApply(state, req.insertPerson as JsonObject, ctx, "person", "personProperties");
+  if (req.insertDate) return insertAtomRequestApply(state, req.insertDate as JsonObject, ctx, "date", "dateProperties");
+  if (req.insertRichLink)
+    return insertAtomRequestApply(state, req.insertRichLink as JsonObject, ctx, "richLink", "richLinkProperties");
+  if (req.insertInlineImage) return insertInlineImageRequestApply(state, req.insertInlineImage as JsonObject, ctx);
+  if (req.insertTable) return insertTableRequestApply(state, req.insertTable as JsonObject, ctx);
+  if (req.insertTableRow) return insertTableRowRequestApply(state, req.insertTableRow as JsonObject, ctx);
+  if (req.insertTableColumn) return insertTableColumnRequestApply(state, req.insertTableColumn as JsonObject, ctx);
+  if (req.deleteTableRow) return deleteTableRowRequestApply(state, req.deleteTableRow as JsonObject, ctx);
+  if (req.deleteTableColumn) return deleteTableColumnRequestApply(state, req.deleteTableColumn as JsonObject, ctx);
+  if (req.mergeTableCells) return mergeTableCellsRequestApply(state, req.mergeTableCells as JsonObject, ctx);
+  if (req.unmergeTableCells) return unmergeTableCellsRequestApply(state, req.unmergeTableCells as JsonObject, ctx);
+  if (req.updateTableCellStyle)
+    return updateTableCellStyleRequestApply(state, req.updateTableCellStyle as JsonObject, ctx);
+  if (req.updateTableColumnProperties)
+    return updateTableColumnPropertiesRequestApply(state, req.updateTableColumnProperties as JsonObject, ctx);
+  if (req.updateTableRowStyle)
+    return updateTableRowStyleRequestApply(state, req.updateTableRowStyle as JsonObject, ctx);
+  if (req.pinTableHeaderRows) return pinTableHeaderRowsRequestApply(state, req.pinTableHeaderRows as JsonObject, ctx);
+  if (req.createNamedRange || req.deleteNamedRange) {
+    throw new EmulatorError("UNKNOWN_REQUEST", ctx.requestIndex, "named ranges are out of scope for v2 (see G3 D3)");
+  }
+  if (req.addDocumentTab) return addDocumentTabRequestApply(state, req.addDocumentTab as JsonObject, ctx);
+  if (req.deleteTab) return deleteTabRequestApply(state, req.deleteTab as JsonObject);
+  if (req.updateDocumentTabProperties)
+    return updateDocumentTabPropertiesRequestApply(state, req.updateDocumentTabProperties as JsonObject, ctx);
+  if (req.updateDocumentStyle)
+    return updateDocumentStyleRequestApply(state, req.updateDocumentStyle as JsonObject, ctx);
   throw new EmulatorError(
     "UNKNOWN_REQUEST",
     ctx.requestIndex,
@@ -71,7 +116,7 @@ function requestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext
 }
 
 /** Resolves a request's target tab by `tabId`, defaulting to the only tab in a single-tab document. */
-function tabResolve(state: EmulatorState, tabId: string | undefined, requestIndex: number): TabState {
+export function tabResolve(state: EmulatorState, tabId: string | undefined, requestIndex: number): TabState {
   if (tabId) {
     const tab = state.tabs.find((t) => t.tabId === tabId);
     if (!tab) throw new EmulatorError("UNKNOWN_REQUEST", requestIndex, `unknown tabId "${tabId}"`);
@@ -82,7 +127,7 @@ function tabResolve(state: EmulatorState, tabId: string | undefined, requestInde
 }
 
 /** Resolves a `range: {startIndex, endIndex, tabId}` field. */
-function rangeResolve(
+export function rangeResolve(
   state: EmulatorState,
   range: JsonObject | undefined,
   ctx: EmulateContext,
@@ -96,7 +141,7 @@ function rangeResolve(
 }
 
 /** Throws `RANGE_AT_SEGMENT_END` when a style/bullet range's `end` reaches the segment's final newline (see G3 F9). */
-function segmentEndValidate(tab: TabState, end: number, ctx: EmulateContext): void {
+export function segmentEndValidate(tab: TabState, end: number, ctx: EmulateContext): void {
   if (end === tab.tape.length) {
     throw new EmulatorError(
       "RANGE_AT_SEGMENT_END",
@@ -129,12 +174,7 @@ function insertTextCore(tab: TabState, idx: number, text: string, ctx: EmulateCo
   for (let k = 0; k < text.length; k++) {
     const ch = text[k];
     if (ch === "\n") {
-      let j = pos;
-      while (tab.tape[j]?.t !== "nl") j++;
-      const originalNl = tab.tape[j] as Extract<TapeCell, { t: "nl" }>;
-      const newPara: NlPara = structuredClone(originalNl.para);
-      if (newPara.headingId) newPara.headingId = mintHeadingId(ctx);
-      tab.tape.splice(pos, 0, { para: newPara, style, t: "nl" });
+      paragraphSplitAt(tab, pos, style, ctx);
     } else {
       tab.tape.splice(pos, 0, { ch, style, t: "char" });
     }
@@ -142,8 +182,23 @@ function insertTextCore(tab: TabState, idx: number, text: string, ctx: EmulateCo
   }
 }
 
+/**
+ * Splits the paragraph containing tape position `pos` by inserting a fresh `nl` cell there: a copy
+ * of the containing paragraph's style/bullet (minting a new heading id if it was a heading), while
+ * the original (later) `nl` cell is left untouched and keeps its identity (G3 F6, reused by
+ * insertPageBreak/insertSectionBreak/insertTable, which all split a paragraph before inserting).
+ */
+export function paragraphSplitAt(tab: TabState, pos: number, style: JsonObject, ctx: EmulateContext): void {
+  let j = pos;
+  while (tab.tape[j]?.t !== "nl") j++;
+  const originalNl = tab.tape[j] as Extract<TapeCell, { t: "nl" }>;
+  const newPara: NlPara = structuredClone(originalNl.para);
+  if (newPara.headingId) newPara.headingId = mintHeadingId(ctx);
+  tab.tape.splice(pos, 0, { para: newPara, style, t: "nl" });
+}
+
 /** Validates that `idx` names a position inside a paragraph (F5): not past the segment end, and not on a structural marker or atom continuation. */
-function insertPositionValidate(tab: TabState, idx: number, ctx: EmulateContext): void {
+export function insertPositionValidate(tab: TabState, idx: number, ctx: EmulateContext): void {
   if (idx === tab.tape.length) {
     throw new EmulatorError("RANGE_AT_SEGMENT_END", ctx.requestIndex, "cannot insert past the segment's final newline");
   }
@@ -161,7 +216,7 @@ function insertPositionValidate(tab: TabState, idx: number, ctx: EmulateContext)
 }
 
 /** Style for newly inserted characters: the previous character in the same paragraph, else the next one, else the newline (G3 F6). */
-function styleForInsertAt(tape: TapeCell[], idx: number): JsonObject {
+export function styleForInsertAt(tape: TapeCell[], idx: number): JsonObject {
   const prev = idx > 0 ? tape[idx - 1] : undefined;
   if (prev?.t === "char") return prev.style;
   if (prev?.t === "atom") return prev.style ?? {};
@@ -259,7 +314,7 @@ function deleteRangeValidate(tab: TabState, start: number, end: number, ctx: Emu
 }
 
 /** Finds every table/TOC's `[start, end)` span (matching `*Start`/`*End` markers; tables and TOCs never nest). */
-function structuralSpans(tape: TapeCell[]): Array<{ end: number; start: number }> {
+export function structuralSpans(tape: TapeCell[]): Array<{ end: number; start: number }> {
   const spans: Array<{ end: number; start: number }> = [];
   const stack: number[] = [];
   tape.forEach((cell, i) => {
@@ -332,24 +387,6 @@ function updateParagraphStyleRequestApply(state: EmulatorState, req: JsonObject,
     }
   }
   return {};
-}
-
-/** Applies a field-masked style patch (F10): a listed field absent (or `null`) in `patch` resets to inherited; otherwise it's set (canonicalized). */
-function applyStyleFields(target: JsonObject, patch: JsonObject, fields: readonly string[]): void {
-  for (const field of fields) {
-    const value = patch[field];
-    if (value === undefined || value === null) delete target[field];
-    else target[field] = styleCanonical(value);
-  }
-}
-
-function parseFields(fields: unknown): string[] {
-  return typeof fields === "string"
-    ? fields
-        .split(",")
-        .map((f) => f.trim())
-        .filter(Boolean)
-    : [];
 }
 
 // --- createParagraphBullets / deleteParagraphBullets ---
@@ -435,12 +472,345 @@ function deleteParagraphBulletsApply(tab: TabState, start: number, end: number):
   }
 }
 
-function mintHeadingId(ctx: EmulateContext): string {
+export function mintHeadingId(ctx: EmulateContext): string {
   ctx.idCounters.heading += 1;
   return `emu.h.${ctx.idCounters.heading}`;
 }
 
-function mintListId(ctx: EmulateContext): string {
+export function mintListId(ctx: EmulateContext): string {
   ctx.idCounters.list += 1;
   return `emu.list.${ctx.idCounters.list}`;
+}
+
+function mintInlineObjectId(ctx: EmulateContext): string {
+  ctx.idCounters.image += 1;
+  return `emu.io.${ctx.idCounters.image}`;
+}
+
+function mintTabId(ctx: EmulateContext): string {
+  ctx.idCounters.tab += 1;
+  return `emu.t.${ctx.idCounters.tab}`;
+}
+
+// --- insertPageBreak / insertSectionBreak / updateSectionStyle ---
+
+/** Inserts a page break: an atom followed by a fresh newline that splits the paragraph (2 indices total, G3 F14). */
+function insertPageBreakRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
+  const location = req.location as JsonObject;
+  const tab = tabResolve(state, location.tabId as string | undefined, ctx.requestIndex);
+  const idx = location.index as number;
+  insertPositionValidate(tab, idx, ctx);
+  const style = styleForInsertAt(tab.tape, idx);
+  tab.tape.splice(idx, 0, { raw: { pageBreak: {} }, span: 1, style, t: "atom" });
+  paragraphSplitAt(tab, idx + 1, style, ctx);
+  return {};
+}
+
+/** Inserts a section break: a fresh newline that splits the paragraph, then the break marker itself (2 indices total, G3 F15). */
+function insertSectionBreakRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
+  const location = req.location as JsonObject;
+  const tab = tabResolve(state, location.tabId as string | undefined, ctx.requestIndex);
+  const idx = location.index as number;
+  insertPositionValidate(tab, idx, ctx);
+  const style = styleForInsertAt(tab.tape, idx);
+  paragraphSplitAt(tab, idx, style, ctx);
+  const sectionType = (req.sectionType as string | undefined) ?? "CONTINUOUS";
+  tab.tape.splice(idx + 1, 0, { raw: { sectionStyle: { sectionType } }, t: "sectionBreak" });
+  return {};
+}
+
+/** Applies a field-masked style patch to every section break (and the tab's leading section) whose index falls in `range`. */
+function updateSectionStyleRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
+  const { end, start, tab } = rangeResolve(state, req.range as JsonObject, ctx);
+  const fields = parseFields(req.fields);
+  const patch = (req.sectionStyle as JsonObject) ?? {};
+  for (let i = start; i < end; i++) {
+    const cell = tab.tape[i];
+    if (cell.t !== "sectionBreak") continue;
+    const sectionStyle = { ...((cell.raw.sectionStyle as JsonObject | undefined) ?? {}) };
+    applyStyleFields(sectionStyle, patch, fields);
+    cell.raw.sectionStyle = sectionStyle;
+  }
+  return {};
+}
+
+// --- insertPerson / insertDate / insertRichLink / insertInlineImage ---
+
+/** Inserts a single-index chip atom (person, date, or rich link) at `location`. */
+function insertAtomRequestApply(
+  state: EmulatorState,
+  req: JsonObject,
+  ctx: EmulateContext,
+  type: "date" | "person" | "richLink",
+  propertiesField: string,
+): JsonObject {
+  const location = req.location as JsonObject;
+  const tab = tabResolve(state, location.tabId as string | undefined, ctx.requestIndex);
+  const idx = location.index as number;
+  insertPositionValidate(tab, idx, ctx);
+  const style = styleForInsertAt(tab.tape, idx);
+  tab.tape.splice(idx, 0, { raw: { [type]: { [propertiesField]: req[propertiesField] } }, span: 1, style, t: "atom" });
+  return {};
+}
+
+/** Inserts an inline image: mints a new `inlineObjects` entry with the given `sourceUri`, then a single-index atom referencing it. */
+function insertInlineImageRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
+  const location = req.location as JsonObject;
+  const tab = tabResolve(state, location.tabId as string | undefined, ctx.requestIndex);
+  const idx = location.index as number;
+  insertPositionValidate(tab, idx, ctx);
+  const style = styleForInsertAt(tab.tape, idx);
+  const objectId = mintInlineObjectId(ctx);
+  tab.inlineObjects[objectId] = {
+    inlineObjectProperties: { embeddedObject: { imageProperties: { sourceUri: req.uri } } },
+  };
+  tab.tape.splice(idx, 0, { raw: { inlineObjectElement: { inlineObjectId: objectId } }, span: 1, style, t: "atom" });
+  return {};
+}
+
+// --- table structural requests ---
+
+function insertTableRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
+  const location = req.location as JsonObject;
+  const tab = tabResolve(state, location.tabId as string | undefined, ctx.requestIndex);
+  const idx = location.index as number;
+  insertPositionValidate(tab, idx, ctx);
+  const style = styleForInsertAt(tab.tape, idx);
+  insertTable(tab, idx, req.rows as number, req.columns as number, style, (pos) =>
+    paragraphSplitAt(tab, pos, style, ctx),
+  );
+  return {};
+}
+
+/** Reads `{ tableStartLocation: { index, tabId }, rowIndex?, columnIndex? }` common to every table structural request. */
+function tableCellLocationResolve(
+  state: EmulatorState,
+  req: JsonObject,
+  ctx: EmulateContext,
+): { columnIndex: number; rowIndex: number; tab: TabState; tableStart: number } {
+  const cellLocation = req.tableCellLocation as JsonObject;
+  const tableStartLocation = cellLocation.tableStartLocation as JsonObject;
+  const tab = tabResolve(state, tableStartLocation.tabId as string | undefined, ctx.requestIndex);
+  return {
+    columnIndex: (cellLocation.columnIndex as number | undefined) ?? 0,
+    rowIndex: (cellLocation.rowIndex as number | undefined) ?? 0,
+    tab,
+    tableStart: tableStartLocation.index as number,
+  };
+}
+
+function insertTableRowRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
+  const { columnIndex: _columnIndex, rowIndex, tab, tableStart } = tableCellLocationResolve(state, req, ctx);
+  insertTableRow(tab, tableStart, rowIndex, Boolean(req.insertBelow));
+  return {};
+}
+
+function insertTableColumnRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
+  const { columnIndex, tab, tableStart } = tableCellLocationResolve(state, req, ctx);
+  insertTableColumn(tab, tableStart, columnIndex, Boolean(req.insertRight));
+  return {};
+}
+
+function deleteTableRowRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
+  const { rowIndex, tab, tableStart } = tableCellLocationResolve(state, req, ctx);
+  deleteTableRow(tab, tableStart, rowIndex);
+  return {};
+}
+
+function deleteTableColumnRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
+  const { columnIndex, tab, tableStart } = tableCellLocationResolve(state, req, ctx);
+  deleteTableColumn(tab, tableStart, columnIndex);
+  return {};
+}
+
+function mergeTableCellsRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
+  const range = req.tableRange as JsonObject;
+  const { columnIndex, rowIndex, tab, tableStart } = tableCellLocationResolve(
+    state,
+    { tableCellLocation: range.tableCellLocation },
+    ctx,
+  );
+  mergeTableCells(tab, tableStart, rowIndex, columnIndex, range.rowSpan as number, range.columnSpan as number);
+  return {};
+}
+
+function unmergeTableCellsRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
+  const range = req.tableRange as JsonObject;
+  const { columnIndex, rowIndex, tab, tableStart } = tableCellLocationResolve(
+    state,
+    { tableCellLocation: range.tableCellLocation },
+    ctx,
+  );
+  unmergeTableCells(tab, tableStart, rowIndex, columnIndex);
+  return {};
+}
+
+function updateTableCellStyleRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
+  const fields = parseFields(req.fields);
+  const patch = (req.tableCellStyle as JsonObject) ?? {};
+  if (req.tableRange) {
+    const range = req.tableRange as JsonObject;
+    const { columnIndex, rowIndex, tab, tableStart } = tableCellLocationResolve(
+      state,
+      { tableCellLocation: range.tableCellLocation },
+      ctx,
+    );
+    updateTableCellStyle(
+      tab,
+      tableStart,
+      rowIndex,
+      columnIndex,
+      range.rowSpan as number | undefined,
+      range.columnSpan as number | undefined,
+      patch,
+      fields,
+    );
+  } else {
+    const startLocation = req.tableStartLocation as JsonObject;
+    const tab = tabResolve(state, startLocation.tabId as string | undefined, ctx.requestIndex);
+    updateTableCellStyle(tab, startLocation.index as number, undefined, undefined, undefined, undefined, patch, fields);
+  }
+  return {};
+}
+
+function updateTableColumnPropertiesRequestApply(
+  state: EmulatorState,
+  req: JsonObject,
+  ctx: EmulateContext,
+): JsonObject {
+  const startLocation = req.tableStartLocation as JsonObject;
+  const tab = tabResolve(state, startLocation.tabId as string | undefined, ctx.requestIndex);
+  updateTableColumnProperties(
+    tab,
+    startLocation.index as number,
+    req.columnIndices as number[],
+    (req.tableColumnProperties as JsonObject) ?? {},
+    parseFields(req.fields),
+  );
+  return {};
+}
+
+function updateTableRowStyleRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
+  const startLocation = req.tableStartLocation as JsonObject;
+  const tab = tabResolve(state, startLocation.tabId as string | undefined, ctx.requestIndex);
+  updateTableRowStyle(
+    tab,
+    startLocation.index as number,
+    req.rowIndices as number[],
+    (req.tableRowStyle as JsonObject) ?? {},
+    parseFields(req.fields),
+  );
+  return {};
+}
+
+function pinTableHeaderRowsRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
+  const startLocation = req.tableStartLocation as JsonObject;
+  const tab = tabResolve(state, startLocation.tabId as string | undefined, ctx.requestIndex);
+  pinTableHeaderRows(tab, startLocation.index as number, req.pinnedHeaderRowsCount as number);
+  return {};
+}
+
+// --- tab / document-style requests ---
+
+/** Creates a brand-new tab with a blank template body (leading section break + one empty paragraph). */
+function addDocumentTabRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
+  const tabId = mintTabId(ctx);
+  const tabProperties = (req.tabProperties as JsonObject) ?? {};
+  const title = (tabProperties.title as string | undefined) ?? "";
+  const parentTabId = tabProperties.parentTabId as string | undefined;
+  const index = tabProperties.index as number | undefined;
+  const tab: TabState = {
+    documentStyle: {},
+    footers: {},
+    footnotes: {},
+    headers: {},
+    inlineObjects: {},
+    lists: {},
+    namedRanges: {},
+    namedStyles: { styles: [] },
+    parentTabId,
+    positionedObjects: {},
+    tabId,
+    tape: [
+      { raw: { sectionStyle: {} }, t: "sectionBreak" },
+      { para: { style: {} }, style: {}, t: "nl" },
+    ],
+    title,
+  };
+  if (typeof index === "number") state.tabs.splice(index, 0, tab);
+  else state.tabs.push(tab);
+  return { tabProperties: { index, parentTabId, tabId, title } };
+}
+
+/** Deletes a tab and every descendant tab (matched by `parentTabId`, transitively). */
+function deleteTabRequestApply(state: EmulatorState, req: JsonObject): JsonObject {
+  const tabId = req.tabId as string;
+  const toRemove = new Set<string>([tabId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const tab of state.tabs) {
+      if (tab.parentTabId && toRemove.has(tab.parentTabId) && !toRemove.has(tab.tabId)) {
+        toRemove.add(tab.tabId);
+        changed = true;
+      }
+    }
+  }
+  state.tabs = state.tabs.filter((t) => !toRemove.has(t.tabId));
+  return {};
+}
+
+/** Applies a field-masked patch to a tab's `title` and/or `index` (a move). */
+function updateDocumentTabPropertiesRequestApply(
+  state: EmulatorState,
+  req: JsonObject,
+  ctx: EmulateContext,
+): JsonObject {
+  const tab = tabResolve(state, req.tabId as string, ctx.requestIndex);
+  const fields = parseFields(req.fields);
+  const patch = (req.tabProperties as JsonObject) ?? {};
+  if (fields.includes("title") && typeof patch.title === "string") tab.title = patch.title;
+  if (fields.includes("index") && typeof patch.index === "number") {
+    const from = state.tabs.indexOf(tab);
+    state.tabs.splice(from, 1);
+    state.tabs.splice(patch.index, 0, tab);
+  }
+  return {};
+}
+
+/** Applies a field-masked patch (dotted paths allowed, e.g. `pageSize.width`) to a tab's document style. */
+function updateDocumentStyleRequestApply(state: EmulatorState, req: JsonObject, ctx: EmulateContext): JsonObject {
+  const tab = tabResolve(state, req.tabId as string | undefined, ctx.requestIndex);
+  const fields = parseFields(req.fields);
+  const patch = (req.documentStyle as JsonObject) ?? {};
+  const target = { ...tab.documentStyle };
+  for (const field of fields) {
+    const parts = field.split(".");
+    dottedFieldSet(target, parts, dottedFieldGet(patch, parts));
+  }
+  tab.documentStyle = target;
+  return {};
+}
+
+/** Reads a (possibly nested) dotted field path out of a JSON object. */
+function dottedFieldGet(obj: JsonObject, parts: readonly string[]): unknown {
+  let cur: unknown = obj;
+  for (const part of parts) {
+    if (cur === undefined || cur === null || typeof cur !== "object") return undefined;
+    cur = (cur as JsonObject)[part];
+  }
+  return cur;
+}
+
+/** Sets (or, if `value` is nullish, deletes) a dotted field path on a JSON object, per F10's mask semantics. */
+function dottedFieldSet(target: JsonObject, parts: readonly string[], value: unknown): void {
+  if (parts.length === 1) {
+    if (value === undefined || value === null) delete target[parts[0]];
+    else target[parts[0]] = value;
+    return;
+  }
+  const [head, ...rest] = parts;
+  const next = { ...((target[head] as JsonObject | undefined) ?? {}) };
+  dottedFieldSet(next, rest, value);
+  target[head] = next;
 }

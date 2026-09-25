@@ -303,7 +303,7 @@ describe("requestsEmulate", () => {
 
   test("UNKNOWN_REQUEST: an unrecognized request kind", () => {
     const json = docJsonBuild({ tabs: [{ blocks: [{ content: ["a"], kind: "paragraph" }] }] });
-    expect(() => requestsEmulate(json, [{ insertInlineImage: {} }])).toThrowError(
+    expect(() => requestsEmulate(json, [{ replaceAllText: {} }])).toThrowError(
       expect.objectContaining({ code: "UNKNOWN_REQUEST" }) as unknown as EmulatorError,
     );
   });

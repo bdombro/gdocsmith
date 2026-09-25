@@ -61,6 +61,14 @@ export type DrivePermissionRole = "commenter" | "fileOrganizer" | "organizer" | 
 /** Grantee access scope for a Drive file permission. */
 export type DrivePermissionScope = "anyone" | "domain" | "group" | "internal" | "user";
 
+/** One Drive comment (only the fields the G3 comment/suggestion guard needs). */
+export type DriveComment = {
+  /** True when the comment was deleted (its `quotedFileContent` is stripped by the API). */ deleted?: boolean;
+  /** Comment id. */ id: string;
+  /** The exact text the comment anchors to, when not deleted. */ quotedFileContent?: { value?: string };
+  /** True when the comment thread has been resolved. */ resolved?: boolean;
+};
+
 /** Parses and formats Google Workspace / HTTP errors into actionable messages. */
 export function gwsErrorFormat(raw: string, targetId?: string): string {
   if (!raw?.trim()) {
@@ -189,6 +197,28 @@ export interface DocsClient {
   run(args: string[]): Promise<string>;
 }
 
+/** Drive operations the G3 core engine needs (copy, permissions, comments, delete/trash), independent of the Docs-specific `DocsClient`. */
+export interface DriveApi {
+  /** Lists a file's unresolved, non-deleted, non-empty-quote comments (paginated internally). */
+  commentsList(fileId: string): Promise<DriveComment[]>;
+  /** Copies a Drive file (supports all drives). */
+  copyFile(fileId: string, name: string): Promise<{ id: string; name: string }>;
+  /** Creates a permission on a Drive file. */
+  createPermission(
+    fileId: string,
+    permission: DrivePermissionInput,
+    options?: DrivePermissionCreateOptions,
+  ): Promise<DrivePermission>;
+  /** Permanently deletes a file from Drive. */
+  deleteFile(fileId: string): Promise<void>;
+  /** Deletes an existing permission from a Drive file. */
+  deletePermission(fileId: string, permissionId: string): Promise<void>;
+  /** Lists a file's permissions. */
+  listPermissions(fileId: string, fields?: string): Promise<DrivePermission[]>;
+  /** Updates Drive file metadata (name, trashed, etc). */
+  updateFile(fileId: string, body: Record<string, unknown>): Promise<{ id: string; name: string; trashed?: boolean }>;
+}
+
 /** Invokes direct REST API for Google Docs API access (no CLI fallback). */
 export class GwsClientImpl implements DocsClient {
   constructor(private fetcher: ApiFetcher = fetchGoogleApi) {}
@@ -297,11 +327,43 @@ export const gws: GwsClientImpl = new GwsClientImpl();
 export type GwsClient = DocsClient;
 
 /** Invokes direct REST API for Google Drive API access (no CLI fallback). */
-export class DriveClient {
+export class DriveClient implements DriveApi {
   /** Memoized workspace domain from the authenticated Drive user profile. */
   private cachedUserDomain?: string;
 
   constructor(private fetcher: ApiFetcher = fetchGoogleApi) {}
+
+  /** Lists a file's unresolved, non-deleted comments with a non-empty quote, following pagination. */
+  async commentsList(
+    /** Target Drive file ID. */
+    fileId: string,
+  ): Promise<DriveComment[]> {
+    const comments: DriveComment[] = [];
+    let pageToken: string | undefined;
+    try {
+      do {
+        const q = new URLSearchParams({
+          fields: "comments(id,resolved,deleted,quotedFileContent/value),nextPageToken",
+          includeDeleted: "false",
+          pageSize: "100",
+        });
+        if (pageToken) q.set("pageToken", pageToken);
+        const url = `${DRIVE_BASE_URL}/files/${encodeURIComponent(fileId)}/comments?${q.toString()}`;
+        const res = await this.fetcher(url);
+        const text = await res.text();
+        if (!res.ok) throw new Error(formatGwsError(text, fileId));
+        const data = JSON.parse(text) as { comments?: DriveComment[]; nextPageToken?: string };
+        for (const comment of data.comments ?? []) {
+          if (!comment.resolved && !comment.deleted && comment.quotedFileContent?.value) comments.push(comment);
+        }
+        pageToken = data.nextPageToken;
+      } while (pageToken);
+      return comments;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(formatGwsError(msg, fileId));
+    }
+  }
 
   /** Copies a Drive file (supports all drives). */
   async copyFile(

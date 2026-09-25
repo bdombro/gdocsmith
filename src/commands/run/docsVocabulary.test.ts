@@ -1,7 +1,7 @@
 /* Guards v2 user-facing documentation against legacy run vocabulary (G4 M8). */
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 const LEGACY_VOCABULARY =
   /\b(docOpen|docCreate|docClose|docDelete|docTrash|docRename|docPermission(Add|List|Remove)|markdownInsert|replaceMarkdown|replaceSection|sectionCopy|surgical|tabCreate|tabDelete|tabMove|tabReorder|tabRename|tabPopulate|textReplace|innerText|dangerousRemoveSection|pageSetup|markdownStyles|nodeAt|nodeAfter|nodeBefore|nodeUnder|forceFetch|fromSection|dumped|stepsCount|highlights)\b/i;
@@ -10,6 +10,9 @@ const USER_DOCS = [
   new URL("../../../AGENTS.md", import.meta.url),
   new URL("../../../README.md", import.meta.url),
   new URL("../../../skills/gdocsmith/SKILL.md", import.meta.url),
+  ...readdirSync(new URL("../../../docs/", import.meta.url))
+    .filter((name) => name.endsWith(".md") && name !== "cli.md" && name !== "mcp.md")
+    .map((name) => new URL(`../../../docs/${name}`, import.meta.url)),
 ];
 
 describe("v2 documentation vocabulary", () => {

@@ -12,26 +12,21 @@ Google Docs surgical authoring and workflow engine
 
 #### Subcommands
 
-- `run` — Declarative Google Docs workflow engine for queries, dry-run diff previews, and document updates.
+- `run` — Read and edit Google Docs with batched steps: query, write, edit, remove, style, table, tab, doc, share, page.
 - `status` — Show app version.
 
 ### `gdocsmith run`
 
-Declarative Google Docs workflow engine for queries, dry-run diff previews, and document updates.
+Read and edit Google Docs with batched steps: query, write, edit, remove, style, table, tab, doc, share, page.
 
-> • Pipe stdin or pass one JSON document. Knobs: `dryRun`, `force`, `quiet` on the document.
-> • Each step requires `kind` (e.g. docOpen|docClose|docCreate|tabCreate|query|markdownInsert|replaceSection|…).
-> • File-touching steps require `doc:` (raw id or open alias). `docCreate` binds `as` (optional `fromDoc:` to clone). There is no run-level documentId.
-> • Raw IDs only: extract between `/document/d/` and `/edit`. Full URLs are rejected.
-> • Surgical targeting: copy heading-scoped ids from `kind: query` into `nodeAt`, `nodeAfter`, or `nodeBefore` (e.g. `h.arch.9a1b`). NEVER compute startIndex/endIndex or write raw batchUpdate scripts.
-> • In-place updates: prefer `replaceSection`, `replaceMarkdown`, or `replace` over deleting and re-inserting content (no demolish-and-rebuild). `replaceSection` replaces all subsections under that heading (e.g. H1 replaces H2s, H2 replaces H3s); guards reject deleting child subsections without `force: true`. To update a placeholder or body paragraph under a parent heading while preserving child subsections, use `replaceMarkdown` with `find: <placeholder>` or `nodeAt: <scopedId|text>` to insert formatted markdown, or `textReplace` for plain string edits.
-> • Real headings only (`TITLE`, `HEADING_1`–`HEADING_3`). No bullet glyphs in surgical text; use run-in bold (`**Label**: value`).
-> • Tab setup & bindings: `docOpen`, `docCreate`, `tabCreate`, and `tabPopulate` set aliases. When creating documents with templates, use `docCreate` with `fromDoc` + `fromTab` to seed and rename the initial root `t.0` tab in one step (`docCreate: as, title, fromDoc, fromTab, tabTitle, tabAs`), leaving no orphan tabs and keeping root `t.0` intact. Use `tabCreate` for subsequent tabs (`title, as, afterTab, fromDoc, fromTab`). Always specify final tab `title` at creation time because tabRename fails on docs without root `t.0`. Every `run` call is stateless; aliases do not persist across multiple `run` invocations. `dump: true` dumps metadata into `dumped[as]`. `query` with `as:` writes matches into `dumped[as]`. Query aliases cannot be used as mutation anchors.
-> • Cache: bypass 5m cache-reads on `docOpen`/`docCreate` with `forceFetch: true` when a doc may have changed externally.
-> • Cross-doc transfers: use `kind: sectionCopy` with `fromDoc:` and `fromSection:` to transfer sections server-side without streaming markdown, or query source with `output: markdown` and write with `replaceSection`. Anchors must always belong to the target `doc:`.
-> • Symbolic links: use `[Label](tab:TabTitle#HeadingTitle)`, `[Label](tab:TabTitle)`, or `[Label](#HeadingTitle)` in markdown; gdocsmith automatically resolves them to native Docs deep links (`?tab=...#heading=...`).
-> • Prefer one `run` per phase until step kinds are proven; then batch related steps. Chip/table writes use `kind: surgical`.
-> • Dry run: optional `dryRun: true` returns a unified git diff without writing. Run mutations directly without requiring dry-run first; use dryRun only when you need to inspect an expected diff.
+> • Read the gdocsmith skill before the first run in a session.
+> • Every step is checked and applied to an in-memory copy first; nothing is sent unless all steps and guards pass. dryRun: true returns the same result without sending. Sending happens in phases; a failure names the phases that landed.
+> • Target content with anchors: {section} (heading text or ID), {node} (node/cell ID from query), {text} (unique substring), {body: true} (whole tab). Change the smallest scope that covers the edit.
+> • `doc` is a raw doc ID (between /d/ and /edit) or an alias set by a doc step's `as` earlier in the same run.
+> • Content is markdown only. query output "markdown" is an editable copy: keep its frontmatter and tokens when writing it back.
+> • Large results are saved to files; the response gives the paths and an outline.
+> • Refusals list what a step would break (comments, suggestions, named ranges, heading links, chips, images). Use force: true on that step only with the user's consent.
+> • Never compute character offsets or call the Docs API directly.
 
 #### Output
 
@@ -43,102 +38,250 @@ JSON Schema for output when/if handler emits JSON
   "type": "object",
   "properties": {
     "diff": {
-      "type": "string",
-      "description": "Unified git diff of changes (populated on dryRun; empty string when 0 changes detected)."
+      "$ref": "#/definitions/RunDiff",
+      "description": "Unified diff across all modified tabs."
+    },
+    "docs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RunDoc"
+      },
+      "description": "Documents touched or created."
     },
     "dryRun": {
       "type": "boolean",
-      "description": "True when `dryRun: true` previewed without writing."
-    },
-    "dumped": {
-      "type": "object",
-      "additionalProperties": {},
-      "description": "Values extracted by `kind: query` (with `as:`) and `dump: true`."
-    },
-    "highlights": {
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/ApplyHighlightDocJson"
-      },
-      "description": "Highlights of newly created docs, tabs, and headings."
+      "description": "True when dry-run previewed without writing."
     },
     "ok": {
       "type": "boolean",
-      "description": "Status confirmation for minimal response."
+      "const": true,
+      "description": "Status confirmation."
     },
-    "stepsCount": {
-      "type": "number",
-      "description": "Workflow steps executed."
+    "phases": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RunPhase"
+      },
+      "description": "Phased execution breakdown."
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/RunStepResult"
+      },
+      "description": "Per-step execution results."
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Warnings generated during run."
     }
   },
+  "required": [
+    "diff",
+    "docs",
+    "dryRun",
+    "ok",
+    "phases",
+    "steps",
+    "warnings"
+  ],
   "additionalProperties": false,
   "definitions": {
-    "ApplyHighlightDocJson": {
+    "RunDiff": {
       "type": "object",
       "properties": {
-        "as": {
-          "type": "string"
-        },
-        "id": {
-          "type": "string"
+        "file": {
+          "type": "string",
+          "description": "Saved diff path when too large."
         },
         "tabs": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/ApplyHighlightTabJson"
-          }
-        },
-        "title": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "id"
-      ],
-      "additionalProperties": false,
-      "description": "Document item in highlights."
-    },
-    "ApplyHighlightTabJson": {
-      "type": "object",
-      "properties": {
-        "as": {
-          "type": "string"
-        },
-        "headings": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/ApplyHighlightHeadingJson"
-          }
-        },
-        "id": {
-          "type": "string"
-        },
-        "title": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "id"
-      ],
-      "additionalProperties": false,
-      "description": "Tab item in highlights."
-    },
-    "ApplyHighlightHeadingJson": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string"
+            "type": "object",
+            "properties": {
+              "added": {
+                "type": "number"
+              },
+              "doc": {
+                "type": "string"
+              },
+              "removed": {
+                "type": "number"
+              },
+              "tab": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "added",
+              "doc",
+              "removed",
+              "tab"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Summary of changes per tab."
         },
         "text": {
-          "type": "string"
+          "type": "string",
+          "description": "Full unified diff text."
+        }
+      },
+      "required": [
+        "tabs"
+      ],
+      "additionalProperties": false,
+      "description": "Structured unified diff returned in run result."
+    },
+    "RunDoc": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "type": "string",
+          "description": "Document alias if bound during run."
+        },
+        "created": {
+          "type": "boolean",
+          "description": "True when created this run."
+        },
+        "id": {
+          "type": "string",
+          "description": "Document ID."
+        },
+        "tabs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Document tabs."
+        },
+        "title": {
+          "type": "string",
+          "description": "Document title."
+        },
+        "url": {
+          "type": "string",
+          "description": "Web URL for document."
         }
       },
       "required": [
         "id",
-        "text"
+        "tabs",
+        "title"
       ],
       "additionalProperties": false,
-      "description": "Newly created heading item in highlights."
+      "description": "Document touched or created in a run."
+    },
+    "RunPhase": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Phase name."
+        },
+        "requests": {
+          "type": "number",
+          "description": "Total requests planned in this phase."
+        },
+        "sent": {
+          "type": "boolean",
+          "description": "True if requests were sent and landed."
+        }
+      },
+      "required": [
+        "name",
+        "requests",
+        "sent"
+      ],
+      "additionalProperties": false,
+      "description": "Phase execution report."
+    },
+    "RunStepResult": {
+      "type": "object",
+      "properties": {
+        "created": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Newly created blocks, tabs, or documents."
+        },
+        "data": {
+          "description": "Structured output data."
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Paths of written or spilled files."
+        },
+        "kind": {
+          "$ref": "#/definitions/StepKind",
+          "description": "Step kind."
+        },
+        "outline": {
+          "description": "Outline returned alongside markdown queries or saveTo."
+        },
+        "replaced": {
+          "type": "number",
+          "description": "Number of replacements made."
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false,
+      "description": "Result for a single step."
+    },
+    "StepKind": {
+      "type": "string",
+      "enum": [
+        "doc",
+        "edit",
+        "page",
+        "query",
+        "remove",
+        "share",
+        "style",
+        "tab",
+        "table",
+        "write"
+      ],
+      "description": "Every step kind."
     }
   }
 }
@@ -227,6 +370,7 @@ Print bundled CLI documentation.
 #### Subcommands
 
 - `readme` — Print README (user guide).
+- `skill` — Print Skill documentation.
 - `mcp` — Print MCP server setup and tool guidance.
 - `cli-schema` — Print the full CLI command tree as JSON.
 - `cli` — Print the full command reference as markdown.
@@ -234,6 +378,16 @@ Print bundled CLI documentation.
 ##### `gdocsmith run docs readme`
 
 Print README (user guide).
+
+#### Options
+
+| Option | Type | Required | Format / default | Description |
+| --- | --- | --- | --- | --- |
+| `--save` | flag | optional | — | Write documentation to ./docs/. |
+
+##### `gdocsmith run docs skill`
+
+Print Skill documentation.
 
 #### Options
 
@@ -420,6 +574,7 @@ Print bundled CLI documentation.
 #### Subcommands
 
 - `readme` — Print README (user guide).
+- `skill` — Print Skill documentation.
 - `mcp` — Print MCP server setup and tool guidance.
 - `cli-schema` — Print the full CLI command tree as JSON.
 - `cli` — Print the full command reference as markdown.
@@ -427,6 +582,16 @@ Print bundled CLI documentation.
 ##### `gdocsmith status docs readme`
 
 Print README (user guide).
+
+#### Options
+
+| Option | Type | Required | Format / default | Description |
+| --- | --- | --- | --- | --- |
+| `--save` | flag | optional | — | Write documentation to ./docs/. |
+
+##### `gdocsmith status docs skill`
+
+Print Skill documentation.
 
 #### Options
 

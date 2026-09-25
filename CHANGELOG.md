@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- v2 reference: rewrote mechanics, markdown, safeguards, architecture, feature, runbook, image, comment, style, and E2E documentation for the model-first run surface.
 - v2 guidance: rewrote the gdocsmith skill, README, and repository instructions around the ten v2 step kinds, model-first planning, anchors, markdown exports, guards, phased sends, and current development workflow.
 - v2 steps (not wired): `src/core/steps/run.ts` run orchestrator (`runExecute`) coordinating static validation, parallel document preloading, transactional execution, guard refusal formatting, phase failure reporting, and structured result construction with payload size budgets.
 - v2 steps (not wired): `src/core/steps/query.ts` query handler (outline, markdown with frontmatter toggle, filtered nodes) and `src/core/steps/output.ts` for disk export (`saveTo`), inline size budgeting, payload spilling to temporary directories, diff spilling, and automatic 24-hour cleanup pruning.

@@ -23012,12 +23012,33 @@ var sectionCopyStep = async (runtime, stepIndex, step) => {
     mutation.before = runtime.aliasResolve(step.nodeBefore);
     mutation.elements = specs;
   } else {
-    const at = step.nodeAt ?? fromSection;
-    mutation.at = runtime.aliasResolve(at);
-    mutation.replaceSection = specs;
+    const targetNodes = targetTabNodes(targetDoc, runtime.aliasResolve(step.tab));
+    if (step.nodeAt != null || headingByTitleOrSlugFind(targetNodes, fromSection)) {
+      const at = step.nodeAt ?? fromSection;
+      mutation.at = runtime.aliasResolve(at);
+      mutation.replaceSection = specs;
+    } else {
+      const contentNodes = targetNodes.filter((n) => n.kind !== "sectionBreak");
+      const lastNode = contentNodes[contentNodes.length - 1];
+      if (!lastNode) {
+        throw new Error(`steps[${stepIndex}] sectionCopy: target tab has no nodes to insert content into`);
+      }
+      const isEmptyTab = contentNodes.length === 1 && lastNode.kind === "paragraph" && !lastNode.text;
+      const anchor = lastNode.scopedId ?? lastNode.tapeIndex;
+      if (isEmptyTab) {
+        mutation.before = anchor;
+      } else {
+        mutation.after = anchor;
+      }
+      mutation.elements = specs;
+    }
   }
   await surgicalMutationExecute(runtime, step, mutation, stepIndex);
 };
+function targetTabNodes(targetDoc, tabHint) {
+  const tabId = targetDoc.gdoc.data.tabs?.length ? resolveTab(targetDoc.gdoc.data, tabHint).tabId : undefined;
+  return simulatedNodesOf(targetDoc.gdoc, tabId) ?? parseDocument(tabId ? targetDoc.gdoc.withTab(tabId) : targetDoc.gdoc).nodes;
+}
 
 // src/core/actions/surgical.ts
 var surgicalStep = async (runtime, stepIndex, step) => {

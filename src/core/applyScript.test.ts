@@ -1625,6 +1625,77 @@ describe("applyScriptExecute", () => {
     expect(md).not.toContain("Out of Scope");
   });
 
+  test("sectionCopy without an anchor appends into a tab that lacks the source heading", async () => {
+    const res = await applyScriptExecute({
+      dryRun: true,
+      steps: [
+        { as: "doc", kind: "docCreate", title: "Manual" },
+        {
+          doc: "doc",
+          kind: "markdownInsert",
+          markdown: "# Manual\n\n## Spec Template\n\nTemplate body\n\n## Other\n\nUnrelated",
+        },
+        { as: "emptyTab", doc: "doc", kind: "tabCreate", title: "Empty Target" },
+        { as: "filledTab", doc: "doc", kind: "tabCreate", title: "Filled Target" },
+        { doc: "doc", kind: "markdownInsert", markdown: "# Existing\n\nKeep me", tab: "Filled Target" },
+        {
+          doc: "doc",
+          fromSection: "Spec Template",
+          fromTab: "Main",
+          includeHeading: false,
+          kind: "sectionCopy",
+          tab: "Empty Target",
+        },
+        { doc: "doc", fromSection: "Spec Template", fromTab: "Main", kind: "sectionCopy", tab: "Filled Target" },
+        { as: "emptyDump", doc: "doc", kind: "query", output: "markdown", tab: "Empty Target" },
+        { as: "filledDump", doc: "doc", kind: "query", output: "markdown", tab: "Filled Target" },
+      ],
+    });
+
+    expect(res.ok).toBe(true);
+    const emptyMd = (res.dumped.emptyDump as { markdown: string }).markdown;
+    expect(emptyMd).toContain("Template body");
+    expect(emptyMd).not.toContain("## Spec Template");
+    expect(emptyMd).not.toContain("Unrelated");
+    const filledMd = (res.dumped.filledDump as { markdown: string }).markdown;
+    expect(filledMd.indexOf("Keep me")).toBeLessThan(filledMd.indexOf("## Spec Template"));
+    expect(filledMd).toContain("Template body");
+  });
+
+  test("sectionCopy without an anchor appends across documents when the target lacks the source heading", async () => {
+    const res = await applyScriptExecute({
+      dryRun: true,
+      steps: [
+        { as: "sourceDoc", kind: "docCreate", title: "Manual" },
+        {
+          doc: "sourceDoc",
+          kind: "markdownInsert",
+          markdown: "# Manual\n\n## Spec Template\n\nTemplate body\n\n## Other\n\nUnrelated",
+        },
+        { as: "emptyDoc", kind: "docCreate", title: "Empty Project" },
+        { as: "filledDoc", kind: "docCreate", title: "Filled Project" },
+        { doc: "filledDoc", kind: "markdownInsert", markdown: "# Existing\n\nKeep me" },
+        {
+          doc: "emptyDoc",
+          fromDoc: "sourceDoc",
+          fromSection: "Spec Template",
+          includeHeading: false,
+          kind: "sectionCopy",
+        },
+        { doc: "filledDoc", fromDoc: "sourceDoc", fromSection: "Spec Template", kind: "sectionCopy" },
+        { as: "emptyDump", doc: "emptyDoc", kind: "query", output: "markdown" },
+        { as: "filledDump", doc: "filledDoc", kind: "query", output: "markdown" },
+      ],
+    });
+
+    expect(res.ok).toBe(true);
+    const emptyMd = (res.dumped.emptyDump as { markdown: string }).markdown;
+    expect(emptyMd).toContain("Template body");
+    expect(emptyMd).not.toContain("Unrelated");
+    const filledMd = (res.dumped.filledDump as { markdown: string }).markdown;
+    expect(filledMd.indexOf("Keep me")).toBeLessThan(filledMd.indexOf("## Spec Template"));
+  });
+
   test("replaceMarkdown targets placeholder paragraph by find text and inserts formatted markdown", async () => {
     const res = await applyScriptExecute({
       dryRun: true,

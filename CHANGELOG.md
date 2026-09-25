@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `sectionCopy` without an anchor appends to the end of the target tab when it lacks the source heading (previously failed)
+
 ## [1.0.6] - 2026-09-23
 
 ### Removed

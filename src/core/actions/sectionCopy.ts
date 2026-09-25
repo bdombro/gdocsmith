@@ -4,10 +4,11 @@ import { elementSpecFromNode } from "~/core/dom/clone.ts";
 import type { TapeMutation } from "~/core/dom/ops.ts";
 import { parseDocument } from "~/core/dom/parse.ts";
 import { headingByTitleOrSlugFind, isHeading, neighborhoodFrom, nodeAtFind } from "~/core/dom/query.ts";
+import type { DocNode } from "~/core/dom/types.ts";
 import { resolveTab } from "~/core/tabs.ts";
 import { simulatedNodesOf } from "./simulated.ts";
 import { surgicalMutationExecute } from "./surgicalMutation.ts";
-import type { WorkflowStepHandler } from "./types.ts";
+import type { OpenDocContext, WorkflowStepHandler } from "./types.ts";
 
 /** Copies an entire heading section between documents or tabs server-side. */
 export const sectionCopyStep: WorkflowStepHandler = async (
@@ -69,10 +70,37 @@ export const sectionCopyStep: WorkflowStepHandler = async (
     mutation.before = runtime.aliasResolve(step.nodeBefore) as never;
     mutation.elements = specs as Array<Record<string, unknown>>;
   } else {
-    const at = step.nodeAt ?? fromSection;
-    mutation.at = runtime.aliasResolve(at) as never;
-    mutation.replaceSection = specs as Array<Record<string, unknown>>;
+    const targetNodes = targetTabNodes(targetDoc, runtime.aliasResolve(step.tab));
+    if (step.nodeAt != null || headingByTitleOrSlugFind(targetNodes, fromSection)) {
+      const at = step.nodeAt ?? fromSection;
+      mutation.at = runtime.aliasResolve(at) as never;
+      mutation.replaceSection = specs as Array<Record<string, unknown>>;
+    } else {
+      // No same-named section in the target tab: append to the end of the tab instead of failing.
+      const contentNodes = targetNodes.filter((n) => n.kind !== "sectionBreak");
+      const lastNode = contentNodes[contentNodes.length - 1];
+      if (!lastNode) {
+        throw new Error(`steps[${stepIndex}] sectionCopy: target tab has no nodes to insert content into`);
+      }
+      const isEmptyTab = contentNodes.length === 1 && lastNode.kind === "paragraph" && !lastNode.text;
+      const anchor = (lastNode.scopedId ?? lastNode.tapeIndex) as never;
+      if (isEmptyTab) {
+        mutation.before = anchor;
+      } else {
+        mutation.after = anchor;
+      }
+      mutation.elements = specs as Array<Record<string, unknown>>;
+    }
   }
 
   await surgicalMutationExecute(runtime, step, mutation, stepIndex);
 };
+
+/** Returns the working tape (simulated edits included) for a tab of an open document. */
+function targetTabNodes(targetDoc: OpenDocContext, tabHint: string | undefined): DocNode[] {
+  const tabId = targetDoc.gdoc.data.tabs?.length ? resolveTab(targetDoc.gdoc.data, tabHint).tabId : undefined;
+  return (
+    simulatedNodesOf(targetDoc.gdoc, tabId) ??
+    parseDocument(tabId ? targetDoc.gdoc.withTab(tabId) : targetDoc.gdoc).nodes
+  );
+}

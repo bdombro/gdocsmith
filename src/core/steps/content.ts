@@ -21,6 +21,10 @@ export interface StepOutcome {
   created?: Array<{ id: string; kind: string; text: string }>;
   /** Structured output payload (e.g. queries, share list). */
   data?: unknown;
+  /** Paths of files written to disk (e.g. saveTo or spilled results). */
+  files?: string[];
+  /** Document outline returned alongside markdown queries or saveTo. */
+  outline?: unknown;
   /** Count of text replacements made. */
   replaced?: number;
 }

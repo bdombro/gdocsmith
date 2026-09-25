@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- v2 steps (not wired): `src/core/steps/query.ts` query handler (outline, markdown with frontmatter toggle, filtered nodes) and `src/core/steps/output.ts` for disk export (`saveTo`), inline size budgeting, payload spilling to temporary directories, diff spilling, and automatic 24-hour cleanup pruning.
 - v2 steps (not wired): `src/core/steps/structure.ts` handlers for structure steps (`doc`, `tab`, `page`, `share`), supporting document lifecycle and aliases, tab creation with optional source copying, root tab deletion guards, document-wide or tab-level page setup, and Drive permission management.
 - v2 steps (not wired): `src/core/steps/context.ts` runtime context (`StepContext`, doc/tab/anchor resolution) and `src/core/steps/content.ts` handlers for content steps (`write`, `edit`, `remove`, `style`, `table`), rethrowing core errors as `StepError` and enforcing "changed nothing" rejections.
 - v2 steps (not wired): `src/core/steps/validate.ts` static cross-field validation for step sequences (`stepsAssertValid`, throwing `StepValidationError`), verifying anchors, doc/alias binding and lifecycle, write placements/sources, table actions, tab actions, page setup, sharing grants, and style patches before execution.

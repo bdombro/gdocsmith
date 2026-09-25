@@ -10,7 +10,7 @@ import {
   type RawParagraphElement,
   rawDocumentOf,
 } from "./rawJson.ts";
-import { styleCanonical, styleEqual } from "./styleValues.ts";
+import { styleCanonical, styleEqual, suggestionIdsEqual } from "./styleValues.ts";
 import type {
   Atom,
   AtomType,
@@ -245,8 +245,8 @@ function mergeAdjacentTextRuns(inlines: Inline[]): Inline[] {
       inline.kind === "text" &&
       prev?.kind === "text" &&
       styleEqual(prev.style, inline.style) &&
-      sameIds(prev.suggestedDeletionIds, inline.suggestedDeletionIds) &&
-      sameIds(prev.suggestedInsertionIds, inline.suggestedInsertionIds)
+      suggestionIdsEqual(prev.suggestedDeletionIds, inline.suggestedDeletionIds) &&
+      suggestionIdsEqual(prev.suggestedInsertionIds, inline.suggestedInsertionIds)
     ) {
       out[out.length - 1] = { ...prev, text: prev.text + inline.text } as TextRun;
     } else {
@@ -254,13 +254,6 @@ function mergeAdjacentTextRuns(inlines: Inline[]): Inline[] {
     }
   }
   return out;
-}
-
-/** True when two suggestion-id arrays name the same set (order-insensitive; both absent/empty counts as equal). */
-function sameIds(a: string[] | undefined, b: string[] | undefined): boolean {
-  const sa = [...(a ?? [])].sort();
-  const sb = [...(b ?? [])].sort();
-  return sa.length === sb.length && sa.every((id, i) => id === sb[i]);
 }
 
 /** Maps a non-text `RawParagraphElement` variant to its `Atom`. */

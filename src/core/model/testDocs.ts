@@ -65,6 +65,59 @@ export function docJsonBuild(
   } as unknown as GoogleDoc;
 }
 
+const RANDOM_WORDS = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"];
+const RANDOM_ATOM_TYPES: AtomType[] = [
+  "person",
+  "richLink",
+  "image",
+  "footnoteRef",
+  "horizontalRule",
+  "pageBreak",
+  "equation",
+];
+
+/** Generates a random sequence of top-level blocks (paragraphs, tables, TOCs, section breaks) for round-trip/shape tests, driven by an injected PRNG for determinism. */
+export function randomBlockSpecs(
+  /** PRNG (see `rngCreate`). */
+  rng: () => number,
+  /** Number of blocks to generate. */
+  count: number,
+): BlockSpec[] {
+  const blocks: BlockSpec[] = [];
+  for (let i = 0; i < count; i++) {
+    const roll = rng();
+    if (roll < 0.15) blocks.push({ kind: "sectionBreak" });
+    else if (roll < 0.3) blocks.push({ kind: "toc", length: 2 + Math.floor(rng() * 8) });
+    else if (roll < 0.55) {
+      const rows = 1 + Math.floor(rng() * 2);
+      const cols = 1 + Math.floor(rng() * 2);
+      blocks.push({
+        cells: Array.from({ length: rows }, () =>
+          Array.from({ length: cols }, () => [
+            { content: randomParagraphContentSpecs(rng), kind: "paragraph" as const },
+          ]),
+        ),
+        kind: "table",
+      });
+    } else blocks.push({ content: randomParagraphContentSpecs(rng), kind: "paragraph" });
+  }
+  return blocks;
+}
+
+/** Generates a random paragraph's visible content (a mix of words and atoms). */
+export function randomParagraphContentSpecs(
+  /** PRNG (see `rngCreate`). */
+  rng: () => number,
+): ParagraphContentSpec[] {
+  const n = 1 + Math.floor(rng() * 3);
+  const content: ParagraphContentSpec[] = [];
+  for (let i = 0; i < n; i++) {
+    if (rng() < 0.3) content.push({ type: RANDOM_ATOM_TYPES[Math.floor(rng() * RANDOM_ATOM_TYPES.length)] });
+    else content.push(RANDOM_WORDS[Math.floor(rng() * RANDOM_WORDS.length)]);
+  }
+  return content;
+}
+
 /** Deterministic mulberry32 PRNG; same seed always produces the same sequence in `[0, 1)`. */
 export function rngCreate(
   /** Seed. */

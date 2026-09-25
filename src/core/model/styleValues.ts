@@ -161,6 +161,18 @@ export function styleFieldsChanged(
   return fields.filter((field) => !styleEqual(a[field], b[field]));
 }
 
+/** True when two suggestion-id arrays name the same set (order-insensitive; both absent/empty counts as equal). */
+export function suggestionIdsEqual(
+  /** First array, or `undefined`. */
+  a: string[] | undefined,
+  /** Second array, or `undefined`. */
+  b: string[] | undefined,
+): boolean {
+  const sa = [...(a ?? [])].sort();
+  const sb = [...(b ?? [])].sort();
+  return sa.length === sb.length && sa.every((id, i) => id === sb[i]);
+}
+
 /** True when a font family name is a monospace/code font (matches by known name or a `mono`/`code`/`courier`/`console` substring). */
 export function monospaceFontIs(
   /** Raw font family name, or `undefined`. */

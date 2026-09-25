@@ -4,9 +4,9 @@ import { describe, expect, test } from "bun:test";
 import { docModelParse } from "./fromJson.ts";
 import { KeyAllocator } from "./keys.ts";
 import { blockLength, layoutCompute } from "./layout.ts";
-import type { BlockSpec, DocSpec, ParagraphContentSpec } from "./testDocs.ts";
-import { docJsonBuild, rngCreate } from "./testDocs.ts";
-import type { AtomType, TableBlock } from "./types.ts";
+import type { BlockSpec, DocSpec } from "./testDocs.ts";
+import { docJsonBuild, randomBlockSpecs, rngCreate } from "./testDocs.ts";
+import type { TableBlock } from "./types.ts";
 
 /** Recomputes every block/row/cell's JSON range straight from the raw doc's own startIndex/endIndex (ground truth, independent of both layout.ts and testDocs.ts's internal bookkeeping). */
 function rawRangesCollect(json: ReturnType<typeof docJsonBuild>): { end: number; start: number }[] {
@@ -52,49 +52,9 @@ function checkShape(spec: DocSpec) {
 
 describe("layoutCompute", () => {
   const rng = rngCreate(42);
-  const words = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"];
-  const atomTypes: AtomType[] = [
-    "person",
-    "richLink",
-    "image",
-    "footnoteRef",
-    "horizontalRule",
-    "pageBreak",
-    "equation",
-  ];
-
-  function randomParagraphContent(): ParagraphContentSpec[] {
-    const n = 1 + Math.floor(rng() * 3);
-    const content: ParagraphContentSpec[] = [];
-    for (let i = 0; i < n; i++) {
-      if (rng() < 0.3) content.push({ type: atomTypes[Math.floor(rng() * atomTypes.length)] });
-      else content.push(words[Math.floor(rng() * words.length)]);
-    }
-    return content;
-  }
-
-  function randomBlocks(count: number): BlockSpec[] {
-    const blocks: BlockSpec[] = [];
-    for (let i = 0; i < count; i++) {
-      const roll = rng();
-      if (roll < 0.15) blocks.push({ kind: "sectionBreak" });
-      else if (roll < 0.3) blocks.push({ kind: "toc", length: 1 + Math.floor(rng() * 8) });
-      else if (roll < 0.55) {
-        const rows = 1 + Math.floor(rng() * 2);
-        const cols = 1 + Math.floor(rng() * 2);
-        blocks.push({
-          cells: Array.from({ length: rows }, () =>
-            Array.from({ length: cols }, () => [{ content: randomParagraphContent(), kind: "paragraph" as const }]),
-          ),
-          kind: "table",
-        });
-      } else blocks.push({ content: randomParagraphContent(), kind: "paragraph" });
-    }
-    return blocks;
-  }
 
   test.each(Array.from({ length: 10 }, (_, i) => i))("layout equals JSON indices (synthetic shape %i)", (i) => {
-    checkShape({ tabs: [{ blocks: randomBlocks(3 + i) }] });
+    checkShape({ tabs: [{ blocks: randomBlockSpecs(rng, 3 + i) }] });
   });
 
   test("empty 2x3 table length = 16", () => {

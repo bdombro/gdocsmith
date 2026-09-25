@@ -11,6 +11,7 @@ const V2_DIRS = [
   "src/core/reconcile",
   "src/core/lens",
   "src/core/engine",
+  "src/core/steps",
 ];
 
 const FORBIDDEN_MODULE_SUBSTRINGS = [

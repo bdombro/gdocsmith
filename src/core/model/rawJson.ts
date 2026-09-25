@@ -14,16 +14,19 @@ export type RawOptionalColor = { color?: { rgbColor?: RawColor } };
 /** Docs API Dimension (PT unless stated otherwise). */
 export type RawDimension = { magnitude?: number; unit?: string };
 
-/** One entry in a document's `namedRanges` map. */
+/** One named range instance (Docs API `NamedRange`). */
 export type RawNamedRange = {
-  /** Human-assigned name (not unique). */ name?: string;
+  /** Human-assigned name (not unique; the same name can label several disjoint ranges). */ name?: string;
   /** Unique named range identifier. */ namedRangeId?: string;
-  /** Disjoint index ranges this name covers. */ ranges?: Array<{
+  /** Disjoint index ranges this instance covers. */ ranges?: Array<{
     endIndex?: number;
     startIndex?: number;
     tabId?: string;
   }>;
 };
+
+/** One entry in a document's `namedRanges` map (Docs API `NamedRanges`, keyed by name). */
+export type RawNamedRanges = { name?: string; namedRanges?: RawNamedRange[] };
 
 /** One `nestingLevels` entry inside a list definition. */
 export type RawListNestingLevel = JsonObject;
@@ -115,12 +118,16 @@ export type RawParagraph = {
 /** Docs API TableCell (a container of block-level structural elements). */
 export type RawTableCell = RawSuggested & {
   content?: RawStructuralElement[];
+  endIndex?: number;
+  startIndex?: number;
   suggestedTableCellStyleChanges?: JsonObject;
   tableCellStyle?: JsonObject;
 };
 
 /** Docs API TableRow. */
 export type RawTableRow = RawSuggested & {
+  endIndex?: number;
+  startIndex?: number;
   suggestedTableRowStyleChanges?: JsonObject;
   tableCells?: RawTableCell[];
   tableRowStyle?: JsonObject;
@@ -159,7 +166,7 @@ export type RawDocumentTab = {
   headers?: Record<string, { content?: RawStructuralElement[] }>;
   inlineObjects?: Record<string, JsonObject>;
   lists?: Record<string, RawList>;
-  namedRanges?: Record<string, RawNamedRange[]>;
+  namedRanges?: Record<string, RawNamedRanges>;
   namedStyles?: { styles?: Array<{ namedStyleType?: string; paragraphStyle?: JsonObject; textStyle?: JsonObject }> };
   positionedObjects?: Record<string, JsonObject>;
 };
@@ -181,7 +188,9 @@ export type RawDocument = {
   headers?: Record<string, { content?: RawStructuralElement[] }>;
   inlineObjects?: Record<string, JsonObject>;
   lists?: Record<string, RawList>;
+  namedRanges?: Record<string, RawNamedRanges>;
   namedStyles?: { styles?: Array<{ namedStyleType?: string; paragraphStyle?: JsonObject; textStyle?: JsonObject }> };
+  positionedObjects?: Record<string, JsonObject>;
   revisionId?: string;
   tabs?: RawTab[];
   title?: string;

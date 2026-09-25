@@ -67,6 +67,27 @@ export function listRunsResolve(
   return listId;
 }
 
+/** Makes consecutive paragraphs members of `listId` at the given nestings (indents and bullet text style as in `listRunsResolve`). */
+export function listJoin(
+  /** Tab being edited. */
+  target: EditTarget,
+  /** Container holding the paragraphs. */
+  ref: ContainerRef,
+  /** Paragraph keys. */
+  keys: readonly string[],
+  /** Existing list id. */
+  listId: string,
+  /** Nesting per key. */
+  nestings: readonly number[],
+): void {
+  if (!target.tab.lists[listId]) throw new CoreError("internal", `no list ${listId}`);
+  const blocks = containerOf(target.tab, ref);
+  keys.forEach((key, i) => {
+    const paragraph = blocks.find((b) => b.key === key) as ParagraphBlock;
+    membershipSet(target, blocks, paragraph, listId, nestings[i]);
+  });
+}
+
 /**
  * Bullets, re-kinds, or (with `null`) unbullets paragraphs. Refuses headings (`headingBullet`), empty
  * paragraphs (`listItemEmpty`), and text starting with a typed glyph or tab (`fakeBulletPrefix`).

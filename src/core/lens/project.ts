@@ -109,7 +109,7 @@ export function projectionBuild(
   const blocks = containerBlocks(tab, range.containerRef).slice(range.from, range.to);
   const anchors = anchorsIndex(tab).byKey;
   const tokens = tokenOrdinals(tab);
-  const base = tabBaseStyles(tab);
+  const base = tabBaseStyles(tab, opts.mode);
   const styles: Record<string, DirectiveAttrs> = {};
   const projection: Projection = { base, blocks: [], leadingOwned: [], mode: opts.mode, styles };
   const code = blocks.map((b) => codeLineIs(tab, b));
@@ -123,9 +123,10 @@ export function projectionBuild(
   }
   let codeGroup = 0;
   let listGroup = 0;
+  let groupListId: string | undefined;
   let prevVisible: ProjBlock | undefined;
   blocks.forEach((block, i) => {
-    if (!code[i] && blockInvisibleIs(block)) {
+    if (!code[i] && (blockInvisibleIs(block) || whitespaceOnlyIs(block))) {
       (prevVisible ? prevVisible.owned : projection.leadingOwned).push(block.key);
       return;
     }
@@ -145,8 +146,14 @@ export function projectionBuild(
       proj.codeGroup = codeGroup;
     }
     if (proj.list) {
+      // A list continues through items nested under it (even of another list, e.g. numbered steps
+      // under a bullet); a top-level item of another list starts a new one.
       const prev = prevVisible?.list;
-      if (!prev || prev.listId !== proj.list.listId) listGroup++;
+      if (!prev) groupListId = undefined;
+      if (!prev || (proj.list.depth === 0 && proj.list.listId !== groupListId)) {
+        listGroup++;
+        groupListId = proj.list.listId;
+      }
       proj.list.group = listGroup;
     }
     projection.blocks.push(proj);
@@ -185,21 +192,37 @@ export function tokenOrdinals(
   return out;
 }
 
+/** Attributes a tab-wide override commonly sets; the base takes their most common value (D30). */
+const DOMINANT_ATTRS: readonly string[] = ["fontFamily", "fontSize", "fontWeight", "foregroundColor"];
+
 /**
- * The base directive style of each named style type: the most common effective style by character
- * count among the tab's runs of that type (link chrome and code fonts ignored), else the named style's own.
+ * The base directive style of each named style type: its named style, with font family, size,
+ * weight, and text color taken from the most common values by character count among the tab's runs
+ * of that type (code runs ignored) — so a document-wide font isn't a directive on every run, while
+ * emphasis stays relative to the named style (stable under markdown edits). Plain mode uses the named
+ * style alone.
  */
 export function tabBaseStyles(
   /** Tab to analyze. */
   tab: TabModel,
+  /** Projection mode. */
+  mode: "frontmatter" | "plain" = "frontmatter",
 ): Record<string, DirectiveAttrs> {
   const weights = new Map<string, Map<string, number>>();
+  const named = new Map<string, DirectiveAttrs>();
   const visit = (p: ParagraphBlock) => {
     const type = (p.style.namedStyleType as string | undefined) ?? "NORMAL_TEXT";
+    if (!named.has(type))
+      named.set(type, directiveAttrsOf(textStyleEffective(tab, { ...p, style: { namedStyleType: type } }, {})));
+    if (mode === "plain") return;
     for (const inline of p.inlines) {
       if (inline.kind !== "text" || !inline.text.trim()) continue;
-      const attrs = directiveAttrsOf(textStyleEffective(tab, p, inline));
-      const key = JSON.stringify(attrs);
+      const effective = textStyleEffective(tab, p, inline);
+      // Code (monospace) runs don't define the base; they're marked as code.
+      const font = (effective.weightedFontFamily as { fontFamily?: string } | undefined)?.fontFamily;
+      if (font && monospaceFontIs(font)) continue;
+      const attrs = directiveAttrsOf(effective);
+      const key = JSON.stringify(DOMINANT_ATTRS.map((field) => attrs[field] ?? null));
       const byType = weights.get(type) ?? new Map<string, number>();
       byType.set(key, (byType.get(key) ?? 0) + inline.text.length);
       weights.set(type, byType);
@@ -211,9 +234,19 @@ export function tabBaseStyles(
       for (const row of block.rows) for (const cell of row.cells) cell.blocks.forEach(visit);
   }
   const out: Record<string, DirectiveAttrs> = {};
-  for (const [type, byType] of weights) {
-    const best = [...byType.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0];
-    out[type] = JSON.parse(best);
+  for (const [type, attrs] of named) {
+    const base: DirectiveAttrs = { ...attrs };
+    const byType = weights.get(type);
+    if (byType?.size) {
+      const best: Array<boolean | number | string | null> = JSON.parse(
+        [...byType.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0],
+      );
+      DOMINANT_ATTRS.forEach((field, k) => {
+        if (best[k] === null) delete base[field];
+        else base[field] = best[k] as boolean | number | string;
+      });
+    }
+    out[type] = base;
   }
   return out;
 }
@@ -570,4 +603,15 @@ function containerBlocks(tab: TabModel, ref: ContainerRef): readonly Block[] {
     for (const row of block.rows) for (const cell of row.cells) if (cell.key === ref.cellKey) return cell.blocks;
   }
   return [];
+}
+
+/** True for a plain paragraph holding only whitespace (it would render as nothing, so it's treated like an empty one). */
+function whitespaceOnlyIs(block: Block): boolean {
+  if (block.kind !== "paragraph" || block.bullet) return false;
+  const type = (block.style.namedStyleType as string | undefined) ?? "NORMAL_TEXT";
+  return (
+    type === "NORMAL_TEXT" &&
+    block.inlines.length > 0 &&
+    block.inlines.every((i) => i.kind === "text" && !/\S/.test(i.text.replace(/\v/g, "")))
+  );
 }

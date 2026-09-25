@@ -102,10 +102,43 @@ function containerBulletsReconcile(
     if (!isNew) {
       ctx.listRebuilds.push({ keys: run.map((m) => m.key), listId, lossy: !def?.preset });
     } else if (listSeenElsewhere(blocks, listId, runStart, runEnd)) {
-      throw new CoreError(
-        "unrealizableList",
-        "a new list's items must be consecutive (Google Docs would make each stretch its own list)",
-      );
+      // A new list interrupted only by items nested under it (another kind's sub-list): create the
+      // whole span as this list, then re-bullet each nested run as its own list (its predecessor is
+      // an item of this list with a different preset, so it doesn't join it).
+      const spanEnd = nestedSpanEnd(tab, blocks, listId, runStart);
+      if (spanEnd === undefined) {
+        throw new CoreError(
+          "unrealizableList",
+          "a new list's items must be consecutive or separated only by items nested under it",
+        );
+      }
+      const span = blocks.slice(runStart, spanEnd + 1) as ParagraphBlock[];
+      bulletsCreate(span, preset, listPresetTable()[preset] ?? [], ranges, ctx, now);
+      let k = 0;
+      while (k < span.length) {
+        const other = span[k].bullet?.listId;
+        if (other === listId) {
+          k++;
+          continue;
+        }
+        let e = k;
+        while (e < span.length && span[e].bullet?.listId === other) e++;
+        const def2 = other ? tab.lists[other] : undefined;
+        const preset2: BulletPreset = def2?.preset ?? LIST_DEFAULT_PRESET[def2 ? listKind(def2, 0) : "bullet"];
+        if (preset2 === preset)
+          throw new CoreError("unrealizableList", "a list nested inside a same-style list would merge into it");
+        bulletsCreate(
+          span.slice(k, e),
+          preset2,
+          def2?.nestingLevels ?? listPresetTable()[preset2] ?? [],
+          ranges,
+          ctx,
+          () => span[0].bullet,
+        );
+        k = e;
+      }
+      i = spanEnd + 1;
+      continue;
     }
     bulletsCreate(run, preset, listPresetTable()[preset] ?? [], ranges, ctx, now);
     i = runEnd + 1;
@@ -181,6 +214,23 @@ function indentsRestore(
   for (const field of fields) if (m.style[field] !== undefined) style[field] = m.style[field];
   const range = rangeOf(ranges, m);
   requestPush(ctx, RequestBuilder.paragraphStyleUpdate(range.start, range.end, style, fields, ctx.tabId), originOf(m));
+}
+
+/**
+ * The last index of `listId`'s span from `start` when every item between its members is a list item
+ * nested deeper than the member before it; `undefined` when something else interrupts the list.
+ */
+function nestedSpanEnd(tab: TabModel, blocks: readonly Block[], listId: string, start: number): number | undefined {
+  let last = start;
+  for (let i = start; i < blocks.length; i++) if (paragraphAt(blocks, i)?.bullet?.listId === listId) last = i;
+  let depth = 0;
+  for (let i = start; i <= last; i++) {
+    const p = paragraphAt(blocks, i);
+    if (!p?.bullet) return undefined;
+    if (p.bullet.listId === listId) depth = p.bullet.nestingLevel;
+    else if (p.bullet.nestingLevel <= depth || !tab.lists[p.bullet.listId]) return undefined;
+  }
+  return last;
 }
 
 /** True when `listId` has members outside `[start, end]` in this container. */

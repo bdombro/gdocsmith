@@ -14,9 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - `src/commands/{run,status}/__generated__/` is no longer committed (it was accidentally tracked; AGENTS.md already documented it as gitignored). `build`, `test`, `typecheck`, `release`, and (transitively, via `build`) `test-live`/`test-wire` now depend on the `schemagen` recipe, so the schema is always regenerated fresh instead of relying on a possibly stale committed copy
-
-### Changed
 - `sectionCopy` without an anchor appends to the end of the target tab when it lacks the source heading (previously failed)
+- argsbarg `^7.1.1` — MCP tool errors now arrive in full (previously truncated to the first line, hiding recovery hints like "pass force: true" or the list of near-miss candidates on an unresolved anchor)
 
 ### Fixed
 - `DocCache.get` returned an uncloned snapshot on a SQLite cache hit (both the fresh and stale-revalidating branches), and every in-flight in-memory dedupe caller shared one Gdoc instance. In the long-lived MCP server, a dry run's in-place tape mutation of that shared object could poison what a later, unrelated live write would compile against. Both paths now return an isolated `structuredClone`, matching the memory-cache and hard-validate paths, which already cloned

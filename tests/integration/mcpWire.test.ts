@@ -446,6 +446,36 @@ describe("MCP JSON-RPC wire integration", () => {
         expect(res.error?.code).toBe(-32600);
         expect(res.error?.message).toContain("Invalid Request");
       });
+
+      test("tools/call surfaces multi-line errors in full", async () => {
+        const id = nextId++;
+        const overmatchMarkdown = Array.from(
+          { length: 400 },
+          (_, i) => `- zz item ${i} lorem ipsum dolor sit amet`,
+        ).join("\n");
+        const res = await client.request({
+          id,
+          jsonrpc: "2.0",
+          method: "tools/call",
+          params: {
+            arguments: {
+              dryRun: true,
+              steps: [
+                { as: "d", kind: "docCreate", title: "Overmatch" },
+                { doc: "d", kind: "markdownInsert", markdown: overmatchMarkdown },
+                { as: "q", contains: "zz", doc: "d", full: true, kind: "query", output: "nodes" },
+              ],
+            },
+            name: "run",
+          },
+        });
+
+        expect(res.id).toBe(id);
+        expect(res.result?.isError).toBe(true);
+        const errorText = res.result?.content?.[0]?.text ?? "";
+        expect(errorText).toContain("is an unanchored substring match");
+        expect(errorText.split("\n").length).toBeGreaterThanOrEqual(3);
+      });
     });
   }
 });

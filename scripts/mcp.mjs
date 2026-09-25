@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 // @bun
 
-// node_modules/argsbarg/src/config/file.ts
+// ../bun-argsbarg/src/config/file.ts
 import { existsSync as existsSync6, mkdirSync as mkdirSync4, readFileSync as readFileSync2, rmSync as rmSync2, unlinkSync, writeFileSync as writeFileSync3 } from "node:fs";
 import { dirname as dirname5, join as join5 } from "node:path";
 
-// node_modules/argsbarg/src/core/types.ts
+// ../bun-argsbarg/src/core/types.ts
 var CliValueFormat;
 ((CliValueFormat) => {
   CliValueFormat["Duration"] = "duration";
@@ -33,7 +33,7 @@ class CliSchemaValidationError extends Error {
   }
 }
 
-// node_modules/argsbarg/src/config/entry.ts
+// ../bun-argsbarg/src/config/entry.ts
 function defaultConfigEntryTitle(key) {
   return key;
 }
@@ -84,7 +84,7 @@ function configMcpSetEnabled(program) {
   return true;
 }
 
-// node_modules/argsbarg/src/runtime/capabilities.ts
+// ../bun-argsbarg/src/runtime/capabilities.ts
 function resolveCapabilities(program) {
   const configure = program.configure?.enabled !== false;
   return {
@@ -174,7 +174,7 @@ function assertBuiltinAllowed(argv, caps) {
   }
 }
 
-// node_modules/argsbarg/src/runtime/exposure.ts
+// ../bun-argsbarg/src/runtime/exposure.ts
 function isCliHidden(node) {
   return node.cli?.hidden === true;
 }
@@ -235,7 +235,7 @@ function leafHttpResponseDefaults(leaf) {
   };
 }
 
-// node_modules/argsbarg/src/core/wire-schema.ts
+// ../bun-argsbarg/src/core/wire-schema.ts
 var DURATION_PATTERN = "^\\d+[hdms]?$";
 var MCP_WIRE_OMIT_PRESENCE = new Set(["json", "yes", "verbose"]);
 function optionProperty(opt) {
@@ -326,7 +326,7 @@ function buildLeafInputSchema(leaf) {
   return schema;
 }
 
-// node_modules/argsbarg/src/http/paths.ts
+// ../bun-argsbarg/src/http/paths.ts
 var HTTP_RESERVED_TOP_LEVEL_SEGMENTS = new Set(["health", "openapi.json", "swagger", "tools"]);
 function resolveHttpPathPrefix(program) {
   const raw = program.httpServer?.pathPrefix;
@@ -352,7 +352,7 @@ function httpUserPathGlob(prefix) {
   return prefix ? `${prefix}/*` : "/*";
 }
 
-// node_modules/argsbarg/src/http/routes.ts
+// ../bun-argsbarg/src/http/routes.ts
 var VERB_KEYS = new Set(["get", "post", "put", "patch", "delete"]);
 function isParamRouterKey(key) {
   return key.startsWith(":");
@@ -594,7 +594,7 @@ function defaultSuccessStatus(method, hasBody) {
   }
 }
 
-// node_modules/argsbarg/src/http/schema-deref.ts
+// ../bun-argsbarg/src/http/schema-deref.ts
 function decodeJsonPointerSegment(segment) {
   return segment.replace(/~1/g, "/").replace(/~0/g, "~");
 }
@@ -656,7 +656,7 @@ function dereferenceJsonSchema(schema) {
   return derefValue(root, root, new Set);
 }
 
-// node_modules/argsbarg/src/http/openapi.ts
+// ../bun-argsbarg/src/http/openapi.ts
 var JSON_CONTENT_TYPE = "application/json; charset=utf-8";
 function defaultErrorSchema() {
   return {
@@ -871,7 +871,7 @@ function openApiJson(program) {
 `;
 }
 
-// node_modules/argsbarg/src/help.ts
+// ../bun-argsbarg/src/help.ts
 var style = {
   wrap(prefix, body, suffix) {
     return prefix + body + suffix;
@@ -1523,7 +1523,7 @@ function cliHelpRender(schema, helpPath, useStderr, opts) {
 `;
 }
 
-// node_modules/argsbarg/src/docs/cli-guide.ts
+// ../bun-argsbarg/src/docs/cli-guide.ts
 function commandPath(rootKey, path) {
   if (path.length === 0) {
     return rootKey;
@@ -1673,13 +1673,13 @@ function generateCliGuide(program, opts = {}) {
 `;
 }
 
-// node_modules/argsbarg/src/http/server.ts
+// ../bun-argsbarg/src/http/server.ts
 import { randomUUID } from "node:crypto";
 
-// node_modules/argsbarg/src/config/bootstrap.ts
+// ../bun-argsbarg/src/config/bootstrap.ts
 import { readSync as readSync2 } from "node:fs";
 
-// node_modules/argsbarg/src/prompt.ts
+// ../bun-argsbarg/src/prompt.ts
 import { readSync } from "node:fs";
 function readPromptLine() {
   const buf = Buffer.alloc(4096);
@@ -1687,7 +1687,7 @@ function readPromptLine() {
   return buf.toString("utf8", 0, n).replace(/\r?\n$/, "");
 }
 
-// node_modules/argsbarg/src/config/bindings.ts
+// ../bun-argsbarg/src/config/bindings.ts
 var CONFIG_BINDINGS_KEY = "_bindings";
 var BINDING_VALUES = new Set(["env", "file", "skip"]);
 function isFrameworkConfigKey(key) {
@@ -1760,7 +1760,7 @@ function bindingForKey(key, fileData, resolvedPresent) {
   return "missing";
 }
 
-// node_modules/argsbarg/src/config/schema.ts
+// ../bun-argsbarg/src/config/schema.ts
 function synthesizeAllStringSchema(schema) {
   const properties = {};
   const required = [];
@@ -1827,7 +1827,7 @@ function schemaDefaultForKey(program, key) {
   return entry.default;
 }
 
-// node_modules/argsbarg/src/config/resolve.ts
+// ../bun-argsbarg/src/config/resolve.ts
 function isPresent2(value) {
   if (value === undefined || value === null) {
     return false;
@@ -2019,7 +2019,7 @@ function formatMcpMissingConfigMessage(program, keys) {
 `);
 }
 
-// node_modules/@cfworker/json-schema/dist/esm/deep-compare-strict.js
+// ../bun-argsbarg/node_modules/@cfworker/json-schema/dist/esm/deep-compare-strict.js
 function deepCompareStrict(a, b) {
   const typeofa = typeof a;
   if (typeofa !== typeof b) {
@@ -2060,7 +2060,7 @@ function deepCompareStrict(a, b) {
   return a === b;
 }
 
-// node_modules/@cfworker/json-schema/dist/esm/pointer.js
+// ../bun-argsbarg/node_modules/@cfworker/json-schema/dist/esm/pointer.js
 function encodePointer(p) {
   return encodeURI(escapePointer(p));
 }
@@ -2068,7 +2068,7 @@ function escapePointer(p) {
   return p.replace(/~/g, "~0").replace(/\//g, "~1");
 }
 
-// node_modules/@cfworker/json-schema/dist/esm/dereference.js
+// ../bun-argsbarg/node_modules/@cfworker/json-schema/dist/esm/dereference.js
 var schemaArrayKeyword = {
   prefixItems: true,
   items: true,
@@ -2189,7 +2189,7 @@ function dereference(schema, lookup = Object.create(null), baseURI = initialBase
   return lookup;
 }
 
-// node_modules/@cfworker/json-schema/dist/esm/format.js
+// ../bun-argsbarg/node_modules/@cfworker/json-schema/dist/esm/format.js
 var DATE = /^(\d\d\d\d)-(\d\d)-(\d\d)$/;
 var DAYS = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 var TIME = /^(\d\d):(\d\d):(\d\d)(\.\d+)?(z|[+-]\d\d(?::?\d\d)?)?$/i;
@@ -2282,7 +2282,7 @@ function regex(str) {
   }
 }
 
-// node_modules/@cfworker/json-schema/dist/esm/ucs2-length.js
+// ../bun-argsbarg/node_modules/@cfworker/json-schema/dist/esm/ucs2-length.js
 function ucs2length(s) {
   let result = 0;
   let length = s.length;
@@ -2301,7 +2301,7 @@ function ucs2length(s) {
   return result;
 }
 
-// node_modules/@cfworker/json-schema/dist/esm/validate.js
+// ../bun-argsbarg/node_modules/@cfworker/json-schema/dist/esm/validate.js
 function validate(instance, schema, draft = "2019-09", lookup = dereference(schema), shortCircuit = true, recursiveAnchor = null, instanceLocation = "#", schemaLocation = "#", evaluated = Object.create(null)) {
   if (schema === true) {
     return { valid: true, errors: [] };
@@ -3060,7 +3060,7 @@ Known schemas:
   return { valid: errors.length === 0, errors };
 }
 
-// node_modules/@cfworker/json-schema/dist/esm/validator.js
+// ../bun-argsbarg/node_modules/@cfworker/json-schema/dist/esm/validator.js
 class Validator {
   schema;
   draft;
@@ -3083,7 +3083,7 @@ class Validator {
   }
 }
 
-// node_modules/argsbarg/src/core/formats.ts
+// ../bun-argsbarg/src/core/formats.ts
 var DURATION_RE = /^\d+[hdms]?$/i;
 var DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 function parseDurationMs(durationStr) {
@@ -3194,7 +3194,7 @@ function validateFormatValue(value, format, pattern) {
   }
 }
 
-// node_modules/argsbarg/src/config/validate.ts
+// ../bun-argsbarg/src/config/validate.ts
 if (!format["comma-list"]) {
   format["comma-list"] = (value) => {
     try {
@@ -3485,7 +3485,7 @@ function parseConfigSetValue(raw, propertySchema, rootSchema, useJson) {
   return raw;
 }
 
-// node_modules/argsbarg/src/config/bootstrap.ts
+// ../bun-argsbarg/src/config/bootstrap.ts
 function bootstrapAppConfig(program, opts) {
   let fileData;
   if (opts.validateFile === true) {
@@ -3821,7 +3821,7 @@ function ensureAppConfig(program, opts) {
   return { fileData, resolved };
 }
 
-// node_modules/argsbarg/src/utils.ts
+// ../bun-argsbarg/src/utils.ts
 function fullStringIsDouble(s) {
   if (s.trim().length === 0)
     return false;
@@ -3838,7 +3838,7 @@ function strictParseDouble(s) {
 }
 var isInteractiveTty = !!process.stdin.isTTY;
 
-// node_modules/argsbarg/src/core/parse.ts
+// ../bun-argsbarg/src/core/parse.ts
 var helpShort = "-h";
 var helpLong = "--help";
 function isHelpTok(tok) {
@@ -4404,7 +4404,7 @@ function postParseValidate(root, pr) {
   return { ...pr, opts };
 }
 
-// node_modules/argsbarg/src/core/leaf-inputs.ts
+// ../bun-argsbarg/src/core/leaf-inputs.ts
 class LeafInputError extends Error {
   constructor(message) {
     super(message);
@@ -4636,7 +4636,7 @@ function loadLeafInputs(ctx) {
   return omitUndefinedInputs(out);
 }
 
-// node_modules/argsbarg/src/http/result.ts
+// ../bun-argsbarg/src/http/result.ts
 function stripAnsi(text) {
   const ansiEscape = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
   return text.replace(ansiEscape, "");
@@ -4715,11 +4715,11 @@ function apiDocsHtml() {
 </html>`;
 }
 
-// node_modules/argsbarg/src/log/emitter.ts
+// ../bun-argsbarg/src/log/emitter.ts
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
-// node_modules/argsbarg/src/log/ecs.ts
+// ../bun-argsbarg/src/log/ecs.ts
 var ECS_VERSION = "8.11.0";
 var PROTECTED_ECS_KEYS = new Set([
   "@timestamp",
@@ -4800,7 +4800,7 @@ function durationMsToEcsNanos(durationMs) {
   return durationMs * 1e6;
 }
 
-// node_modules/argsbarg/src/log/emitter.ts
+// ../bun-argsbarg/src/log/emitter.ts
 var OBSCURE_CLIENT_MESSAGE = "An unexpected error occurred.";
 function obscureUnexpectedClientMessage() {
   return OBSCURE_CLIENT_MESSAGE;
@@ -4947,7 +4947,7 @@ ${event.error.stack}`;
   }
 }
 
-// node_modules/argsbarg/src/hooks/run.ts
+// ../bun-argsbarg/src/hooks/run.ts
 async function runHook(hook, label) {
   if (!hook) {
     return;
@@ -5038,7 +5038,7 @@ async function runErrorPipeline(hookCtx, err, failureKind, hooks, emitter, obscu
   return { failureKind, clientError, errorMsg: displayMessage };
 }
 
-// node_modules/argsbarg/src/core/respond.ts
+// ../bun-argsbarg/src/core/respond.ts
 function normalizeRespondOptions(opts) {
   if (opts.contentType !== undefined) {
     return opts;
@@ -5080,7 +5080,7 @@ function encodeRespondBodyBase64(body) {
   return btoa(binary);
 }
 
-// node_modules/argsbarg/src/mcp/result.ts
+// ../bun-argsbarg/src/mcp/result.ts
 function buildToolCallSuccessFromResponse(response) {
   const { body, contentType = "application/json; charset=utf-8" } = response;
   let structuredContent;
@@ -5109,7 +5109,7 @@ function buildToolCallSuccessFromResponse(response) {
   };
 }
 
-// node_modules/argsbarg/src/headless/tool-call.ts
+// ../bun-argsbarg/src/headless/tool-call.ts
 function lookupHeadlessTool(program, toolName) {
   const tools = collectMcpTools(program);
   const tool = tools.find((t) => t.name === toolName);
@@ -5218,11 +5218,7 @@ function headlessSuccessToHttpResponse(result, leafApiResponse, defaultStatus) {
 }
 function headlessFailureToHttpResponse(result, obscureUnexpected = false) {
   const status = resolveHttpErrorStatus(result);
-  let message = firstErrorLine(result.message);
-  if (obscureUnexpected && result.failureKind === "unexpected") {
-    message = obscureUnexpectedClientMessage();
-  }
-  return apiErrorResponse(status, { error: message });
+  return apiErrorResponse(status, { error: formatHeadlessError(result, obscureUnexpected) });
 }
 function resolveHttpErrorStatus(result) {
   if (result.failureKind) {
@@ -5240,13 +5236,16 @@ function resolveHttpErrorStatus(result) {
   return 500;
 }
 function headlessFailureMcpMessage(result, obscureUnexpected = false) {
+  return formatHeadlessError(result, obscureUnexpected);
+}
+function formatHeadlessError(result, obscureUnexpected) {
   if (obscureUnexpected && result.failureKind === "unexpected") {
     return obscureUnexpectedClientMessage();
   }
-  return firstErrorLine(result.message);
+  return stripAnsi(result.message).trim();
 }
 
-// node_modules/argsbarg/src/log/trace.ts
+// ../bun-argsbarg/src/log/trace.ts
 import { randomBytes } from "node:crypto";
 var TRACEPARENT_RE = /^[\da-f]{2}-([\da-f]{32})-([\da-f]{16})-([\da-f]{2})$/i;
 function randomSpanId() {
@@ -5285,7 +5284,7 @@ function formatTraceparent(ctx) {
   return `00-${ctx.traceId}-${ctx.spanId}-${flags}`;
 }
 
-// node_modules/argsbarg/src/http/readiness.ts
+// ../bun-argsbarg/src/http/readiness.ts
 var READINESS_CACHE_MS = 3000;
 function configFileCheck(runtime) {
   const err = runtime.state.configFileError;
@@ -5335,7 +5334,7 @@ async function evaluateReadiness(program, surface, runtime, appConfig) {
   return result;
 }
 
-// node_modules/argsbarg/src/http/server.ts
+// ../bun-argsbarg/src/http/server.ts
 var DEFAULT_HOST = "127.0.0.1";
 var DEFAULT_PORT = 3000;
 function resolveHttpListenAddress(program) {
@@ -5528,7 +5527,7 @@ async function httpServeHttp(cli, resolved) {
   throw new Error("HTTP API server stopped unexpectedly");
 }
 
-// node_modules/argsbarg/src/docs/http-guide.ts
+// ../bun-argsbarg/src/docs/http-guide.ts
 function formatRouteLine(root, route) {
   const cliPath = route.commandPath.join(" ");
   let line = `- \`${route.method} ${route.openApiPath}\` (CLI: \`${root.key} ${cliPath}\`) — ${route.leaf.description}`;
@@ -5634,11 +5633,11 @@ function generateHttpGuide(root) {
 `);
 }
 
-// node_modules/argsbarg/src/configure/artifacts/mcp-config.ts
+// ../bun-argsbarg/src/configure/artifacts/mcp-config.ts
 import { existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync, writeFileSync } from "node:fs";
 import { dirname as dirname2 } from "node:path";
 
-// node_modules/argsbarg/src/paths/host.ts
+// ../bun-argsbarg/src/paths/host.ts
 import { existsSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
@@ -5659,7 +5658,7 @@ function appConfigLibHome(home = userHome()) {
   return join(home, ".local", "lib");
 }
 
-// node_modules/argsbarg/src/configure/artifacts/mcp-config.ts
+// ../bun-argsbarg/src/configure/artifacts/mcp-config.ts
 function expectedMcpEntry(root) {
   return { command: root.key, args: ["mcp"] };
 }
@@ -5715,15 +5714,15 @@ function removeMcpConfig(path, name, dry) {
   return [path];
 }
 
-// node_modules/argsbarg/src/configure/artifacts/paths.ts
+// ../bun-argsbarg/src/configure/artifacts/paths.ts
 import { dirname as dirname3, join as join2 } from "node:path";
 
-// node_modules/argsbarg/src/skill/naming.ts
+// ../bun-argsbarg/src/skill/naming.ts
 function skillDirName(programKey) {
   return programKey.replace(/[/\\\s]/g, "_");
 }
 
-// node_modules/argsbarg/src/configure/artifacts/paths.ts
+// ../bun-argsbarg/src/configure/artifacts/paths.ts
 function displayInstallPath(path) {
   return displayHomePath(path);
 }
@@ -5748,7 +5747,7 @@ function resolveInstallPaths(root) {
   };
 }
 
-// node_modules/argsbarg/src/docs/mcp-resources.ts
+// ../bun-argsbarg/src/docs/mcp-resources.ts
 function defaultDocsTopicResourceUri(mcpId, topicKey) {
   return `${mcpId}://docs/${topicKey}`;
 }
@@ -5791,7 +5790,7 @@ function reservedDocsTopicResourceUris(program) {
   return docsUserTopicKeys(docs).map((key) => resolveDocsTopicResourceUri(program, key));
 }
 
-// node_modules/argsbarg/src/docs/mcp-guide.ts
+// ../bun-argsbarg/src/docs/mcp-guide.ts
 function appendManualClientSetup(lines, _root, serverId, entry) {
   const home = userHome();
   const claudeDesktopPath = resolveClaudeDesktopMcpPath(home);
@@ -5876,7 +5875,7 @@ function generateMcpGuide(root) {
 `);
 }
 
-// node_modules/argsbarg/src/docs/resolve.ts
+// ../bun-argsbarg/src/docs/resolve.ts
 var DOCS_BUILTIN_TOPIC_KEYS = ["http", "mcp", "all", "cli-schema", "cli", "openapi"];
 var DOCS_ROUTER_DESCRIPTION = "Print bundled CLI documentation.";
 function docsEnabled(program) {
@@ -5955,11 +5954,11 @@ function printDocsTopic(program, topic) {
   process.stdout.write(docsTopicContent(program, topic));
 }
 
-// node_modules/argsbarg/src/docs/save.ts
+// ../bun-argsbarg/src/docs/save.ts
 import { mkdirSync as mkdirSync3, writeFileSync as writeFileSync2 } from "node:fs";
 import { dirname as dirname4, join as join3 } from "node:path";
 
-// node_modules/argsbarg/src/skill/hint.ts
+// ../bun-argsbarg/src/skill/hint.ts
 var MARKDOWN_FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n/;
 function generatedFileHtmlComment(source) {
   return `<!-- Generated by ${source}; do not edit. -->
@@ -5982,7 +5981,7 @@ function applyPluginSkillHint(program, skillMd) {
   return insertGeneratedHint(skillMd, skillBundleHint(program), { afterFrontmatter: true });
 }
 
-// node_modules/argsbarg/src/docs/save.ts
+// ../bun-argsbarg/src/docs/save.ts
 var DOCS_SAVE_DIR = "docs";
 var DOCS_GENERATED_SAVE_TOPICS = ["mcp", "cli", "http"];
 function docsTopicIsGeneratedByArgsbarg(topic) {
@@ -6021,7 +6020,7 @@ function saveDocsTopic(program, topic) {
   return rel;
 }
 
-// node_modules/argsbarg/src/docs/builtin.ts
+// ../bun-argsbarg/src/docs/builtin.ts
 var DOCS_SAVE_OPTION = {
   name: "save",
   description: "Write documentation to ./docs/.",
@@ -6085,7 +6084,7 @@ function cliBuiltinDocsGroupIfEnabled(program) {
   return cliBuiltinDocsGroup(program);
 }
 
-// node_modules/argsbarg/src/builtins/completion-group.ts
+// ../bun-argsbarg/src/builtins/completion-group.ts
 function cliBuiltinCompletionGroup(program) {
   const appName = program.key;
   const router = {
@@ -6137,7 +6136,7 @@ function cliBuiltinCompletionGroup(program) {
   return router;
 }
 
-// node_modules/argsbarg/src/configure/artifacts/target-base.ts
+// ../bun-argsbarg/src/configure/artifacts/target-base.ts
 class InstallTarget {
   defaultIncludedInAll() {
     return false;
@@ -6174,7 +6173,7 @@ class InstallTarget {
   }
 }
 
-// node_modules/argsbarg/src/configure/artifacts/target-mcp-json.ts
+// ../bun-argsbarg/src/configure/artifacts/target-mcp-json.ts
 function mcpConfigHasServer(path, name) {
   return readMcpServerEntry(path, name) !== undefined;
 }
@@ -6256,7 +6255,7 @@ class McpJsonInstallTarget extends InstallTarget {
   }
 }
 
-// node_modules/argsbarg/src/configure/artifacts/targets/agents-mcp.ts
+// ../bun-argsbarg/src/configure/artifacts/targets/agents-mcp.ts
 var agentsMcpTarget = new McpJsonInstallTarget({
   key: "agentsMcp",
   actionKind: "agents-mcp",
@@ -6267,7 +6266,7 @@ var agentsMcpTarget = new McpJsonInstallTarget({
   isAvailable: (root) => root.mcpServer?.enabled === true
 });
 
-// node_modules/argsbarg/src/configure/artifacts/binary-placement.ts
+// ../bun-argsbarg/src/configure/artifacts/binary-placement.ts
 import { accessSync, constants, realpathSync } from "node:fs";
 import { delimiter, join as join4 } from "node:path";
 function resolvePathCommand(key) {
@@ -6304,7 +6303,7 @@ function isExternallyManagedBinary(key, execPath = process.execPath) {
   return resolved === realpathOrSelf(execPath);
 }
 
-// node_modules/argsbarg/src/configure/artifacts/targets/app.ts
+// ../bun-argsbarg/src/configure/artifacts/targets/app.ts
 class AppInstallTarget extends InstallTarget {
   key = "app";
   actionKind = "app";
@@ -6342,7 +6341,7 @@ class AppInstallTarget extends InstallTarget {
 }
 var appTarget = new AppInstallTarget;
 
-// node_modules/argsbarg/src/configure/artifacts/targets/configure.ts
+// ../bun-argsbarg/src/configure/artifacts/targets/configure.ts
 class ConfigureInstallTarget extends InstallTarget {
   key = "configure";
   actionKind = "configure";
@@ -6377,13 +6376,13 @@ class ConfigureInstallTarget extends InstallTarget {
 }
 var configureTarget = new ConfigureInstallTarget;
 
-// node_modules/argsbarg/src/configure/artifacts/targets/skill.ts
+// ../bun-argsbarg/src/configure/artifacts/targets/skill.ts
 import { existsSync as existsSync5 } from "node:fs";
 
-// node_modules/argsbarg/src/configure/artifacts/target-skill.ts
+// ../bun-argsbarg/src/configure/artifacts/target-skill.ts
 import { existsSync as existsSync4 } from "node:fs";
 
-// node_modules/argsbarg/src/configure/artifacts/uninstall.ts
+// ../bun-argsbarg/src/configure/artifacts/uninstall.ts
 import { existsSync as existsSync3, rmSync } from "node:fs";
 function buildUninstallPlan(root, paths, opts) {
   return buildUninstallPlanFromTargets(root, paths, opts);
@@ -6399,7 +6398,7 @@ function uninstallSkillDir(dir, dry) {
   return [`${dir}/`];
 }
 
-// node_modules/argsbarg/src/configure/artifacts/target-skill.ts
+// ../bun-argsbarg/src/configure/artifacts/target-skill.ts
 class SkillInstallTarget extends InstallTarget {
   key;
   actionKind;
@@ -6450,7 +6449,7 @@ class SkillInstallTarget extends InstallTarget {
   }
 }
 
-// node_modules/argsbarg/src/configure/artifacts/targets/skill.ts
+// ../bun-argsbarg/src/configure/artifacts/targets/skill.ts
 var skillTarget = new SkillInstallTarget({
   key: "skill",
   actionKind: "agent-skill",
@@ -6462,10 +6461,10 @@ var skillTarget = new SkillInstallTarget({
   isAvailable: (_root, p) => existsSync5(p.agentsSkillDir)
 });
 
-// node_modules/argsbarg/src/configure/artifacts/targets/index.ts
+// ../bun-argsbarg/src/configure/artifacts/targets/index.ts
 var INSTALL_TARGETS = [appTarget, skillTarget, agentsMcpTarget, configureTarget];
 
-// node_modules/argsbarg/src/configure/artifacts/target-registry.ts
+// ../bun-argsbarg/src/configure/artifacts/target-registry.ts
 var INSTALL_ARTIFACT_KEYS = INSTALL_TARGETS.map((t) => t.key);
 var SKILL_KEYS = INSTALL_TARGETS.filter((t) => t.category === "skill").map((t) => t.key);
 var MCP_KEYS = INSTALL_TARGETS.filter((t) => t.category === "mcp").map((t) => t.key);
@@ -6481,7 +6480,7 @@ function mcpServerRequiredForArtifact(key, mcpServerEnabled) {
   return !isMcpArtifactKey(key) || mcpServerEnabled;
 }
 
-// node_modules/argsbarg/src/configure/artifacts/target-effective.ts
+// ../bun-argsbarg/src/configure/artifacts/target-effective.ts
 function resolveInstallTargetSpec(spec, defaults) {
   if (spec === undefined) {
     return { ...defaults };
@@ -6533,7 +6532,7 @@ function resolveInstallPlanMode(opts) {
   return "install-scoped";
 }
 
-// node_modules/argsbarg/src/configure/artifacts/target-scope.ts
+// ../bun-argsbarg/src/configure/artifacts/target-scope.ts
 function emptyInstalledArtifacts() {
   return {
     app: false,
@@ -6676,7 +6675,7 @@ function resolveInstallTargetPreview(program, paths) {
   };
 }
 
-// node_modules/argsbarg/src/configure/artifacts/target-plan-build.ts
+// ../bun-argsbarg/src/configure/artifacts/target-plan-build.ts
 function buildInstallPlanFromTargets(root, paths, opts) {
   const detected = buildDetectedSnapshot(root, paths);
   const ctx = buildTargetPlanContext(root, paths, opts, detected);
@@ -6705,7 +6704,7 @@ function buildUninstallPlanFromTargets(root, paths, opts) {
   return actions;
 }
 
-// node_modules/argsbarg/src/configure/artifacts/plan.ts
+// ../bun-argsbarg/src/configure/artifacts/plan.ts
 function buildUpdatePlan(root, paths, opts) {
   const refresh = buildInstallPlanFromTargets(root, paths, {
     ...opts,
@@ -6718,7 +6717,7 @@ function buildUpdatePlan(root, paths, opts) {
   return buildInstallPlanFromTargets(root, paths, { ...opts, reinstall: false, all: true });
 }
 
-// node_modules/argsbarg/src/configure/artifacts/target-detect.ts
+// ../bun-argsbarg/src/configure/artifacts/target-detect.ts
 function buildInstallStatus(paths, detected, root) {
   const status = {};
   for (const target of INSTALL_TARGETS) {
@@ -6726,7 +6725,7 @@ function buildInstallStatus(paths, detected, root) {
   }
   return status;
 }
-// node_modules/argsbarg/src/configure/artifacts/status.ts
+// ../bun-argsbarg/src/configure/artifacts/status.ts
 function installOut(msg, opts) {
   if (opts.json)
     return;
@@ -6782,7 +6781,7 @@ function printInstallStatus(root, opts) {
   }
 }
 
-// node_modules/argsbarg/src/configure/index.ts
+// ../bun-argsbarg/src/configure/index.ts
 function appConfigHasEntries(program) {
   const entries = program.appConfig?.entries;
   return !!entries && Object.keys(entries).length > 0;
@@ -6872,7 +6871,7 @@ function cliConfigureStatus(root, opts) {
   process.exit(0);
 }
 
-// node_modules/argsbarg/src/builtins/config.ts
+// ../bun-argsbarg/src/builtins/config.ts
 var JSON_OPTION = {
   name: "json",
   description: "Emit JSON (compact).",
@@ -7089,7 +7088,7 @@ function configureConfigSubcommands(program, mcpSetEnabled = configMcpSetEnabled
   return [configGetLeaf(program), configSetLeaf(program, mcpSetEnabled)];
 }
 
-// node_modules/argsbarg/src/builtins/configure-copy.ts
+// ../bun-argsbarg/src/builtins/configure-copy.ts
 var LABEL = {
   mcp: { prose: "MCP config", short: "MCP" },
   config: { prose: "app config", short: "config" }
@@ -7150,7 +7149,7 @@ function configureCommandNotes(program, _caps) {
 `);
 }
 
-// node_modules/argsbarg/src/builtins/configure.ts
+// ../bun-argsbarg/src/builtins/configure.ts
 var YES_OPTION = {
   name: "yes",
   description: "Skip uninstall confirmation.",
@@ -7208,7 +7207,7 @@ function cliBuiltinConfigureCommand(root) {
   };
 }
 
-// node_modules/argsbarg/src/builtins/http.ts
+// ../bun-argsbarg/src/builtins/http.ts
 var HTTP_SERVE_OPTIONS = [
   { name: "host", description: "Listen host.", kind: "string" /* String */ },
   { name: "port", description: "Listen port.", kind: "number" /* Number */ },
@@ -7262,7 +7261,7 @@ function cliBuiltinHttpCommand(program) {
   };
 }
 
-// node_modules/argsbarg/src/builtins/mcp.ts
+// ../bun-argsbarg/src/builtins/mcp.ts
 var MCP_SERVE_OPTIONS = [
   { name: "obscure-errors", description: "Hide unexpected errors from clients.", kind: "presence" /* Presence */ },
   {
@@ -7316,7 +7315,7 @@ function cliBuiltinMcpCommand(program) {
   };
 }
 
-// node_modules/argsbarg/src/builtins/version.ts
+// ../bun-argsbarg/src/builtins/version.ts
 function cliBuiltinVersionCommand() {
   return {
     key: "version",
@@ -7325,7 +7324,7 @@ function cliBuiltinVersionCommand() {
   };
 }
 
-// node_modules/argsbarg/src/builtins/registry.ts
+// ../bun-argsbarg/src/builtins/registry.ts
 function pushBuiltin(builtins, program, factory) {
   if (!factory) {
     return;
@@ -7354,7 +7353,7 @@ function resolveBuiltins(program, caps) {
   return builtins;
 }
 
-// node_modules/argsbarg/src/builtins/export.ts
+// ../bun-argsbarg/src/builtins/export.ts
 function exportBuiltinNode(cmd) {
   if (isCliSchemaHidden(cmd)) {
     return null;
@@ -7389,7 +7388,7 @@ function exportPresentationBuiltins(program) {
   return resolveBuiltins(program, caps).map((cmd) => exportBuiltinNode(cmd)).filter((node) => node !== null);
 }
 
-// node_modules/argsbarg/src/core/schema.ts
+// ../bun-argsbarg/src/core/schema.ts
 var RESERVED = new Set(["http", "completion", "configure", "docs", "mcp", "version"]);
 function exportCommand(cmd, root) {
   if (isCliSchemaHidden(cmd)) {
@@ -7460,7 +7459,7 @@ function cliSchemaJson(root) {
 `;
 }
 
-// node_modules/argsbarg/src/mcp/tools.ts
+// ../bun-argsbarg/src/mcp/tools.ts
 function defaultMcpSchemaUri(mcpId) {
   return `${mcpId}://schema`;
 }
@@ -7640,7 +7639,7 @@ function mcpToolCallToArgv(_root, tool, args) {
   return argv;
 }
 
-// node_modules/argsbarg/src/config/file.ts
+// ../bun-argsbarg/src/config/file.ts
 function resolveAppConfigPath(program) {
   const dirName = sanitizeToolSegment(program.key);
   return join5(appConfigLibHome(), dirName, "config.json");
@@ -7771,7 +7770,7 @@ function uninstallAppConfig(program, dry) {
   }
   return changed;
 }
-// node_modules/argsbarg/src/config/context.ts
+// ../bun-argsbarg/src/config/context.ts
 function rebuildResolved(program, fileData) {
   const hostEnv = captureMappedHostEnv(program);
   const resolved = resolveAppConfig(program, fileData, hostEnv);
@@ -7896,7 +7895,7 @@ function createAppConfigSnapshot(program, fileData, resolved) {
   return new AppConfigSnapshot(program, fileData, resolved);
 }
 
-// node_modules/argsbarg/src/core/context.ts
+// ../bun-argsbarg/src/core/context.ts
 class CliContext {
   appName;
   commandPath;
@@ -8041,12 +8040,12 @@ class CliContext {
     return map;
   }
 }
-// node_modules/argsbarg/src/mcp/bundle.ts
-import { cpSync as cpSync4, existsSync as existsSync10, mkdirSync as mkdirSync8, mkdtempSync as mkdtempSync3, readFileSync as readFileSync4, rmSync as rmSync5, writeFileSync as writeFileSync7 } from "node:fs";
+// ../bun-argsbarg/src/mcp/bundle.ts
+import { chmodSync as chmodSync3, cpSync as cpSync4, existsSync as existsSync10, mkdirSync as mkdirSync8, mkdtempSync as mkdtempSync3, readFileSync as readFileSync4, rmSync as rmSync5, writeFileSync as writeFileSync7 } from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
 import { basename as basename3, join as join9, resolve as resolve4 } from "node:path";
 
-// node_modules/argsbarg/src/config/manifest.ts
+// ../bun-argsbarg/src/config/manifest.ts
 function buildConfigUserConfigEntry(key, entry, jsonSchemaRequired) {
   return {
     type: "string",
@@ -8130,12 +8129,12 @@ function buildCursorPluginVariables(program) {
   };
 }
 
-// node_modules/argsbarg/src/mcp/claude.ts
-import { cpSync as cpSync2, existsSync as existsSync8, mkdirSync as mkdirSync6, mkdtempSync, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "node:fs";
+// ../bun-argsbarg/src/mcp/claude.ts
+import { chmodSync, cpSync as cpSync2, existsSync as existsSync8, mkdirSync as mkdirSync6, mkdtempSync, rmSync as rmSync3, writeFileSync as writeFileSync5 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join as join7, resolve as resolve2 } from "node:path";
 
-// node_modules/argsbarg/src/mcp/plugin-shared.ts
+// ../bun-argsbarg/src/mcp/plugin-shared.ts
 import {
   cpSync,
   existsSync as existsSync7,
@@ -8147,7 +8146,7 @@ import {
 } from "node:fs";
 import { join as join6, relative, resolve } from "node:path";
 
-// node_modules/argsbarg/src/skill/generate.ts
+// ../bun-argsbarg/src/skill/generate.ts
 function truncate(text, maxLen) {
   if (text.length <= maxLen)
     return text;
@@ -8225,7 +8224,7 @@ function generatePluginSkillBundle(root) {
   };
 }
 
-// node_modules/argsbarg/src/mcp/plugin-shared.ts
+// ../bun-argsbarg/src/mcp/plugin-shared.ts
 function collectZipEntries(rootDir, dir = rootDir) {
   const entries = [];
   for (const ent of readdirSync(dir, { withFileTypes: true })) {
@@ -8268,7 +8267,7 @@ function stagePluginSkills(pluginRoot, program, cwd) {
   }
 }
 
-// node_modules/argsbarg/src/mcp/zip.ts
+// ../bun-argsbarg/src/mcp/zip.ts
 function unixUxExtraField(uid, gid) {
   const uidBuf = Buffer.alloc(4);
   uidBuf.writeUInt32LE(uid >>> 0, 0);
@@ -8378,7 +8377,7 @@ function zipStore(files) {
   return Buffer.concat([...parts, centralBuf, end]);
 }
 
-// node_modules/argsbarg/src/mcp/claude.ts
+// ../bun-argsbarg/src/mcp/claude.ts
 var DIST_DIR = "dist";
 var CLAUDE_PLUGIN_DIR = "claude-plugin";
 function defaultClaudePluginPaths(program, cwd = process.cwd()) {
@@ -8426,7 +8425,9 @@ function writePluginTree(pluginRoot, program, binaryPath, binaryName, cwd) {
 `);
   writeFileSync5(join7(pluginRoot, ".mcp.json"), `${JSON.stringify(generatePluginMcpJson(program, binaryName), null, 2)}
 `);
-  cpSync2(binaryPath, join7(pluginRoot, "bin", binaryName), { mode: 493 });
+  const stagedBinary = join7(pluginRoot, "bin", binaryName);
+  cpSync2(binaryPath, stagedBinary);
+  chmodSync(stagedBinary, 493);
   stagePluginSkills(pluginRoot, program, cwd);
 }
 function packClaudePlugin(program, opts = {}) {
@@ -8451,8 +8452,8 @@ function packClaudePlugin(program, opts = {}) {
   }
 }
 
-// node_modules/argsbarg/src/mcp/cursor.ts
-import { cpSync as cpSync3, existsSync as existsSync9, mkdirSync as mkdirSync7, mkdtempSync as mkdtempSync2, rmSync as rmSync4, writeFileSync as writeFileSync6 } from "node:fs";
+// ../bun-argsbarg/src/mcp/cursor.ts
+import { chmodSync as chmodSync2, cpSync as cpSync3, existsSync as existsSync9, mkdirSync as mkdirSync7, mkdtempSync as mkdtempSync2, rmSync as rmSync4, writeFileSync as writeFileSync6 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { basename as basename2, join as join8, resolve as resolve3 } from "node:path";
 var DIST_DIR2 = "dist";
@@ -8515,7 +8516,9 @@ function writePluginTree2(pluginRoot, program, binaryPath, binaryName, cwd) {
 `);
   writeFileSync6(join8(pluginRoot, "mcp.json"), `${JSON.stringify(generateCursorPluginMcpJson(program, binaryName), null, 2)}
 `);
-  cpSync3(binaryPath, join8(pluginRoot, "bin", binaryName), { mode: 493 });
+  const stagedBinary = join8(pluginRoot, "bin", binaryName);
+  cpSync3(binaryPath, stagedBinary);
+  chmodSync2(stagedBinary, 493);
   stagePluginSkills(pluginRoot, program, cwd);
 }
 function packCursorPlugin(program, opts = {}) {
@@ -8540,7 +8543,7 @@ function packCursorPlugin(program, opts = {}) {
   }
 }
 
-// node_modules/argsbarg/src/mcp/bundle.ts
+// ../bun-argsbarg/src/mcp/bundle.ts
 var MANIFEST_VERSION = "0.3";
 var DIST_DIR3 = "dist";
 function defaultMcpBundlePaths(program, cwd = process.cwd()) {
@@ -8611,7 +8614,8 @@ function packMcpBundle(program, opts = {}) {
   const staging = mkdtempSync3(join9(tmpdir3(), "mcpb-"));
   try {
     const stagedBinary = join9(staging, binaryName);
-    cpSync4(binaryPath, stagedBinary, { mode: 493 });
+    cpSync4(binaryPath, stagedBinary);
+    chmodSync3(stagedBinary, 493);
     const manifest = generateMcpManifest(program, binaryName);
     const files = [
       {
@@ -8656,11 +8660,11 @@ function runMcpBundle(program) {
 `)}
 `);
 }
-// node_modules/argsbarg/src/runtime/cli.ts
+// ../bun-argsbarg/src/runtime/cli.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
 import { format as format2 } from "node:util";
 
-// node_modules/argsbarg/src/server/overrides.ts
+// ../bun-argsbarg/src/server/overrides.ts
 import { join as join10 } from "node:path";
 function resolveLogFile(program, logFile) {
   if (!logFile) {
@@ -8733,7 +8737,7 @@ function serveOverridesFromOpts(opts, surface) {
   return out;
 }
 
-// node_modules/argsbarg/src/builtins/shell-helpers.ts
+// ../bun-argsbarg/src/builtins/shell-helpers.ts
 function identToken(s) {
   return s.replace(/[^a-zA-Z0-9]/g, "_");
 }
@@ -8749,7 +8753,7 @@ function mainName(schemaName) {
 var kHelpLong = "--help";
 var kHelpShort = "-h";
 
-// node_modules/argsbarg/src/builtins/completion-simulate-shared.ts
+// ../bun-argsbarg/src/builtins/completion-simulate-shared.ts
 function emitConsumeLong(ident, scopes) {
   let o = "_${ident}_nac_consume_long() {\n".replace("${ident}", ident);
   o += `  local sid="$1" w="$2" nw="$3"
@@ -8896,7 +8900,7 @@ function emitMatchChild(ident, scopes, pathIndex) {
   return o;
 }
 
-// node_modules/argsbarg/src/builtins/scopes.ts
+// ../bun-argsbarg/src/builtins/scopes.ts
 function hasPositionalArguments(cmd) {
   return isCliLeaf(cmd) && (cmd.positionals ?? []).length > 0;
 }
@@ -8927,7 +8931,7 @@ function collectScopes(schema) {
   return acc;
 }
 
-// node_modules/argsbarg/src/builtins/completion-bash.ts
+// ../bun-argsbarg/src/builtins/completion-bash.ts
 function emitSimulate(ident) {
   let o = "_${ident}_nac_simulate() {\n".replace("${ident}", ident);
   o += `  local i=1 sid=0 w steps next
@@ -9120,7 +9124,7 @@ function completionBashScript(schema) {
   return out;
 }
 
-// node_modules/argsbarg/src/builtins/completion-fish.ts
+// ../bun-argsbarg/src/builtins/completion-fish.ts
 function scopeCondition(ident, scopeIndex, path) {
   const fn = `__${ident}_scope_${scopeIndex}`;
   let body = `function ${fn}
@@ -9188,7 +9192,7 @@ function completionFishScript(schema) {
   return out;
 }
 
-// node_modules/argsbarg/src/builtins/completion-zsh.ts
+// ../bun-argsbarg/src/builtins/completion-zsh.ts
 function emitScopeArraysZsh(ident, scopes) {
   let out = "";
   for (const [i, sc] of scopes.entries()) {
@@ -9383,7 +9387,7 @@ function completionZshScript(schema) {
   return out;
 }
 
-// node_modules/argsbarg/src/builtins/presentation.ts
+// ../bun-argsbarg/src/builtins/presentation.ts
 function parseBuiltins(program, caps) {
   return resolveBuiltins(program, caps);
 }
@@ -9449,7 +9453,7 @@ function presentationRootNotes(program, _caps) {
 `);
 }
 
-// node_modules/argsbarg/src/builtins/dispatch.ts
+// ../bun-argsbarg/src/builtins/dispatch.ts
 function completionSchema(program, opts) {
   if (opts.isLeafCompletionIntercept) {
     return cliPresentationRoot(program);
@@ -9610,7 +9614,7 @@ function builtinInterceptRoot(program, argv) {
   return { parseRoot: program, isLeafCompletionIntercept: false };
 }
 
-// node_modules/argsbarg/src/core/validate.ts
+// ../bun-argsbarg/src/core/validate.ts
 function validateDocsConfig(docs) {
   const topics = docs.topics ?? {};
   const keys = Object.keys(topics);
@@ -10030,7 +10034,7 @@ function validatePositionals(scopeKey, positionals) {
   }
 }
 
-// node_modules/argsbarg/src/hooks/builtin.ts
+// ../bun-argsbarg/src/hooks/builtin.ts
 var BUILTIN_ROOTS = new Set(["completion", "version", "http", "mcp", "configure", "docs"]);
 function isBuiltinInvokePath(path) {
   const root = path[0];
@@ -10046,7 +10050,7 @@ function isBuiltinInvokePath(path) {
   return true;
 }
 
-// node_modules/argsbarg/src/mcp/env.ts
+// ../bun-argsbarg/src/mcp/env.ts
 import { spawnSync } from "node:child_process";
 function captureShellEnv(shell) {
   const result = spawnSync(shell, ["-l", "-c", "env"], {
@@ -10095,7 +10099,7 @@ function bootstrapMcpEnv(config) {
   }
 }
 
-// node_modules/argsbarg/src/mcp/server.ts
+// ../bun-argsbarg/src/mcp/server.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
 var MCP_PROTOCOL_VERSION = "2024-11-05";
 function writeResponse(msg) {
@@ -10331,12 +10335,12 @@ async function mcpServeStdioLoop(cli) {
   }
 }
 
-// node_modules/argsbarg/src/server/context.ts
+// ../bun-argsbarg/src/server/context.ts
 function createServerRuntime(program, surface) {
   return { state: {}, program, surface };
 }
 
-// node_modules/argsbarg/src/runtime/cli.ts
+// ../bun-argsbarg/src/runtime/cli.ts
 class CliInvokeExit extends Error {
   code;
   constructor(code) {

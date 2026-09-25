@@ -17,7 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "argsbarg": "^7.1.0",
+    "argsbarg": "^7.1.1",
     "marked": "^18.0.13"
   },
   "devDependencies": {

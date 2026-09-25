@@ -125,11 +125,11 @@ export class DocCache {
 
         const age = now - entry.fetchedAt;
         if (age < this.ttl1Ms) {
-          return new Gdoc(docData, docId);
+          return new Gdoc(structuredClone(docData), docId);
         }
         if (age < this.ttl2Ms) {
           this.revalidateInBackground(docId, client, entry);
-          return new Gdoc(docData, docId);
+          return new Gdoc(structuredClone(docData), docId);
         }
         return this.hardValidateOrRefresh(docId, client, entry);
       } catch {
@@ -193,7 +193,8 @@ export class DocCache {
   ): Promise<Gdoc> {
     const existingPromise = this.inFlight.get(docId);
     if (existingPromise) {
-      return existingPromise;
+      const resolved = await existingPromise;
+      return new Gdoc(structuredClone(resolved.data), docId);
     }
 
     const fetchPromise = (async () => {

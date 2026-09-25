@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `sectionCopy` without an anchor appends to the end of the target tab when it lacks the source heading (previously failed)
 
+### Fixed
+- `DocCache.get` returned an uncloned snapshot on a SQLite cache hit (both the fresh and stale-revalidating branches), and every in-flight in-memory dedupe caller shared one Gdoc instance. In the long-lived MCP server, a dry run's in-place tape mutation of that shared object could poison what a later, unrelated live write would compile against. Both paths now return an isolated `structuredClone`, matching the memory-cache and hard-validate paths, which already cloned
+
 ## [1.0.6] - 2026-09-23
 
 ### Removed

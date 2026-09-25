@@ -226,6 +226,95 @@ describe("DocCache", () => {
     db.close();
   });
 
+  test("SQLite hit returns an isolated copy", async () => {
+    const db = new SqliteDatabase(":memory:");
+    db.set("d3", "rev-1", JSON.stringify({ documentId: "d3", revisionId: "rev-1", title: "Original" }), Date.now());
+
+    const cache = new DocCache({ db });
+    const mockClient = {
+      batchUpdate: async () => "{}",
+      getDocument: async () => ({}),
+      run: async () => "",
+    };
+
+    // First get: fresh SQLite hit (age < ttl1Ms), takes the SQLite-hit fast path.
+    const doc1 = await cache.get("d3", mockClient);
+    expect(doc1.data.title).toBe("Original");
+    doc1.data.title = "Mutated";
+
+    // Mutating doc1 must not leak into the cached entry or later reads.
+    const doc2 = await cache.get("d3", mockClient);
+    expect(doc2.data.title).toBe("Original");
+    doc2.data.title = "Mutated again";
+
+    const doc3 = await cache.get("d3", mockClient);
+    expect(doc3.data.title).toBe("Original");
+
+    db.close();
+  });
+
+  test("stale SQLite hit (TTL1<age<TTL2) returns an isolated copy", async () => {
+    const db = new SqliteDatabase(":memory:");
+    db.set(
+      "d4",
+      "rev-1",
+      JSON.stringify({ documentId: "d4", revisionId: "rev-1", title: "Original" }),
+      Date.now() - 50,
+    );
+
+    const cache = new DocCache({ db, ttl1Ms: 10, ttl2Ms: 10_000 });
+    const mockClient = {
+      batchUpdate: async () => "{}",
+      getDocument: async () => ({ documentId: "d4", revisionId: "rev-1" }),
+      revisionIdGet: async () => "rev-1",
+      run: async () => "",
+    };
+
+    // age (~50ms) is between ttl1Ms (10) and ttl2Ms (10_000): stale SQLite-hit branch.
+    const doc1 = await cache.get("d4", mockClient);
+    expect(doc1.data.title).toBe("Original");
+    doc1.data.title = "Mutated";
+
+    const doc2 = await cache.get("d4", mockClient);
+    expect(doc2.data.title).toBe("Original");
+
+    db.close();
+  });
+
+  test("concurrent in-flight callers get distinct copies", async () => {
+    const db = new SqliteDatabase(":memory:");
+    const cache = new DocCache({ db });
+
+    let fetchCount = 0;
+    const mockClient = {
+      batchUpdate: async () => "{}",
+      getDocument: async (docId: string) => {
+        fetchCount++;
+        await new Promise((r) => setTimeout(r, 10));
+        return { documentId: docId, revisionId: "rev-1", title: "Original" };
+      },
+      run: async () => "",
+    };
+
+    const [d1, d2, d3] = await Promise.all([
+      cache.get("concurrent-distinct", mockClient),
+      cache.get("concurrent-distinct", mockClient),
+      cache.get("concurrent-distinct", mockClient),
+    ]);
+
+    expect(fetchCount).toBe(1);
+    expect(d1.data).not.toBe(d2.data);
+    expect(d2.data).not.toBe(d3.data);
+    expect(d1.data).not.toBe(d3.data);
+
+    // A mutation by one joiner must be invisible to the others.
+    d1.data.title = "Mutated by d1";
+    expect(d2.data.title).toBe("Original");
+    expect(d3.data.title).toBe("Original");
+
+    db.close();
+  });
+
   test("set and invalidate methods", () => {
     const db = new SqliteDatabase(":memory:");
     const cache = new DocCache({ db });

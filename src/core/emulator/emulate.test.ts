@@ -37,7 +37,7 @@ describe("requestsEmulate", () => {
     expect(p.inlines).toMatchObject([{ kind: "text", style: {}, text: "x" }]);
   });
 
-  test("insertText with an embedded newline splits the paragraph, minting a fresh heading id for the first half", () => {
+  test("insertText with an embedded newline splits the paragraph, keeping the original heading id on the half containing the original text's start", () => {
     const json = docJsonBuild({
       tabs: [
         {
@@ -58,9 +58,9 @@ describe("requestsEmulate", () => {
     expect(blocks).toHaveLength(2);
     expect(blocks[0].inlines).toMatchObject([{ kind: "text", style: {}, text: "Hello " }]);
     expect(blocks[1].inlines).toMatchObject([{ kind: "text", style: {}, text: "World" }]);
-    expect(blocks[0].headingId).toBeDefined();
-    expect(blocks[0].headingId).not.toBe("h.orig");
-    expect(blocks[1].headingId).toBe("h.orig");
+    expect(blocks[0].headingId).toBe("h.orig");
+    expect(blocks[1].headingId).toBeDefined();
+    expect(blocks[1].headingId).not.toBe("h.orig");
     expect(blocks[0].style.namedStyleType).toBe("HEADING_1");
     expect(blocks[1].style.namedStyleType).toBe("HEADING_1");
   });

@@ -170,11 +170,12 @@ function insertTextRequestApply(state: EmulatorState, req: JsonObject, ctx: Emul
 function insertTextCore(tab: TabState, idx: number, text: string, ctx: EmulateContext): void {
   insertPositionValidate(tab, idx, ctx);
   const style = styleForInsertAt(tab.tape, idx);
+  const originalKeepsLaterSide = idx === paragraphStartBefore(tab.tape, idx);
   let pos = idx;
   for (let k = 0; k < text.length; k++) {
     const ch = text[k];
     if (ch === "\n") {
-      paragraphSplitAt(tab, pos, style, ctx);
+      paragraphSplitAt(tab, pos, style, ctx, originalKeepsLaterSide);
     } else {
       tab.tape.splice(pos, 0, { ch, style, t: "char" });
     }
@@ -182,19 +183,57 @@ function insertTextCore(tab: TabState, idx: number, text: string, ctx: EmulateCo
   }
 }
 
+/** Finds the start of the paragraph containing tape position `pos`: the position right after the nearest preceding structural boundary (a newline, table/TOC/section marker, or the start of the tape). */
+function paragraphStartBefore(tape: TapeCell[], pos: number): number {
+  const boundaries: ReadonlySet<TapeCell["t"]> = new Set([
+    "nl",
+    "sectionBreak",
+    "tableStart",
+    "rowStart",
+    "cellStart",
+    "tableEnd",
+    "tocStart",
+    "tocEnd",
+  ]);
+  let i = pos;
+  while (i > 0 && !boundaries.has(tape[i - 1].t)) i--;
+  return i;
+}
+
 /**
- * Splits the paragraph containing tape position `pos` by inserting a fresh `nl` cell there: a copy
- * of the containing paragraph's style/bullet (minting a new heading id if it was a heading), while
- * the original (later) `nl` cell is left untouched and keeps its identity (G3 F6, reused by
- * insertPageBreak/insertSectionBreak/insertTable, which all split a paragraph before inserting).
+ * Splits the paragraph containing tape position `pos` by inserting a fresh `nl` cell there, copying
+ * the containing paragraph's style/bullet. Identity (headingId) is content-based, not
+ * position-based (G3 F6, corrected): it stays with whichever side contains the first character of
+ * the paragraph's *original* (pre-this-request) content.
+ * - `originalKeepsLaterSide` true (nothing original precedes the whole insertion, i.e. it starts
+ *   exactly at the paragraph's own original start — the "prepend" case, C03): the new `nl` at `pos`
+ *   gets a freshly minted id; the original (later) `nl` cell is untouched, keeping its original id.
+ * - `originalKeepsLaterSide` false (some original content precedes — covers both a genuine
+ *   mid-paragraph split, C02, and an append at the paragraph's own end−1, C04): the new `nl` at
+ *   `pos` instead gets the *original* identity (copied as-is); the original `nl` cell (now the
+ *   later fragment's terminator) gets a freshly minted id instead.
+ * Reused by insertPageBreak/insertSectionBreak/insertTable, which all split a paragraph before
+ * inserting; C18/C19/C23/C24 (G3 M5) still need to confirm they follow the same rule.
  */
-export function paragraphSplitAt(tab: TabState, pos: number, style: JsonObject, ctx: EmulateContext): void {
+export function paragraphSplitAt(
+  tab: TabState,
+  pos: number,
+  style: JsonObject,
+  ctx: EmulateContext,
+  originalKeepsLaterSide: boolean,
+): void {
   let j = pos;
   while (tab.tape[j]?.t !== "nl") j++;
   const originalNl = tab.tape[j] as Extract<TapeCell, { t: "nl" }>;
-  const newPara: NlPara = structuredClone(originalNl.para);
-  if (newPara.headingId) newPara.headingId = mintHeadingId(ctx);
-  tab.tape.splice(pos, 0, { para: newPara, style, t: "nl" });
+  if (originalKeepsLaterSide) {
+    const newPara: NlPara = structuredClone(originalNl.para);
+    if (newPara.headingId) newPara.headingId = mintHeadingId(ctx);
+    tab.tape.splice(pos, 0, { para: newPara, style, t: "nl" });
+  } else {
+    const earlierPara: NlPara = structuredClone(originalNl.para);
+    tab.tape.splice(pos, 0, { para: earlierPara, style, t: "nl" });
+    if (originalNl.para.headingId) originalNl.para = { ...originalNl.para, headingId: mintHeadingId(ctx) };
+  }
 }
 
 /** Validates that `idx` names a position inside a paragraph (F5): not past the segment end, and not on a structural marker or atom continuation. */
@@ -501,8 +540,9 @@ function insertPageBreakRequestApply(state: EmulatorState, req: JsonObject, ctx:
   const idx = location.index as number;
   insertPositionValidate(tab, idx, ctx);
   const style = styleForInsertAt(tab.tape, idx);
+  const originalKeepsLaterSide = idx === paragraphStartBefore(tab.tape, idx);
   tab.tape.splice(idx, 0, { raw: { pageBreak: {} }, span: 1, style, t: "atom" });
-  paragraphSplitAt(tab, idx + 1, style, ctx);
+  paragraphSplitAt(tab, idx + 1, style, ctx, originalKeepsLaterSide);
   return {};
 }
 
@@ -513,7 +553,8 @@ function insertSectionBreakRequestApply(state: EmulatorState, req: JsonObject, c
   const idx = location.index as number;
   insertPositionValidate(tab, idx, ctx);
   const style = styleForInsertAt(tab.tape, idx);
-  paragraphSplitAt(tab, idx, style, ctx);
+  const originalKeepsLaterSide = idx === paragraphStartBefore(tab.tape, idx);
+  paragraphSplitAt(tab, idx, style, ctx, originalKeepsLaterSide);
   const sectionType = (req.sectionType as string | undefined) ?? "CONTINUOUS";
   tab.tape.splice(idx + 1, 0, { raw: { sectionStyle: { sectionType } }, t: "sectionBreak" });
   return {};
@@ -576,8 +617,9 @@ function insertTableRequestApply(state: EmulatorState, req: JsonObject, ctx: Emu
   const idx = location.index as number;
   insertPositionValidate(tab, idx, ctx);
   const style = styleForInsertAt(tab.tape, idx);
+  const originalKeepsLaterSide = idx === paragraphStartBefore(tab.tape, idx);
   insertTable(tab, idx, req.rows as number, req.columns as number, style, (pos) =>
-    paragraphSplitAt(tab, pos, style, ctx),
+    paragraphSplitAt(tab, pos, style, ctx, originalKeepsLaterSide),
   );
   return {};
 }

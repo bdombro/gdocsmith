@@ -336,19 +336,17 @@ function resultBuild(
 
   // Build docs
   const docs: RunDoc[] = [];
-  const aliasByDocHandle = new Map<DocHandle, string>();
-  for (const [alias, handle] of aliases) aliasByDocHandle.set(handle, alias);
 
   for (const [, handle] of aliases) {
     const realId = txResult.dryRun ? handle.docId : (txResult.newIds.docs[handle.docId] ?? handle.docId);
     const tabs = handle.tabs().map((t) => ({ id: t.tabId, title: t.title }));
     docs.push({
-      alias: handle.alias,
-      created: handle.isNew,
+      ...(handle.alias ? { alias: handle.alias } : {}),
+      ...(handle.isNew ? { created: true } : {}),
       id: realId,
       tabs,
       title: handle.title(),
-      url: realId.startsWith("new:") ? undefined : `https://docs.google.com/document/d/${realId}/edit`,
+      ...(realId.startsWith("new:") ? {} : { url: `https://docs.google.com/document/d/${realId}/edit` }),
     });
   }
 
@@ -359,7 +357,7 @@ function resultBuild(
         id: d.docId,
         tabs: [{ id: d.tabId, title: d.tabTitle }],
         title: d.tabTitle,
-        url: d.docId.startsWith("new:") ? undefined : `https://docs.google.com/document/d/${d.docId}/edit`,
+        ...(d.docId.startsWith("new:") ? {} : { url: `https://docs.google.com/document/d/${d.docId}/edit` }),
       });
     }
   }
@@ -386,12 +384,12 @@ function resultBuild(
     }
 
     return {
-      created,
-      data: outcome.data,
-      files: outcome.files,
+      ...(created ? { created } : {}),
+      ...(outcome.data !== undefined ? { data: outcome.data } : {}),
+      ...(outcome.files ? { files: outcome.files } : {}),
       kind: step.kind,
-      outline: outcome.outline,
-      replaced: outcome.replaced,
+      ...(outcome.outline !== undefined ? { outline: outcome.outline } : {}),
+      ...(outcome.replaced !== undefined ? { replaced: outcome.replaced } : {}),
     };
   });
 

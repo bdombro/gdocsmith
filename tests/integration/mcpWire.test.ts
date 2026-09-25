@@ -17,6 +17,7 @@ interface JsonRpcResponse {
   result?: {
     capabilities?: Record<string, unknown>;
     content?: Array<{ text?: string; type: string }>;
+    instructions?: string;
     isError?: boolean;
     protocolVersion?: string;
     resources?: Array<{
@@ -203,6 +204,7 @@ describe("MCP JSON-RPC wire integration", () => {
         expect(typeof res.result?.serverInfo?.version).toBe("string");
         expect(res.result?.capabilities?.tools).toBeDefined();
         expect(res.result?.capabilities?.resources).toBeDefined();
+        expect(res.result?.instructions).toContain("gdocsmith skill");
       });
 
       test("notifications/initialized is handled without generating a response", async () => {
@@ -246,16 +248,13 @@ describe("MCP JSON-RPC wire integration", () => {
         expect(statusTool?.outputSchema).toBeDefined();
 
         const runTool = tools?.find((t) => t.name === "run");
-        expect(runTool?.description).toContain("Google Docs workflow");
-        expect(runTool?.description).toContain("Surgical targeting");
+        expect(runTool?.description).toContain("Read and edit Google Docs");
+        expect(runTool?.description?.length ?? 0).toBeLessThanOrEqual(1_800);
         expect(runTool?.inputSchema).toBeDefined();
         expect(runTool?.inputSchema?.type).toBe("object");
 
         const inputProps = runTool?.inputSchema?.properties as Record<string, unknown> | undefined;
-        expect(inputProps?.steps).toBeDefined();
-        expect(inputProps?.dryRun).toBeDefined();
-        expect(inputProps?.force).toBeDefined();
-        expect(inputProps?.quiet).toBeDefined();
+        expect(Object.keys(inputProps ?? {}).sort()).toEqual(["dryRun", "steps"]);
 
         expect(runTool?.outputSchema).toBeDefined();
       });
@@ -280,6 +279,10 @@ describe("MCP JSON-RPC wire integration", () => {
         const readmeResMeta = resources?.find((r) => r.uri === "gdocsmith://docs/readme");
         expect(readmeResMeta).toBeDefined();
         expect(readmeResMeta?.mimeType).toBe("text/markdown");
+
+        const skillResMeta = resources?.find((r) => r.uri === "gdocsmith://docs/skill");
+        expect(skillResMeta).toBeDefined();
+        expect(skillResMeta?.mimeType).toBe("text/markdown");
 
         // Read the readme resource
         const readId = nextId++;
@@ -331,7 +334,16 @@ describe("MCP JSON-RPC wire integration", () => {
         expect(res.id).toBe(id);
         expect(res.result?.isError).toBeFalsy();
         expect(res.result?.structuredContent?.ok).toBe(true);
-        expect(res.result?.structuredContent?.stepsCount).toBe(0);
+        expect(Object.keys(res.result?.structuredContent ?? {}).sort()).toEqual([
+          "diff",
+          "docs",
+          "dryRun",
+          "ok",
+          "phases",
+          "steps",
+          "warnings",
+        ]);
+        expect(res.result?.structuredContent?.steps).toEqual([]);
       });
 
       test("tools/call executes run with dryRun and empty steps", async () => {
@@ -352,7 +364,33 @@ describe("MCP JSON-RPC wire integration", () => {
         expect(res.id).toBe(id);
         expect(res.result?.isError).toBeFalsy();
         expect(res.result?.structuredContent?.ok).toBe(true);
-        expect(res.result?.structuredContent?.stepsCount).toBe(0);
+        expect(res.result?.structuredContent?.dryRun).toBe(true);
+        expect(res.result?.structuredContent?.steps).toEqual([]);
+      });
+
+      test("tools/call creates and writes in a dry run", async () => {
+        const id = nextId++;
+        const res = await client.request({
+          id,
+          jsonrpc: "2.0",
+          method: "tools/call",
+          params: {
+            arguments: {
+              dryRun: true,
+              steps: [
+                { action: "create", as: "d", kind: "doc", title: "Hello document" },
+                { append: true, doc: "d", kind: "write", markdown: "Hello" },
+              ],
+            },
+            name: "run",
+          },
+        });
+
+        expect(res.id).toBe(id);
+        expect(res.result?.isError).toBeFalsy();
+        expect(res.result?.structuredContent?.diff).toMatchObject({
+          text: expect.stringContaining("Hello"),
+        });
       });
 
       test("tools/call returns JSON-RPC error for unknown tool", async () => {
@@ -412,7 +450,7 @@ describe("MCP JSON-RPC wire integration", () => {
         expect(errorText).toContain('unknown kind "invalidStepKind"');
       });
 
-      test("tools/call returns MCP error frame when step references unopened doc", async () => {
+      test("tools/call returns MCP error frame for an invalid step rule", async () => {
         const id = nextId++;
         const res = await client.request({
           id,
@@ -420,7 +458,7 @@ describe("MCP JSON-RPC wire integration", () => {
           method: "tools/call",
           params: {
             arguments: {
-              steps: [{ doc: "test-doc-id", kind: "replaceSection", markdown: "hello", nodeAt: "h.intro" }],
+              steps: [{ append: true, doc: "document-12345678901234567890", kind: "write" }],
             },
             name: "run",
           },
@@ -429,7 +467,42 @@ describe("MCP JSON-RPC wire integration", () => {
         expect(res.id).toBe(id);
         expect(res.result?.isError).toBe(true);
         const errorText = res.result?.content?.[0]?.text ?? "";
-        expect(errorText).toContain('Document "test-doc-id" is not open or was closed');
+        expect(errorText).toContain("Invalid steps (1):");
+        expect(errorText).toContain("set exactly one of markdown, markdownFile, from");
+      });
+
+      test("tools/call reports unknown aliases and schema mistakes concisely", async () => {
+        const id = nextId++;
+        const aliasRes = await client.request({
+          id,
+          jsonrpc: "2.0",
+          method: "tools/call",
+          params: {
+            arguments: {
+              steps: [{ doc: "unknown", kind: "query" }],
+            },
+            name: "run",
+          },
+        });
+        expect(aliasRes.result?.isError).toBe(true);
+        expect(aliasRes.result?.content?.[0]?.text ?? "").toContain("unknown doc alias");
+
+        const typoId = nextId++;
+        const typoRes = await client.request({
+          id: typoId,
+          jsonrpc: "2.0",
+          method: "tools/call",
+          params: {
+            arguments: {
+              steps: [{ append: true, doc: "unknown", kind: "write", markdwn: "Hello" }],
+            },
+            name: "run",
+          },
+        });
+        expect(typoRes.result?.isError).toBe(true);
+        const typoText = typoRes.result?.content?.[0]?.text ?? "";
+        expect(typoText).toContain('unknown property "markdwn"');
+        expect(typoText.split("\n").length).toBeLessThanOrEqual(3);
       });
 
       test("protocol returns JSON-RPC error for unsupported jsonrpc version", async () => {
@@ -447,24 +520,15 @@ describe("MCP JSON-RPC wire integration", () => {
         expect(res.error?.message).toContain("Invalid Request");
       });
 
-      test("tools/call surfaces multi-line errors in full", async () => {
+      test("tools/call lists the ten accepted kinds for a mistyped kind", async () => {
         const id = nextId++;
-        const overmatchMarkdown = Array.from(
-          { length: 400 },
-          (_, i) => `- zz item ${i} lorem ipsum dolor sit amet`,
-        ).join("\n");
         const res = await client.request({
           id,
           jsonrpc: "2.0",
           method: "tools/call",
           params: {
             arguments: {
-              dryRun: true,
-              steps: [
-                { as: "d", kind: "docCreate", title: "Overmatch" },
-                { doc: "d", kind: "markdownInsert", markdown: overmatchMarkdown },
-                { as: "q", contains: "zz", doc: "d", full: true, kind: "query", output: "nodes" },
-              ],
+              steps: [{ kind: "wirte" }],
             },
             name: "run",
           },
@@ -473,8 +537,8 @@ describe("MCP JSON-RPC wire integration", () => {
         expect(res.id).toBe(id);
         expect(res.result?.isError).toBe(true);
         const errorText = res.result?.content?.[0]?.text ?? "";
-        expect(errorText).toContain("is an unanchored substring match");
-        expect(errorText.split("\n").length).toBeGreaterThanOrEqual(3);
+        expect(errorText).toContain('unknown kind "wirte"');
+        expect(errorText).toContain("doc, edit, page, query, remove, share, style, tab, table, write");
       });
     });
   }

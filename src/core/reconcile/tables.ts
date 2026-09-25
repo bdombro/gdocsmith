@@ -18,6 +18,9 @@ import { type ReconcileContext, type RequestOrigin, requestPush } from "./contex
 /** Cell-style fields merges own (sent as merge requests, never as style). */
 const SPAN_FIELDS = ["columnSpan", "rowSpan"];
 
+/** Spans of a new (never merged) cell. */
+const UNMERGED = { columnSpan: 1, rowSpan: 1 };
+
 /** Row-style fields `pinTableHeaderRows` owns. */
 const HEADER_FIELDS = ["tableHeader"];
 
@@ -66,8 +69,9 @@ export function tableNewEmit(
 }
 
 /**
- * Reconciles a kept table in the D20 order: (1) kept cells' content, last first; (2) row, then column,
- * deletes from the end; (3) row, then column, inserts from the start; (4) new cells filled, last first;
+ * Reconciles a kept table in the D20 order: (1) kept cells' content, last first; (2)+(3) rows, then
+ * columns: deletes from the end, then inserts from the start (appending first when none survive);
+ * (4) new cells filled, last first;
  * (5) merges and unmerges; (6) styles, against a simulation of what the API copied into new rows and
  * columns (F20).
  */
@@ -99,53 +103,60 @@ export function tableReconcile(
       if (oc !== undefined) cellReconcile(o.rows[or].cells[oc], f.rows[r].cells[c]);
     }
   }
-  // (2) deletes from the end
-  for (let r = o.rows.length - 1; r >= 0; r--) {
-    if (!keptRows.has(o.rows[r].key))
-      requestPush(ctx, RequestBuilder.deleteTableRow({ rowIndex: r, tabId: ctx.tabId, tableStart }), origin);
-  }
-  for (let c = o.columns.length - 1; c >= 0; c--) {
-    if (!keptColumns.has(o.columns[c].key)) {
-      requestPush(ctx, RequestBuilder.deleteTableColumn({ columnIndex: c, tabId: ctx.tabId, tableStart }), origin);
-    }
-  }
-  // Simulated API state after the deletes.
-  const keptOIndexes = o.columns.map((col, c) => (keptColumns.has(col.key) ? c : -1)).filter((c) => c >= 0);
+  // (2)+(3) rows, then columns: deletes from the end, then inserts from the start, simulating what the API holds.
+  // When nothing survives, new ones are appended first (the API can't delete every row or column).
   const state: TableState = {
-    columns: keptOIndexes.map((c) => o.columns[c].props),
-    rows: o.rows
-      .filter((row) => keptRows.has(row.key))
-      .map((row) => ({ cells: keptOIndexes.map((c) => row.cells[c].style), style: row.style })),
+    columns: o.columns.map((col) => col.props),
+    rows: o.rows.map((row) => ({ cells: row.cells.map((cell) => cell.style), style: row.style })),
   };
-  // (3) inserts from the start
-  f.rows.forEach((row, r) => {
-    if (keptRows.has(row.key)) return;
-    const below = r > 0;
+  const rowInsert = (at: number, below: boolean) => {
+    const refIndex = below ? at - 1 : at;
     requestPush(
       ctx,
-      RequestBuilder.insertTableRow({ insertBelow: below, rowIndex: below ? r - 1 : 0, tabId: ctx.tabId, tableStart }),
+      RequestBuilder.insertTableRow({ insertBelow: below, rowIndex: refIndex, tabId: ctx.tabId, tableStart }),
       origin,
     );
-    const ref = state.rows[below ? r - 1 : 0];
-    state.rows.splice(r, 0, { cells: ref.cells.map((s) => ({ ...s })), style: { ...ref.style } });
-  });
-  f.columns.forEach((col, c) => {
-    if (keptColumns.has(col.key)) return;
-    const right = c > 0;
+    const ref = state.rows[refIndex];
+    state.rows.splice(at, 0, { cells: ref.cells.map((style) => ({ ...style, ...UNMERGED })), style: { ...ref.style } });
+  };
+  const rowDelete = (r: number) => {
+    requestPush(ctx, RequestBuilder.deleteTableRow({ rowIndex: r, tabId: ctx.tabId, tableStart }), origin);
+    state.rows.splice(r, 1);
+  };
+  if (keptRows.size) {
+    for (let r = o.rows.length - 1; r >= 0; r--) if (!keptRows.has(o.rows[r].key)) rowDelete(r);
+    f.rows.forEach((row, r) => {
+      if (!keptRows.has(row.key)) rowInsert(r, r > 0);
+    });
+  } else {
+    for (let r = 0; r < f.rows.length; r++) rowInsert(state.rows.length, true);
+    for (let r = o.rows.length - 1; r >= 0; r--) rowDelete(r);
+  }
+  const columnInsert = (at: number, right: boolean) => {
+    const refIndex = right ? at - 1 : at;
     requestPush(
       ctx,
-      RequestBuilder.insertTableColumn({
-        columnIndex: right ? c - 1 : 0,
-        insertRight: right,
-        tabId: ctx.tabId,
-        tableStart,
-      }),
+      RequestBuilder.insertTableColumn({ columnIndex: refIndex, insertRight: right, tabId: ctx.tabId, tableStart }),
       origin,
     );
-    const refIndex = right ? c - 1 : 0;
-    state.columns.splice(c, 0, { ...(state.columns[refIndex] ?? {}) });
-    for (const row of state.rows) row.cells.splice(c, 0, { ...(row.cells[refIndex] ?? TABLE_CELL_STYLE_DEFAULT) });
-  });
+    state.columns.splice(at, 0, { ...(state.columns[refIndex] ?? {}) });
+    for (const row of state.rows)
+      row.cells.splice(at, 0, { ...(row.cells[refIndex] ?? TABLE_CELL_STYLE_DEFAULT), ...UNMERGED });
+  };
+  const columnDelete = (c: number) => {
+    requestPush(ctx, RequestBuilder.deleteTableColumn({ columnIndex: c, tabId: ctx.tabId, tableStart }), origin);
+    state.columns.splice(c, 1);
+    for (const row of state.rows) row.cells.splice(c, 1);
+  };
+  if (keptColumns.size) {
+    for (let c = o.columns.length - 1; c >= 0; c--) if (!keptColumns.has(o.columns[c].key)) columnDelete(c);
+    f.columns.forEach((col, c) => {
+      if (!keptColumns.has(col.key)) columnInsert(c, c > 0);
+    });
+  } else {
+    for (let c = 0; c < f.columns.length; c++) columnInsert(state.columns.length, true);
+    for (let c = o.columns.length - 1; c >= 0; c--) columnDelete(c);
+  }
   // (4) new cells, last first, at their positions in the current (final-shaped) table
   const newCells: Array<{ cell: CellModel; start: number }> = [];
   let pos = tableStart + 1;

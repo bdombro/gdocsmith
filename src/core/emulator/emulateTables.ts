@@ -86,7 +86,10 @@ export function insertTableRow(tab: TabState, tableStart: number, rowIndex: numb
   const cells: TapeCell[] = [{ style: structuredClone(refRowCell.style), t: "rowStart" }];
   for (const cellPos of refRow.cells) {
     const refCellCell = tab.tape[cellPos.start] as Extract<TapeCell, { t: "cellStart" }>;
-    cells.push({ style: structuredClone(refCellCell.style), t: "cellStart" }, cellParagraphLike(tab.tape, cellPos));
+    cells.push(
+      { style: { ...structuredClone(refCellCell.style), columnSpan: 1, rowSpan: 1 }, t: "cellStart" },
+      cellParagraphLike(tab.tape, cellPos),
+    );
   }
   tab.tape.splice(insertAt, 0, ...cells);
 }
@@ -103,7 +106,7 @@ export function insertTableColumn(tab: TabState, tableStart: number, columnIndex
     tab.tape.splice(
       insertAt,
       0,
-      { style: structuredClone(refCellCell.style), t: "cellStart" },
+      { style: { ...structuredClone(refCellCell.style), columnSpan: 1, rowSpan: 1 }, t: "cellStart" },
       cellParagraphLike(tab.tape, refCellPos),
     );
   }

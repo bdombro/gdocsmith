@@ -127,13 +127,21 @@ function gapReconcile(
     split--;
   const head = inserted.slice(0, split);
   const tail = inserted.slice(split);
-  if (tail.length && beforePos !== undefined) streamInsert(tail, { inherit: qF, kind: "before", pos: beforePos }, ctx);
+  // What splitting Q copies: its bullet as the content pass left it (the bullet pass runs later).
+  const qNow = qF && { ...qF, bullet: ctx.bulletsNow.has(qF.key) ? ctx.bulletsNow.get(qF.key) : qF.bullet };
+  if (tail.length && beforePos !== undefined)
+    streamInsert(tail, { inherit: qNow, kind: "before", pos: beforePos }, ctx);
   if (!head.length) return undefined;
   const hasStructure = head.some((b) => b.kind !== "paragraph");
   const first = head[0];
   const joinsA = aO?.bullet && first.kind === "paragraph" && bulletSame(first.bullet, aO.bullet);
-  if (beforePos !== undefined && (!aO || hasStructure || !(protectedNewline || joinsA))) {
-    streamInsert(head, { inherit: qF, kind: "before", pos: beforePos }, ctx);
+  // After A, the stream can't end in a page break (the API would leave an empty paragraph after it).
+  const endsInPageBreak = (() => {
+    const lastBlock = head[head.length - 1];
+    return lastBlock.kind === "paragraph" && pageBreakParagraphIs(lastBlock);
+  })();
+  if (beforePos !== undefined && (!aO || hasStructure || endsInPageBreak || !(protectedNewline || joinsA))) {
+    streamInsert(head, { inherit: qNow, kind: "before", pos: beforePos }, ctx);
   } else if (aO && !hasStructure) {
     streamInsert(head, { inherit: aO, kind: "after", pos: originOf(aO).end - 1 }, ctx);
   } else if (aO) {

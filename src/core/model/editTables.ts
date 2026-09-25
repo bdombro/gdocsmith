@@ -159,7 +159,7 @@ export function columnsDelete(
   table.stamp = target.ctx.stamp;
 }
 
-/** Merges a rectangle into its top-left cell; every other cell must be empty (`mergeNonEmpty`, D20). Merged rows get the API's 21pt minimum height (F21). */
+/** Merges a rectangle into its top-left cell; every other cell must be blank (one empty, unbulleted NORMAL_TEXT paragraph; `mergeNonEmpty`, D20). Merged rows get the API's 21pt minimum height (F21). */
 export function cellsMerge(
   /** Tab being edited. */
   target: EditTarget,
@@ -172,7 +172,11 @@ export function cellsMerge(
   const cells = rangeCells(table, range);
   if (cells.length < 2) throw new CoreError("internal", "a merge needs at least two cells");
   for (const { cell } of cells.slice(1)) {
-    if (cell.blocks.some((p) => p.inlines.length > 0) || cell.blocks.length > 1) {
+    const [only] = cell.blocks;
+    const namedStyleType = (only?.style.namedStyleType as string | undefined) ?? "NORMAL_TEXT";
+    const blank =
+      cell.blocks.length === 1 && only.inlines.length === 0 && !only.bullet && namedStyleType === "NORMAL_TEXT";
+    if (!blank) {
       throw new CoreError(
         "mergeNonEmpty",
         "only the top-left cell of a merge may have content; empty the others first",
@@ -343,7 +347,8 @@ function cellLike(target: EditTarget, ref: CellModel | undefined): CellModel {
   const paragraphStyle = ref?.blocks.at(-1)?.style ?? TABLE_CELL_PARAGRAPH_STYLE_DEFAULT;
   return cellCreate(
     target,
-    structuredClone(ref?.style ?? TABLE_CELL_STYLE_DEFAULT),
+    // A new cell is never merged, whatever its reference is (F20 copies the rest of the style).
+    { ...structuredClone(ref?.style ?? TABLE_CELL_STYLE_DEFAULT), columnSpan: 1, rowSpan: 1 },
     structuredClone(paragraphStyle),
     [],
   );

@@ -232,6 +232,9 @@ function bulletableAssert(paragraph: ParagraphBlock): void {
   if (headingStyleIs(paragraph.style.namedStyleType as string | undefined)) {
     throw new CoreError("headingBullet", "headings can't be list items; lists are NORMAL_TEXT paragraphs");
   }
+  if (paragraph.inlines.some((i) => i.kind === "atom" && i.type === "pageBreak")) {
+    throw new CoreError("invalidAtom", "a page break can't be a list item");
+  }
   if (paragraph.inlines.length === 0) {
     throw new CoreError("listItemEmpty", "an empty list item can swallow the next heading; give it visible text");
   }

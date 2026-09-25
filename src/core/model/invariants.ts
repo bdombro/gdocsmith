@@ -33,8 +33,12 @@ export function containerValidate(
 }
 
 /**
- * Fixes any V1/V2 violation by inserting a brand-new empty `NORMAL_TEXT` paragraph (stamped with
- * `stamp`) wherever one is required; a valid sequence is returned unchanged (by value).
+ * Fixes any structural violation by inserting a brand-new empty `NORMAL_TEXT` paragraph (stamped with
+ * `stamp`) wherever one is required; a valid sequence is returned unchanged (by value):
+ * V1 the container ends with a paragraph; V2 every table/TOC/section break follows a paragraph;
+ * S1 every *new* table/section break follows a *new* paragraph without a page break (the API inserts
+ * structure at a paragraph start and splits off an empty paragraph the new one fills); P2 every *new*
+ * page-break paragraph is followed by a paragraph (the API can't end a run of inserts with one).
  */
 export function containerNormalize(
   /** Blocks to normalize, in order. */
@@ -46,15 +50,19 @@ export function containerNormalize(
 ): Block[] {
   const out: Block[] = [];
   for (const block of blocks) {
-    if (
-      (block.kind === "table" || block.kind === "toc" || block.kind === "sectionBreak") &&
-      out.at(-1)?.kind !== "paragraph"
-    ) {
-      out.push(paragraphEmptyCreate(keys, undefined, stamp));
-    }
+    const prev = out.at(-1);
+    const structure = block.kind === "table" || block.kind === "toc" || block.kind === "sectionBreak";
+    const needsNewBefore = structure && block.kind !== "toc" && block.key.startsWith("n");
+    const prevOk = needsNewBefore
+      ? prev?.kind === "paragraph" && prev.key.startsWith("n") && !pageBreakParagraphIs(prev)
+      : prev?.kind === "paragraph" && !(structure && pageBreakParagraphIs(prev) && prev.key.startsWith("n"));
+    if (structure && !prevOk) out.push(paragraphEmptyCreate(keys, undefined, stamp));
     out.push(block);
   }
-  if (out.at(-1)?.kind !== "paragraph") out.push(paragraphEmptyCreate(keys, undefined, stamp));
+  const last = out.at(-1);
+  if (last?.kind !== "paragraph" || (pageBreakParagraphIs(last) && last.key.startsWith("n"))) {
+    out.push(paragraphEmptyCreate(keys, undefined, stamp));
+  }
   return out;
 }
 
@@ -88,4 +96,14 @@ export function blockInvisibleIs(
   if (block.inlines.length > 0) return false;
   const namedStyleType = block.style.namedStyleType as string | undefined;
   return namedStyleType === undefined || namedStyleType === "NORMAL_TEXT";
+}
+
+/** True for a paragraph holding only a page break. */
+function pageBreakParagraphIs(block: Block): boolean {
+  return (
+    block.kind === "paragraph" &&
+    block.inlines.length === 1 &&
+    block.inlines[0].kind === "atom" &&
+    block.inlines[0].type === "pageBreak"
+  );
 }

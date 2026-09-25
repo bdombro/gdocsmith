@@ -106,6 +106,7 @@ export function paragraphsInsert(
 ): string[] {
   const blocks = containerOf(target.tab, ref);
   if (index < 0 || index > blocks.length) throw new CoreError("internal", `insert index ${index} is out of range`);
+  if (!("kind" in ref)) coveredCellRefuse(target.tab, ref.cellKey);
   const created = specs.map((spec) => {
     const paragraph = paragraphEmptyCreate(target.ctx.keys, spec.style ? { ...spec.style } : {}, target.ctx.stamp);
     if (spec.bullet) paragraph.bullet = { ...spec.bullet };
@@ -156,6 +157,12 @@ export function paragraphSplice(
   insert: readonly SymSpec[],
 ): void {
   const paragraph = paragraphRequire(target.tab, key);
+  if (paragraph.inlines.some((i) => i.kind === "atom" && i.type === "pageBreak" && i.create)) {
+    throw new CoreError("invalidAtom", "a new page break is its own paragraph; put text in the paragraph after it");
+  }
+  const location = blockFind(target.tab, key);
+  if (location && !("kind" in location.container) && insert.length)
+    coveredCellRefuse(target.tab, location.container.cellKey);
   const syms = paragraphSymbols(paragraph);
   if (at < 0 || deleteCount < 0 || at + deleteCount > syms.length) {
     throw new CoreError(
@@ -231,6 +238,8 @@ export function paragraphStyleUpdate(
 ): void {
   if ("headingId" in patch) throw new CoreError("internal", "headingId is read-only");
   const paragraph = paragraphRequire(target.tab, key);
+  const location = blockFind(target.tab, key);
+  if (location && !("kind" in location.container)) coveredCellRefuse(target.tab, location.container.cellKey);
   const wasHeading = headingStyleIs(paragraph.style.namedStyleType as string | undefined);
   paragraph.style = stylePatchApply(paragraph.style, patch);
   const isHeading = headingStyleIs(paragraph.style.namedStyleType as string | undefined);
@@ -268,6 +277,30 @@ export function symbolsFromSpecs(
   inherited: JsonObject,
 ): Sym[] {
   return specs.flatMap((spec) => symsFromSpec(ctx, spec, inherited));
+}
+
+/** Refuses adding content to a cell hidden by a merged cell (the API would move it into the merged cell). */
+function coveredCellRefuse(tab: TabModel, cellKey: string): void {
+  for (const block of tab.blocks) {
+    if (block.kind !== "table") continue;
+    block.rows.forEach((row, r) => {
+      row.cells.forEach((cell, c) => {
+        const rowSpan = (cell.style.rowSpan as number | undefined) ?? 1;
+        const columnSpan = (cell.style.columnSpan as number | undefined) ?? 1;
+        if (rowSpan === 1 && columnSpan === 1) return;
+        for (let rr = r; rr < r + rowSpan; rr++) {
+          for (let cc = c; cc < c + columnSpan; cc++) {
+            if ((rr !== r || cc !== c) && block.rows[rr]?.cells[cc]?.key === cellKey) {
+              throw new CoreError(
+                "mergeNonEmpty",
+                "that cell is hidden by a merged cell; edit the merged cell instead",
+              );
+            }
+          }
+        }
+      });
+    });
+  }
 }
 
 /** The paragraph with `key`, or a `CoreError`. */

@@ -12,7 +12,8 @@ import { type ReconcileContext, type RequestOrigin, requestPush } from "./contex
 /** Options for `paragraphReconcile`. */
 export interface ParagraphReconcileOptions {
   /** Send the full paragraph-style mask even for unchanged fields (a merge survivor whose state must be rewritten). */ forceFullStyle?: boolean;
-  /** Leave bullets to the list reconciler (M10). */ skipBullets?: boolean;
+  /** Paragraph-style fields a later pass sets (e.g. indents, when the bullet pass changes membership). */ skipFields?: readonly string[];
+  /** Leave bullets to the bullet pass. */ skipBullets?: boolean;
 }
 
 /**
@@ -66,9 +67,9 @@ export function paragraphReconcile(
       throw new CoreError("internal", "adding or changing bullets belongs to the list reconciler (M10)");
     }
   }
-  const fields = opts.forceFullStyle
-    ? [...PARAGRAPH_STYLE_FIELDS]
-    : styleFieldsChanged(styleBefore, f.style, PARAGRAPH_STYLE_FIELDS);
+  const fields = (
+    opts.forceFullStyle ? [...PARAGRAPH_STYLE_FIELDS] : styleFieldsChanged(styleBefore, f.style, PARAGRAPH_STYLE_FIELDS)
+  ).filter((field) => !opts.skipFields?.includes(field));
   if (fields.length) {
     const paragraphStyle = pick(f.style, fields);
     // namedStyleType can't be reset, only set (F10).

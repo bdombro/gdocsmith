@@ -1084,6 +1084,24 @@ export class RequestBuilder {
     };
   }
 
+  /** Sets (or resets) the style of table rows. */
+  static tableRowStyleUpdate(opts: {
+    fields: readonly string[];
+    rowIndices: readonly number[];
+    tabId: string;
+    tableRowStyle: Record<string, unknown>;
+    tableStart: number;
+  }): object {
+    return {
+      updateTableRowStyle: {
+        fields: opts.fields.join(","),
+        rowIndices: opts.rowIndices,
+        tableRowStyle: opts.tableRowStyle,
+        tableStartLocation: loc(opts.tableStart, undefined, opts.tabId),
+      },
+    };
+  }
+
   /** Sets (or resets) the style of every section break a range covers (a range starting at 0 is the first section). */
   static sectionStyleUpdate(
     startIndex: number,

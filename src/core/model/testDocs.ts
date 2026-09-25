@@ -39,6 +39,7 @@ export type BlockSpec =
 /** A synthetic tab. */
 export interface TabSpec {
   /** Body content blocks. */ blocks: BlockSpec[];
+  /** List definitions (Docs `lists` map), keyed by list id. */ lists?: Record<string, JsonObject>;
   /** Parent tab id, for nested tabs. */ parentTabId?: string;
   /** Tab id (defaults to `"t.0"`). */ tabId?: string;
   /** Tab title. */ title?: string;
@@ -143,7 +144,7 @@ function tabJsonBuild(spec: TabSpec, tabId: string): JsonObject {
     index = built.end;
   }
   return {
-    documentTab: { body: { content }, lists: {}, namedStyles: { styles: [] } },
+    documentTab: { body: { content }, lists: spec.lists ?? {}, namedStyles: { styles: [] } },
     tabProperties: { parentTabId: spec.parentTabId, tabId, title: spec.title ?? "" },
   };
 }

@@ -19,15 +19,23 @@ export interface PendingLink {
   /** Tab of the target heading. */ tabId: string;
 }
 
+/** A list run the plan rebuilds (unbullet, re-tab, re-bullet), giving it a new list id (D19). */
+export interface ListRebuild {
+  /** Paragraph keys in the run. */ keys: string[];
+  /** The list id the model keeps using (the real one changes). */ listId: string;
+  /** True when the list matches no preset, so the rebuild changes its look (a `listRebuild` finding). */ lossy: boolean;
+}
+
 /** One tab's reconciliation state. */
 export interface ReconcileContext {
-  /** Original-coordinate ranges deleted (for the comment and named-range guards). */ deletedRanges: Range[];
-  /** Heading identities that moved between keys. */ identityTransfers: IdentityTransfer[];
-  /** Bullet each inserted paragraph inherits from the paragraph it was split from (D17). */ inherited: Map<
+  /** Each final paragraph's list membership after the content pass (before the bullet pass). */ bulletsNow: Map<
     string,
     BulletRef | undefined
   >;
+  /** Original-coordinate ranges deleted (for the comment and named-range guards). */ deletedRanges: Range[];
+  /** Heading identities that moved between keys. */ identityTransfers: IdentityTransfer[];
   /** One origin per request. */ origins: RequestOrigin[];
+  /** List runs rebuilt with a new list id. */ listRebuilds: ListRebuild[];
   /** Links to fill in after content lands. */ pendingLinks: PendingLink[];
   /** Keys of protected (suggestion-bearing) blocks the plan changes. */ protectedTouches: string[];
   /** Requests, in send order. */ requests: JsonObject[];
@@ -40,9 +48,10 @@ export function reconcileContextCreate(
   tabId: string,
 ): ReconcileContext {
   return {
+    bulletsNow: new Map(),
     deletedRanges: [],
     identityTransfers: [],
-    inherited: new Map(),
+    listRebuilds: [],
     origins: [],
     pendingLinks: [],
     protectedTouches: [],

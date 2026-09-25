@@ -19,6 +19,8 @@ import type {
 export interface CompareOptions {
   /** Identity (`headingId`) moves the reconciler performed; the paragraph at a transfer's `toKey` is expected to carry its id. */
   identityTransfers?: readonly IdentityTransfer[];
+  /** Existing lists the reconciler rebuilt; the API gave their items a new list id. */
+  listsRebuilt?: ReadonlySet<string>;
   /** Maps an "expected" (pre-flush) tab id to the "actual" (post-flush) tab id it corresponds to, when a doc/tab was newly created. */
   tabIdMap?: ReadonlyMap<string, string>;
 }
@@ -102,7 +104,7 @@ function paragraphCompare(
 ): void {
   styleCompare(path, "style", paragraphStyleDefaulted(expected.style), paragraphStyleDefaulted(actual.style), diffs);
   headingIdCompare(path, expected, actual, opts, diffs);
-  bulletCompare(path, expected.bullet, actual.bullet, diffs);
+  bulletCompare(path, expected.bullet, actual.bullet, opts, diffs);
   styleCompare(path, "newline style", expected.newline.style, actual.newline.style, diffs);
   if (expected.inlines.length !== actual.inlines.length) {
     diffs.push(`${path}: inline count expected ${expected.inlines.length}, got ${actual.inlines.length}`);
@@ -150,6 +152,7 @@ function bulletCompare(
   path: string,
   expected: ParagraphBlock["bullet"],
   actual: ParagraphBlock["bullet"],
+  opts: CompareOptions,
   diffs: string[],
 ): void {
   if (!expected && !actual) return;
@@ -160,7 +163,8 @@ function bulletCompare(
   if (expected.nestingLevel !== actual.nestingLevel) {
     diffs.push(`${path}: bullet nestingLevel expected ${expected.nestingLevel}, got ${actual.nestingLevel}`);
   }
-  const listsRenamed = expected.listId.startsWith("new:") || actual.listId.startsWith("new:");
+  const listsRenamed =
+    expected.listId.startsWith("new:") || actual.listId.startsWith("new:") || !!opts.listsRebuilt?.has(expected.listId);
   if (!listsRenamed && expected.listId !== actual.listId) {
     diffs.push(`${path}: bullet listId expected "${expected.listId}", got "${actual.listId}"`);
   }

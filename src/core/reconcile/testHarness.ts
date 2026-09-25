@@ -10,6 +10,7 @@ import type { JsonObject } from "../model/rawJson.ts";
 import type { DocModel } from "../model/types.ts";
 import { containerReconcile } from "./container.ts";
 import { type ReconcileContext, reconcileContextCreate } from "./context.ts";
+import { bulletsReconcile } from "./lists.ts";
 
 /** What a differential run produced. */
 export interface DifferentialResult {
@@ -37,8 +38,12 @@ export function differentialRun(
   );
   const ctx = reconcileContextCreate(tab.tabId);
   containerReconcile(original.tabs[0].blocks, tab.blocks, ctx);
+  bulletsReconcile(tab, ctx);
   const json = requestsEmulate(docJson, ctx.requests).json;
   const actual = docModelParse(json, { docId: "d", keys: new KeyAllocator() });
-  const compare = docModelsCompare(final, actual, { identityTransfers: ctx.identityTransfers });
+  const compare = docModelsCompare(final, actual, {
+    identityTransfers: ctx.identityTransfers,
+    listsRebuilt: new Set(ctx.listRebuilds.map((r) => r.listId)),
+  });
   return { compare, ctx, final, json, requests: ctx.requests };
 }

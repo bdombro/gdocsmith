@@ -14,6 +14,11 @@ const TIMEOUT_MS = 180_000;
 /** Every document this suite created (deleted afterwards). */
 const scratch: string[] = [];
 
+/** Permanently deletes a scratch document after its assertions finish. */
+async function scratchDelete(id: string): Promise<void> {
+  await gwsDrive.deleteFile(id);
+}
+
 /** Runs a program live (or dry) with the real clients. */
 function live<T>(program: (s: Session) => Promise<T>, dryRun = false) {
   return transactionRun(program, { client: gws, drive: gwsDrive, dryRun, force: false });
@@ -53,7 +58,9 @@ async function getPut(docId: string): Promise<number> {
 
 afterAll(async () => {
   for (const id of scratch)
-    await gwsDrive.deleteFile(id).catch((err) => console.error(`failed to delete ${id}: ${err.message}`));
+    await scratchDelete(id).catch((err) => {
+      throw new Error(`failed to delete ${id}: ${(err as Error).message}`);
+    });
 }, TIMEOUT_MS);
 
 describe("v2 live", () => {
@@ -85,9 +92,10 @@ describe("v2 live", () => {
     "let x = *1*;",
     "```",
     "",
-    "| Name | Role |",
-    "| --- | :-: |",
-    "| Ada | Eng |",
+    "| A | B |",
+    "| --- | --- |",
+    "| 1 | 2 |",
+    "| 3 | 4 |",
     "",
     `See [the steps](<#Steps>), {{person:someone@example.com}} on {{date:2026-01-15T00:00:00Z}}, {{richlink:https://docs.google.com/document/d/${FIXTURE_DOC_ID}/edit}}.`,
     "",
@@ -95,18 +103,10 @@ describe("v2 live", () => {
   ].join("\n");
 
   test(
-    "L1: a new document from rich markdown verifies, and writing it back sends nothing",
+    "L1-L3: rich markdown round-trips, edits in place, and supports table operations",
     async () => {
-      const id = await scratchDoc("L1", RICH);
+      const id = await scratchDoc("L1-L3", RICH);
       expect(await getPut(id)).toBe(0);
-    },
-    TIMEOUT_MS,
-  );
-
-  test(
-    "L2: markdown edits keep untouched headings' ids and verify",
-    async () => {
-      const id = await scratchDoc("L2", RICH);
       let before: string[] = [];
       await live(async (s) => {
         before = (await s.docOpen(id, { forceFetch: true }))
@@ -114,7 +114,7 @@ describe("v2 live", () => {
           .outline()
           .map((o) => o.anchor);
       }, true);
-      const result = await live(async (s) => {
+      const editResult = await live(async (s) => {
         const tab = (await s.docOpen(id, { forceFetch: true })).tab();
         const md = tab.markdown().markdown;
         await tab.writeMarkdown(
@@ -126,7 +126,7 @@ describe("v2 live", () => {
           { kind: "replace", range: { kind: "tab" } },
         );
       });
-      expect(result.verification.map((v) => v.diffs ?? v.status)).toEqual(["match"]);
+      expect(editResult.verification.map((v) => v.diffs ?? v.status)).toEqual(["match"]);
       let after: string[] = [];
       await live(async (s) => {
         after = (await s.docOpen(id, { forceFetch: true }))
@@ -135,15 +135,8 @@ describe("v2 live", () => {
           .map((o) => o.anchor);
       }, true);
       expect(after[0]).toBe(before[0]);
-    },
-    TIMEOUT_MS,
-  );
 
-  test(
-    "L3: table edits in markdown and table operations",
-    async () => {
-      const id = await scratchDoc("L3", "intro\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n\nend");
-      const result = await live(async (s) => {
+      const tableResult = await live(async (s) => {
         const tab = (await s.docOpen(id, { forceFetch: true })).tab();
         const md = tab.markdown().markdown;
         await tab.writeMarkdown(
@@ -156,7 +149,7 @@ describe("v2 live", () => {
         const anchor = tab.nodes().find((n) => n.kind === "table")?.anchor as string;
         tab.table(anchor).columnWidthsSet([{ col: 0, widthPt: 90 }]);
       });
-      expect(result.verification.map((v) => v.diffs ?? v.status)).toEqual(["match"]);
+      expect(tableResult.verification.map((v) => v.diffs ?? v.status)).toEqual(["match"]);
     },
     TIMEOUT_MS,
   );
@@ -182,9 +175,9 @@ describe("v2 live", () => {
   );
 
   test(
-    "L5: tabs (create from, rename, move, delete) and page setup",
+    "L5-L6: tabs, page setup, and same-run heading links",
     async () => {
-      const id = await scratchDoc("L5", "main text");
+      const id = await scratchDoc("L5-L6", "main text");
       const result = await live(async (s) => {
         const doc = await s.docOpen(id, { forceFetch: true });
         const main = doc.tab("Tab 1");
@@ -200,30 +193,23 @@ describe("v2 live", () => {
         doc.tab("Scratch").delete();
       });
       expect(second.verification.map((v) => v.diffs ?? v.status)).toEqual(["match"]);
-    },
-    TIMEOUT_MS,
-  );
 
-  test(
-    "L6: links to headings created in the same run (same tab and another tab)",
-    async () => {
-      const id = await scratchDoc("L6", "start");
-      const result = await live(async (s) => {
+      const links = await live(async (s) => {
         const doc = await s.docOpen(id, { forceFetch: true });
         await doc.tab("Tab 1").writeMarkdown("# Fresh Heading\n\nSee [it](<#Fresh Heading>).", { kind: "append" });
         const other = doc.tabCreate({ title: "Other" });
         await other.writeMarkdown("# Over Here\n\n[back](<#Over Here>)", { kind: "append" });
       });
-      expect(result.verification.every((v) => v.status === "match")).toBe(true);
-      expect(Object.keys(result.newIds.headings).length).toBeGreaterThanOrEqual(2);
+      expect(links.verification.every((v) => v.status === "match")).toBe(true);
+      expect(Object.keys(links.newIds.headings).length).toBeGreaterThanOrEqual(2);
     },
     TIMEOUT_MS,
   );
 
   test(
-    "L7: an edit made between planning and sending is merged by re-running",
+    "L7-L8: concurrent edits replay and dry/live results share a shape",
     async () => {
-      const id = await scratchDoc("L7", "one\n\ntwo");
+      const id = await scratchDoc("L7-L8", "one\n\ntwo");
       let first = true;
       const result = await live(async (s) => {
         const tab = (await s.docOpen(id, { forceFetch: true })).tab();
@@ -239,14 +225,7 @@ describe("v2 live", () => {
         md = (await s.docOpen(id, { forceFetch: true })).tab().markdown({ skipFrontmatter: true }).markdown;
       }, true);
       expect(md).toBe("EXTERNAL one\n\ntwo\n\nthree\n");
-    },
-    TIMEOUT_MS,
-  );
 
-  test(
-    "L8: dry and live results have the same shape",
-    async () => {
-      const id = await scratchDoc("L8", "text");
       const program = async (s: Session) => {
         await (await s.docOpen(id, { forceFetch: true })).tab().writeMarkdown("more", { kind: "append" });
       };

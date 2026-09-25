@@ -3243,14 +3243,259 @@ function formatInstancePath(instanceLocation) {
   }
   return instanceLocation;
 }
-function formatValidationErrors(errors) {
-  return errors.map(({ instanceLocation, error }) => {
-    const path = formatInstancePath(instanceLocation);
-    return `${path}: ${error}`;
-  });
-}
 function decodeJsonPointerSegment2(segment) {
   return segment.replace(/~1/g, "/").replace(/~0/g, "~");
+}
+var WRAPPER_KEYWORDS = new Set([
+  "$ref",
+  "$recursiveRef",
+  "properties",
+  "items",
+  "prefixItems",
+  "additionalItems",
+  "allOf",
+  "anyOf",
+  "oneOf"
+]);
+function schemaAtPointer(root, keywordLocation) {
+  if (!keywordLocation.startsWith("#")) {
+    return;
+  }
+  const segments = keywordLocation.slice(1).split("/").filter((segment) => segment.length > 0).map(decodeJsonPointerSegment2);
+  let current = root;
+  for (const segment of segments) {
+    if (segment === "$ref") {
+      if (typeof current !== "object" || current === null || Array.isArray(current)) {
+        return;
+      }
+      const ref = current.$ref;
+      if (typeof ref !== "string") {
+        return;
+      }
+      current = resolveJsonPointer2(root, ref);
+      continue;
+    }
+    if (typeof current !== "object" || current === null) {
+      return;
+    }
+    current = current[segment];
+  }
+  return current;
+}
+function instanceAtPointer(data, instanceLocation) {
+  if (!instanceLocation.startsWith("#")) {
+    return;
+  }
+  const segments = instanceLocation.slice(1).split("/").filter((segment) => segment.length > 0).map(decodeJsonPointerSegment2);
+  let current = data;
+  for (const segment of segments) {
+    if (typeof current !== "object" || current === null) {
+      return;
+    }
+    current = current[segment];
+  }
+  return current;
+}
+function parentPointer(location2) {
+  const idx = location2.lastIndexOf("/");
+  if (idx < 0) {
+    return;
+  }
+  return location2.slice(0, idx) || "#";
+}
+function unionDiscriminator(branches, root) {
+  const resolvedBranches = branches.map((b) => {
+    if (typeof b !== "object" || b === null || Array.isArray(b)) {
+      return b;
+    }
+    const ref = b.$ref;
+    if (typeof ref !== "string") {
+      return b;
+    }
+    return resolveJsonPointer2(root, ref) ?? b;
+  });
+  const objectBranches = resolvedBranches.filter((b) => typeof b === "object" && b !== null && !Array.isArray(b));
+  if (objectBranches.length === 0 || objectBranches.length !== resolvedBranches.length) {
+    return;
+  }
+  const branchValuesFor = (prop) => {
+    const perBranch = [];
+    for (const branch of objectBranches) {
+      const props = branch.properties;
+      const propSchema = typeof props === "object" && props !== null && !Array.isArray(props) ? props[prop] : undefined;
+      if (!propSchema || typeof propSchema !== "object") {
+        return;
+      }
+      let values;
+      if (typeof propSchema.const === "string") {
+        values = [propSchema.const];
+      } else if (Array.isArray(propSchema.enum) && propSchema.enum.every((v) => typeof v === "string")) {
+        values = propSchema.enum;
+      }
+      if (!values || values.length === 0) {
+        return;
+      }
+      perBranch.push(values);
+    }
+    const seen = new Set;
+    for (const values of perBranch) {
+      for (const v of values) {
+        if (seen.has(v))
+          return;
+        seen.add(v);
+      }
+    }
+    return perBranch;
+  };
+  const candidateProps = new Set;
+  for (const branch of objectBranches) {
+    const props = branch.properties;
+    if (typeof props === "object" && props !== null && !Array.isArray(props)) {
+      for (const key of Object.keys(props))
+        candidateProps.add(key);
+    }
+  }
+  const eligible = [];
+  for (const prop of candidateProps) {
+    if (branchValuesFor(prop))
+      eligible.push(prop);
+  }
+  if (eligible.length === 0) {
+    return;
+  }
+  const prop = eligible.includes("kind") ? "kind" : eligible.includes("type") ? "type" : [...eligible].sort()[0];
+  return { prop, valuesByBranch: branchValuesFor(prop) };
+}
+function joinSorted(values) {
+  return [...new Set(values)].sort().join(", ");
+}
+function rewriteErrorMessage(err, root) {
+  const additionalPropsMatch = /^Property "(.+)" does not match additional properties schema\.$/.exec(err.error);
+  if (additionalPropsMatch) {
+    const name = additionalPropsMatch[1];
+    const parentLoc = parentPointer(err.keywordLocation);
+    const parentSchema = parentLoc ? schemaAtPointer(root, parentLoc) : undefined;
+    const props = parentSchema && typeof parentSchema === "object" && !Array.isArray(parentSchema) ? parentSchema.properties : undefined;
+    const keys = props && typeof props === "object" && !Array.isArray(props) ? Object.keys(props) : [];
+    const allowed = keys.sort().slice(0, 20).join(", ");
+    return `unknown property "${name}"${allowed ? ` (allowed: ${allowed})` : ""}`;
+  }
+  const requiredMatch = /^Instance does not have required property "(.+)"\.$/.exec(err.error);
+  if (requiredMatch) {
+    return `missing required property "${requiredMatch[1]}"`;
+  }
+  const enumMatch = /^Instance does not match any of (\[.*\])\.$/.exec(err.error);
+  if (enumMatch) {
+    try {
+      const values = JSON.parse(enumMatch[1]);
+      return `must be one of: ${values.map((v) => String(v)).join(", ")}`;
+    } catch {}
+  }
+  const typeMatch = /^Instance type "(.+)" is invalid\. Expected "(.+)"\.$/.exec(err.error);
+  if (typeMatch) {
+    return `must be ${typeMatch[2]} (got ${typeMatch[1]})`;
+  }
+  return err.error;
+}
+var MAX_NARROWED_ERRORS = 10;
+function narrowUnionErrors(errors, root, data) {
+  const dropped = new Set;
+  const synthetic = [];
+  const syntheticReplacedLocations = [];
+  for (const err of errors) {
+    if (err.keyword !== "anyOf" && err.keyword !== "oneOf")
+      continue;
+    const branches = schemaAtPointer(root, err.keywordLocation);
+    if (!Array.isArray(branches))
+      continue;
+    const discriminator = unionDiscriminator(branches, root);
+    if (!discriminator)
+      continue;
+    const under = errors.filter((e) => e !== err && e.keywordLocation.startsWith(`${err.keywordLocation}/`) && (e.instanceLocation === err.instanceLocation || e.instanceLocation.startsWith(`${err.instanceLocation}/`)));
+    const validValues = discriminator.valuesByBranch.flat();
+    const instance = instanceAtPointer(data, err.instanceLocation);
+    if (typeof instance !== "object" || instance === null || Array.isArray(instance)) {
+      dropped.add(err);
+      for (const e of under)
+        dropped.add(e);
+      syntheticReplacedLocations.push({ instanceLocation: err.instanceLocation, keywordLocation: err.keywordLocation });
+      synthetic.push({
+        instanceLocation: err.instanceLocation,
+        message: `expected an object with "${discriminator.prop}" (one of: ${joinSorted(validValues)})`
+      });
+      continue;
+    }
+    const propValue = instance[discriminator.prop];
+    if (propValue === undefined) {
+      dropped.add(err);
+      for (const e of under)
+        dropped.add(e);
+      syntheticReplacedLocations.push({ instanceLocation: err.instanceLocation, keywordLocation: err.keywordLocation });
+      synthetic.push({
+        instanceLocation: err.instanceLocation,
+        message: `missing "${discriminator.prop}" (expected one of: ${joinSorted(validValues)})`
+      });
+      continue;
+    }
+    const branchIndex = discriminator.valuesByBranch.findIndex((values) => typeof propValue === "string" && values.includes(propValue));
+    if (branchIndex < 0) {
+      dropped.add(err);
+      for (const e of under)
+        dropped.add(e);
+      syntheticReplacedLocations.push({ instanceLocation: err.instanceLocation, keywordLocation: err.keywordLocation });
+      synthetic.push({
+        instanceLocation: `${err.instanceLocation}/${discriminator.prop}`,
+        message: `unknown ${discriminator.prop} "${String(propValue)}" (expected one of: ${joinSorted(validValues)})`
+      });
+      continue;
+    }
+    const keepPrefix = `${err.keywordLocation}/${branchIndex}`;
+    dropped.add(err);
+    for (const e of under) {
+      if (e.keywordLocation === keepPrefix || e.keywordLocation.startsWith(`${keepPrefix}/`))
+        continue;
+      dropped.add(e);
+    }
+  }
+  const survivingAfterStage1 = errors.filter((e) => !dropped.has(e));
+  const nestsUnder = (candidateInstance, wrapperInstance) => candidateInstance === wrapperInstance || candidateInstance.startsWith(`${wrapperInstance}/`);
+  for (const err of survivingAfterStage1) {
+    if (!WRAPPER_KEYWORDS.has(err.keyword))
+      continue;
+    const prefix = `${err.keywordLocation}/`;
+    const hasDeeper = survivingAfterStage1.some((other) => other !== err && !dropped.has(other) && other.keywordLocation.startsWith(prefix) && nestsUnder(other.instanceLocation, err.instanceLocation));
+    const hasSyntheticDeeper = syntheticReplacedLocations.some((s) => s.keywordLocation.startsWith(prefix) && nestsUnder(s.instanceLocation, err.instanceLocation));
+    if (hasDeeper || hasSyntheticDeeper)
+      dropped.add(err);
+  }
+  const additionalPropsInstanceLocations = new Set(errors.filter((e) => e.keyword === "additionalProperties").map((e) => e.instanceLocation));
+  for (const err of errors) {
+    if (dropped.has(err))
+      continue;
+    if (err.keyword === "additionalProperties") {
+      const match = /^Property "(.+)" does not match additional properties schema\.$/.exec(err.error);
+      const parentLoc = parentPointer(err.keywordLocation);
+      const parentSchema = parentLoc ? schemaAtPointer(root, parentLoc) : undefined;
+      const props = match && parentSchema && typeof parentSchema === "object" && !Array.isArray(parentSchema) ? parentSchema.properties : undefined;
+      const declared = match && props && typeof props === "object" && !Array.isArray(props) ? Object.hasOwn(props, match[1]) : false;
+      if (declared)
+        dropped.add(err);
+      continue;
+    }
+    if (err.keyword === "false") {
+      const parent = parentPointer(err.instanceLocation);
+      if (parent !== undefined && additionalPropsInstanceLocations.has(parent)) {
+        dropped.add(err);
+      }
+    }
+  }
+  const kept = errors.filter((e) => !dropped.has(e)).map((e) => `${formatInstancePath(e.instanceLocation)}: ${rewriteErrorMessage(e, root)}`);
+  const syntheticFormatted = synthetic.map((s) => `${formatInstancePath(s.instanceLocation)}: ${s.message}`);
+  const all = [...syntheticFormatted, ...kept];
+  if (all.length <= MAX_NARROWED_ERRORS) {
+    return all;
+  }
+  return [...all.slice(0, MAX_NARROWED_ERRORS), `…and ${all.length - MAX_NARROWED_ERRORS} more errors`];
 }
 function resolveSchemaDraft(schema) {
   const $schema = schema.$schema;
@@ -3314,7 +3559,7 @@ function validateInstance(data, schema, root, partial, stripFrameworkKeys) {
   if (result.valid) {
     return { valid: true, errors: [] };
   }
-  return { valid: false, errors: formatValidationErrors(result.errors) };
+  return { valid: false, errors: narrowUnionErrors(result.errors, root, payload) };
 }
 function validateAgainstSchema(data, rootSchema, partial) {
   return validateInstance(data, rootSchema, rootSchema, partial, true);
@@ -5854,6 +6099,9 @@ function generateMcpGuide(root) {
     lines.push("", "Example:", "", "```typescript", "config: {", "  schema: {", '    apiToken: { description: "…", env: "API_TOKEN", sensitive: true },', "  },", "},", "```", "");
   }
   lines.push("## What agents get", "", "| Mechanism | Purpose |", "|-----------|---------|", "| `tools/list` | Callable tools for exposed leaf commands |", "| `tools/call` | Runs handlers headlessly; JSON stdout becomes `structuredContent` when valid |", `| Schema resource | \`${schemaUri}\` — same JSON as \`${root.key} docs cli-schema\` |`);
+  if (mcp.instructions) {
+    lines.push(`| \`initialize.instructions\` | ${mcp.instructions} |`);
+  }
   if (docsEnabled(root)) {
     const docs = resolveDocsConfig(root);
     for (const key of docsUserTopicKeys(docs)) {
@@ -5867,6 +6115,22 @@ function generateMcpGuide(root) {
   } else {
     for (const tool of tools) {
       lines.push(formatToolLine(root, tool));
+    }
+    lines.push("");
+  }
+  const sizeReport = mcpSizeReport(root);
+  if (sizeReport.tools.length > 0) {
+    const limits = { ...DEFAULT_MCP_SIZE_LIMITS, ...root.mcpServer?.sizeLimits };
+    lines.push("## Tool sizes", "", `Clients read tool definitions with their own limits — a definition or description past those is truncated ` + `or read incompletely. Default limits here: description ${limits.descriptionChars === false ? "unchecked" : `${limits.descriptionChars.toLocaleString()} chars`}, ` + `definition ${limits.definitionBytes === false ? "unchecked" : `${limits.definitionBytes.toLocaleString()} bytes`} / ` + `${limits.definitionLines === false ? "unchecked" : `${limits.definitionLines.toLocaleString()} lines`} (override with \`mcpServer.sizeLimits\`).`, "", "| Tool | Description (chars) | Definition (bytes) | Definition (lines) | Status |", "| --- | --- | --- | --- | --- |");
+    for (const t of sizeReport.tools) {
+      const over = [];
+      if (limits.descriptionChars !== false && t.descriptionChars > limits.descriptionChars)
+        over.push("description");
+      if (limits.definitionBytes !== false && t.definitionBytes > limits.definitionBytes || limits.definitionLines !== false && t.definitionLines > limits.definitionLines) {
+        over.push("definition");
+      }
+      const status = over.length === 0 ? "ok" : `over: ${over.join(", ")}`;
+      lines.push(`| \`${t.name}\` | ${t.descriptionChars.toLocaleString()} | ${t.definitionBytes.toLocaleString()} | ${t.definitionLines.toLocaleString()} | ${status} |`);
     }
     lines.push("");
   }
@@ -7505,7 +7769,11 @@ function resolveToolDescription(root, path, leaf) {
   } else {
     desc = mcpToolDescription(path, root.key, leaf.description);
   }
-  const notes = (leaf.notes ?? "").trim();
+  const notesOverride = leaf.mcpTool?.notes;
+  if (notesOverride === false) {
+    return desc;
+  }
+  const notes = (typeof notesOverride === "string" ? notesOverride : leaf.notes ?? "").trim();
   if (notes.length > 0) {
     desc += `
 
@@ -7637,6 +7905,47 @@ function mcpToolCallToArgv(_root, tool, args) {
     argv.push(String(val));
   }
   return argv;
+}
+var DEFAULT_MCP_SIZE_LIMITS = {
+  definitionBytes: 51200,
+  definitionLines: 2000,
+  descriptionChars: 2048,
+  instructionsChars: 2048
+};
+function mcpToolDefinitionJson(tool) {
+  return JSON.stringify({
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    ...tool.outputSchema === undefined ? {} : { outputSchema: tool.outputSchema }
+  }, null, 2);
+}
+function mcpSizeReport(root) {
+  const limits = { ...DEFAULT_MCP_SIZE_LIMITS, ...root.mcpServer?.sizeLimits };
+  const warnings = [];
+  const tools = collectMcpTools(root).map((tool) => {
+    const definitionJson = mcpToolDefinitionJson(tool);
+    const definitionBytes = Buffer.byteLength(definitionJson, "utf8");
+    const definitionLines = definitionJson.split(`
+`).length;
+    const descriptionChars = tool.description.length;
+    if (limits.descriptionChars !== false && descriptionChars > limits.descriptionChars) {
+      warnings.push(`MCP tool "${tool.name}" description is ${descriptionChars.toLocaleString()} chars ` + `(limit ${limits.descriptionChars.toLocaleString()}; Claude Code truncates longer descriptions)`);
+    }
+    const overBytes = limits.definitionBytes !== false && definitionBytes > limits.definitionBytes;
+    const overLines = limits.definitionLines !== false && definitionLines > limits.definitionLines;
+    if (overBytes || overLines) {
+      const byteLimit = limits.definitionBytes === false ? "∞" : limits.definitionBytes.toLocaleString();
+      const lineLimit = limits.definitionLines === false ? "∞" : limits.definitionLines.toLocaleString();
+      warnings.push(`MCP tool "${tool.name}" definition is ${definitionBytes.toLocaleString()} bytes / ` + `${definitionLines.toLocaleString()} lines pretty-printed (limit ${byteLimit} bytes / ${lineLimit} lines; ` + `Cursor reads tool definitions in chunks of at most that size)`);
+    }
+    return { definitionBytes, definitionLines, descriptionChars, name: tool.name };
+  });
+  const instructionsChars = (root.mcpServer?.instructions ?? "").length;
+  if (limits.instructionsChars !== false && instructionsChars > limits.instructionsChars) {
+    warnings.push(`MCP instructions are ${instructionsChars.toLocaleString()} chars (limit ${limits.instructionsChars.toLocaleString()})`);
+  }
+  return { instructionsChars, tools, warnings };
 }
 
 // ../bun-argsbarg/src/config/file.ts
@@ -9729,6 +10038,9 @@ function cliValidateProgram(program) {
   if (program.mcpServer !== undefined && program.mcpServer.enabled !== true) {
     throw new CliSchemaValidationError("mcpServer requires enabled: true; omit mcpServer to disable MCP");
   }
+  if (program.mcpServer?.instructions !== undefined && program.mcpServer.instructions.trim().length === 0) {
+    throw new CliSchemaValidationError("mcpServer.instructions must not be empty; omit it instead");
+  }
   if (program.httpServer !== undefined && program.httpServer.enabled !== true) {
     throw new CliSchemaValidationError("httpServer requires enabled: true; omit httpServer to disable HTTP API");
   }
@@ -10101,7 +10413,8 @@ function bootstrapMcpEnv(config) {
 
 // ../bun-argsbarg/src/mcp/server.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
-var MCP_PROTOCOL_VERSION = "2024-11-05";
+var MCP_PROTOCOL_VERSIONS = ["2025-06-18", "2024-11-05"];
+var MCP_STRUCTURED_OUTPUT_SINCE = "2025-06-18";
 function writeResponse(msg) {
   process.stdout.write(`${JSON.stringify(msg)}
 `);
@@ -10115,6 +10428,11 @@ function writeError(id, code, message) {
     id,
     error: { code, message }
   });
+}
+function supportsStructuredOutput(version) {
+  const idx = version ? MCP_PROTOCOL_VERSIONS.indexOf(version) : -1;
+  const sinceIdx = MCP_PROTOCOL_VERSIONS.indexOf(MCP_STRUCTURED_OUTPUT_SINCE);
+  return idx !== -1 && idx <= sinceIdx;
 }
 async function handleRequestLine(cli, line) {
   const root = cli.program;
@@ -10170,13 +10488,20 @@ async function handleRequestLine(cli, line) {
   try {
     if (method === "initialize") {
       const info = resolveMcpServerInfo(root);
+      const requested = params.protocolVersion;
+      const negotiated = typeof requested === "string" && MCP_PROTOCOL_VERSIONS.includes(requested) ? requested : MCP_PROTOCOL_VERSIONS[0];
+      if (cli.server) {
+        cli.server.mcpProtocolVersion = negotiated;
+      }
+      const instructions = root.mcpServer?.instructions;
       writeResponse({
         jsonrpc: "2.0",
         id,
         result: {
-          protocolVersion: MCP_PROTOCOL_VERSION,
+          protocolVersion: negotiated,
           capabilities: { tools: {}, resources: {} },
-          serverInfo: { name: info.name, version: info.version }
+          serverInfo: { name: info.name, version: info.version },
+          ...instructions ? { instructions } : {}
         }
       });
       await finish();
@@ -10188,11 +10513,12 @@ async function handleRequestLine(cli, line) {
       return;
     }
     if (method === "tools/list") {
+      const structured = supportsStructuredOutput(cli.server?.mcpProtocolVersion);
       const tools = collectMcpTools(root).map((t) => ({
         name: t.name,
         description: t.description,
         inputSchema: t.inputSchema,
-        ...t.outputSchema === undefined ? {} : { outputSchema: t.outputSchema }
+        ...structured && t.outputSchema !== undefined ? { outputSchema: t.outputSchema } : {}
       }));
       writeResponse({ jsonrpc: "2.0", id, result: { tools } });
       await finish();
@@ -10231,10 +10557,12 @@ async function handleRequestLine(cli, line) {
       }
       const invokeResult = await executeHeadlessToolCall(cli, lookup.tool, rawArgs ?? {}, "mcp", { rpcMethod: method, toolName: name, requestId });
       if (invokeResult.ok) {
+        const structured = supportsStructuredOutput(cli.server?.mcpProtocolVersion);
+        const { structuredContent: _structuredContent, ...rest } = invokeResult.mcpResult;
         writeResponse({
           jsonrpc: "2.0",
           id,
-          result: invokeResult.mcpResult
+          result: structured ? invokeResult.mcpResult : rest
         });
         await finish();
         return;
@@ -10622,7 +10950,8 @@ class Cli {
         runtime,
         emitter,
         mcp: resolved,
-        mcpHooks: this.program.mcpServer?.hooks
+        mcpHooks: this.program.mcpServer?.hooks,
+        mcpProtocolVersion: MCP_PROTOCOL_VERSIONS[0]
       };
       bootstrapAppConfig(this.program, { validateFile: "soft", runtime, emitter });
       const shutdown = () => {
@@ -10631,6 +10960,9 @@ class Cli {
       };
       process.once("SIGINT", shutdown);
       process.once("SIGTERM", shutdown);
+      for (const message of mcpSizeReport(this.program).warnings) {
+        emitter.emit({ level: "warn", message, action: "mcp.size" });
+      }
       emitter.emitLifecycle(`${this.program.key} ${this.program.version} — MCP ready (stdio)`, "mcp.server.ready");
       await mcpServeStdioLoop(this);
       process.exit(0);
@@ -24665,12 +24997,18 @@ var GdocsmithDocumentSchema_default = {
         },
         mode: {
           type: "string",
-          enum: ["PAGES", "PAGELESS"],
+          enum: [
+            "PAGES",
+            "PAGELESS"
+          ],
           description: "Document layout mode (PAGES or PAGELESS)."
         },
         orientation: {
           type: "string",
-          enum: ["LANDSCAPE", "PORTRAIT"],
+          enum: [
+            "LANDSCAPE",
+            "PORTRAIT"
+          ],
           description: "Page orientation for paged documents."
         },
         pageHeight: {
@@ -24683,7 +25021,15 @@ var GdocsmithDocumentSchema_default = {
         },
         pageSize: {
           type: "string",
-          enum: ["LETTER", "LEGAL", "TABLOID", "A3", "A4", "A5", "CUSTOM"],
+          enum: [
+            "LETTER",
+            "LEGAL",
+            "TABLOID",
+            "A3",
+            "A4",
+            "A5",
+            "CUSTOM"
+          ],
           description: "Standard paper size preset."
         },
         pageWidth: {
@@ -24794,7 +25140,10 @@ var GdocsmithDocumentSchema_default = {
         },
         mode: {
           type: "string",
-          enum: ["PAGES", "PAGELESS"],
+          enum: [
+            "PAGES",
+            "PAGELESS"
+          ],
           description: 'Document layout mode: "PAGES" or "PAGELESS".'
         },
         pageSetup: {
@@ -24818,7 +25167,11 @@ var GdocsmithDocumentSchema_default = {
           description: "Document title."
         }
       },
-      required: ["as", "kind", "title"],
+      required: [
+        "as",
+        "kind",
+        "title"
+      ],
       additionalProperties: false,
       description: 'Document creation or cloning step (`kind: "docCreate"`).'
     },
@@ -24839,7 +25192,11 @@ var GdocsmithDocumentSchema_default = {
         },
         kind: {
           type: "string",
-          enum: ["docClose", "docDelete", "docTrash"],
+          enum: [
+            "docClose",
+            "docDelete",
+            "docTrash"
+          ],
           description: "Workflow step kind."
         },
         permanent: {
@@ -24847,7 +25204,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Permanently delete document from Drive (docDelete)."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Document lifecycle step (`kind: "docClose" | "docDelete" | "docTrash"`).'
     },
@@ -24876,7 +25236,11 @@ var GdocsmithDocumentSchema_default = {
           description: "Workflow step kind."
         }
       },
-      required: ["as", "doc", "kind"],
+      required: [
+        "as",
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Open an existing document step (`kind: "docOpen"`).'
     },
@@ -24905,7 +25269,11 @@ var GdocsmithDocumentSchema_default = {
           description: "New title for the document."
         }
       },
-      required: ["doc", "kind", "title"],
+      required: [
+        "doc",
+        "kind",
+        "title"
+      ],
       additionalProperties: false,
       description: 'Rename an open document step (`kind: "docRename"`).'
     },
@@ -24967,7 +25335,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text content (fallback alias for canonical markdown:)."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Insert rendered markdown step (`kind: "markdownInsert"`).'
     },
@@ -24993,7 +25364,10 @@ var GdocsmithDocumentSchema_default = {
         },
         mode: {
           type: "string",
-          enum: ["PAGES", "PAGELESS"],
+          enum: [
+            "PAGES",
+            "PAGELESS"
+          ],
           description: 'Document layout mode: "PAGES" or "PAGELESS".'
         },
         pageSetup: {
@@ -25009,7 +25383,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Target tab ID or title."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Document page geometry / layout mode step (`kind: "pageSetup"`).'
     },
@@ -25042,7 +25419,11 @@ var GdocsmithDocumentSchema_default = {
         },
         kind: {
           type: "string",
-          enum: ["docPermissionAdd", "docPermissionList", "docPermissionRemove"],
+          enum: [
+            "docPermissionAdd",
+            "docPermissionList",
+            "docPermissionRemove"
+          ],
           description: "Workflow step kind."
         },
         moveToNewOwnersRoot: {
@@ -25070,18 +25451,34 @@ var GdocsmithDocumentSchema_default = {
           description: "Whether to transfer file ownership to the grantee on docPermissionAdd."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Document permission step (`kind: "docPermissionAdd" | "docPermissionList" | "docPermissionRemove"`).'
     },
     DrivePermissionRole: {
       type: "string",
-      enum: ["commenter", "fileOrganizer", "organizer", "owner", "reader", "writer"],
+      enum: [
+        "commenter",
+        "fileOrganizer",
+        "organizer",
+        "owner",
+        "reader",
+        "writer"
+      ],
       description: "Role assigned to a Drive file permission."
     },
     DrivePermissionScope: {
       type: "string",
-      enum: ["anyone", "domain", "group", "internal", "user"],
+      enum: [
+        "anyone",
+        "domain",
+        "group",
+        "internal",
+        "user"
+      ],
       description: "Grantee access scope for a Drive file permission."
     },
     StepQuery: {
@@ -25179,18 +25576,33 @@ var GdocsmithDocumentSchema_default = {
           description: "Scope query to fragile nodes only."
         }
       },
-      required: ["as", "doc", "kind"],
+      required: [
+        "as",
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Document inspection / query step (`kind: "query"`).'
     },
     NodeKind: {
       type: "string",
-      enum: ["paragraph", "table", "tableOfContents", "sectionBreak", "pageBreak"],
+      enum: [
+        "paragraph",
+        "table",
+        "tableOfContents",
+        "sectionBreak",
+        "pageBreak"
+      ],
       description: "Structural element kinds on the body tape."
     },
     QueryOutputFormat: {
       type: "string",
-      enum: ["headings", "markdown", "nodes", "outline"],
+      enum: [
+        "headings",
+        "markdown",
+        "nodes",
+        "outline"
+      ],
       description: 'Serializer for `kind: query` matches written to `dumped` ("headings" is an alias for "outline").'
     },
     StepRemove: {
@@ -25218,7 +25630,10 @@ var GdocsmithDocumentSchema_default = {
         },
         kind: {
           type: "string",
-          enum: ["dangerousRemoveSection", "remove"],
+          enum: [
+            "dangerousRemoveSection",
+            "remove"
+          ],
           description: "Workflow step kind."
         },
         nodeAt: {
@@ -25234,7 +25649,11 @@ var GdocsmithDocumentSchema_default = {
           description: "Target tab ID or title."
         }
       },
-      required: ["doc", "kind", "nodeAt"],
+      required: [
+        "doc",
+        "kind",
+        "nodeAt"
+      ],
       additionalProperties: false,
       description: 'Node or section removal step (`kind: "remove" | "dangerousRemoveSection"`).'
     },
@@ -25267,7 +25686,10 @@ var GdocsmithDocumentSchema_default = {
         },
         kind: {
           type: "string",
-          enum: ["innerText", "replace"],
+          enum: [
+            "innerText",
+            "replace"
+          ],
           description: "Workflow step kind."
         },
         namedStyleType: {
@@ -25302,13 +25724,21 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text content (fallback alias for canonical replace:)."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'In-place text replacement step (`kind: "replace" | "innerText"`).'
     },
     ParagraphAlignment: {
       type: "string",
-      enum: ["START", "CENTER", "END", "JUSTIFIED"],
+      enum: [
+        "START",
+        "CENTER",
+        "END",
+        "JUSTIFIED"
+      ],
       description: "Docs paragraph alignment (updateParagraphStyle.alignment)."
     },
     NamedStyle: {
@@ -25489,7 +25919,11 @@ var GdocsmithDocumentSchema_default = {
     },
     CellContentAlignment: {
       type: "string",
-      enum: ["TOP", "MIDDLE", "BOTTOM"],
+      enum: [
+        "TOP",
+        "MIDDLE",
+        "BOTTOM"
+      ],
       description: "Vertical alignment inside a table cell (updateTableCellStyle.contentAlignment)."
     },
     StepReplaceMarkdown: {
@@ -25534,7 +25968,10 @@ var GdocsmithDocumentSchema_default = {
           description: 'Heading-scoped id from query or text snippet to replace (e.g. h.arch.9a1b or "Placeholder: ...").'
         },
         replaceMarkdown: {
-          type: ["string", "boolean"],
+          type: [
+            "string",
+            "boolean"
+          ],
           description: "Markdown content or boolean flag when file: is specified."
         },
         tab: {
@@ -25546,7 +25983,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text content (fallback alias for canonical markdown:)."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Single-node markdown replacement step (`kind: "replaceMarkdown"`).'
     },
@@ -25600,7 +26040,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Anchor node to insert before when inserting adjacent rather than replacing."
         },
         replaceSection: {
-          type: ["string", "boolean"],
+          type: [
+            "string",
+            "boolean"
+          ],
           description: "Markdown content or boolean flag when file: is specified."
         },
         tab: {
@@ -25612,7 +26055,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text content (fallback alias for canonical markdown:)."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Section-level auto-diffing replacement step (`kind: "replaceSection"`).'
     },
@@ -25669,7 +26115,11 @@ var GdocsmithDocumentSchema_default = {
           description: "Target tab ID or title."
         }
       },
-      required: ["doc", "fromSection", "kind"],
+      required: [
+        "doc",
+        "fromSection",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Server-side section transfer step across documents or tabs (`kind: "sectionCopy"`).'
     },
@@ -25843,7 +26293,9 @@ var GdocsmithDocumentSchema_default = {
               type: "number"
             }
           },
-          required: ["uri"],
+          required: [
+            "uri"
+          ],
           additionalProperties: false,
           description: "Insert a public HTTPS inline image."
         },
@@ -25854,7 +26306,9 @@ var GdocsmithDocumentSchema_default = {
               type: "string"
             }
           },
-          required: ["email"],
+          required: [
+            "email"
+          ],
           additionalProperties: false,
           description: "Insert a person mention chip."
         },
@@ -25871,7 +26325,9 @@ var GdocsmithDocumentSchema_default = {
               type: "string"
             }
           },
-          required: ["uri"],
+          required: [
+            "uri"
+          ],
           additionalProperties: false,
           description: "Insert a rich link chip."
         },
@@ -25885,7 +26341,10 @@ var GdocsmithDocumentSchema_default = {
               properties: {
                 sectionType: {
                   type: "string",
-                  enum: ["CONTINUOUS", "NEXT_PAGE"]
+                  enum: [
+                    "CONTINUOUS",
+                    "NEXT_PAGE"
+                  ]
                 }
               },
               additionalProperties: false
@@ -25980,7 +26439,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Table styling (pinnedHeaderRows, preventOverflow, columnWidth, etc.)."
         }
       },
-      required: ["doc", "kind"],
+      required: [
+        "doc",
+        "kind"
+      ],
       additionalProperties: false,
       description: 'Surgical DOM and tape mutation step (`kind: "surgical"`).'
     },
@@ -26035,7 +26497,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Optional document ID to clone from."
         },
         fromNode: {
-          type: ["number", "string"],
+          type: [
+            "number",
+            "string"
+          ],
           description: "Alias for nodeId."
         },
         fromTab: {
@@ -26047,7 +26512,10 @@ var GdocsmithDocumentSchema_default = {
           description: "Replacement text content."
         },
         nodeId: {
-          type: ["number", "string"],
+          type: [
+            "number",
+            "string"
+          ],
           description: "Scoped ID or tape index of the node to clone."
         }
       },
@@ -26103,7 +26571,12 @@ var GdocsmithDocumentSchema_default = {
           description: "Title for the new tab. Note: supply final title directly at creation to avoid HTTP 500 on template copies."
         }
       },
-      required: ["as", "doc", "kind", "title"],
+      required: [
+        "as",
+        "doc",
+        "kind",
+        "title"
+      ],
       additionalProperties: false,
       description: 'Tab creation or cloning step (`kind: "tabCreate"`).'
     },
@@ -26136,7 +26609,11 @@ var GdocsmithDocumentSchema_default = {
         },
         kind: {
           type: "string",
-          enum: ["tabDelete", "tabMove", "tabReorder"],
+          enum: [
+            "tabDelete",
+            "tabMove",
+            "tabReorder"
+          ],
           description: "Workflow step kind."
         },
         tab: {
@@ -26144,7 +26621,11 @@ var GdocsmithDocumentSchema_default = {
           description: "Target tab ID or title."
         }
       },
-      required: ["doc", "kind", "tab"],
+      required: [
+        "doc",
+        "kind",
+        "tab"
+      ],
       additionalProperties: false,
       description: 'Tab modification step (`kind: "tabDelete" | "tabMove" | "tabReorder"`).'
     },
@@ -26189,7 +26670,12 @@ var GdocsmithDocumentSchema_default = {
           description: "Optional new title to rename the target tab in place."
         }
       },
-      required: ["doc", "fromTab", "kind", "tab"],
+      required: [
+        "doc",
+        "fromTab",
+        "kind",
+        "tab"
+      ],
       additionalProperties: false,
       description: 'Whole-tab population step into an existing tab (`kind: "tabPopulate"`).'
     },
@@ -26222,7 +26708,12 @@ var GdocsmithDocumentSchema_default = {
           description: "New title for the tab. Note: tabRename 500s on docs lacking root 't.0' (set title directly on tabCreate)."
         }
       },
-      required: ["doc", "kind", "tab", "title"],
+      required: [
+        "doc",
+        "kind",
+        "tab",
+        "title"
+      ],
       additionalProperties: false,
       description: 'Tab renaming step (`kind: "tabRename"`).'
     },
@@ -26287,7 +26778,12 @@ var GdocsmithDocumentSchema_default = {
           description: "Plain text replacement (fallback alias for replace:)."
         }
       },
-      required: ["doc", "find", "kind", "replace"],
+      required: [
+        "doc",
+        "find",
+        "kind",
+        "replace"
+      ],
       additionalProperties: false,
       description: 'Plain find-and-replace text step (`kind: "textReplace"`).'
     }
@@ -26348,7 +26844,9 @@ var GdocsmithJsonOutputSchema_default = {
           type: "string"
         }
       },
-      required: ["id"],
+      required: [
+        "id"
+      ],
       additionalProperties: false,
       description: "Document item in highlights."
     },
@@ -26371,7 +26869,9 @@ var GdocsmithJsonOutputSchema_default = {
           type: "string"
         }
       },
-      required: ["id"],
+      required: [
+        "id"
+      ],
       additionalProperties: false,
       description: "Tab item in highlights."
     },
@@ -26385,7 +26885,10 @@ var GdocsmithJsonOutputSchema_default = {
           type: "string"
         }
       },
-      required: ["id", "text"],
+      required: [
+        "id",
+        "text"
+      ],
       additionalProperties: false,
       description: "Newly created heading item in highlights."
     }
@@ -26431,7 +26934,9 @@ var StatusJsonOutputSchema_default = {
       description: "App version from program root."
     }
   },
-  required: ["version"],
+  required: [
+    "version"
+  ],
   additionalProperties: false,
   definitions: {}
 };

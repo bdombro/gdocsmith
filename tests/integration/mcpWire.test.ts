@@ -198,7 +198,7 @@ describe("MCP JSON-RPC wire integration", () => {
 
         expect(res.jsonrpc).toBe("2.0");
         expect(res.id).toBe(id);
-        expect(res.result?.protocolVersion).toBe("2024-11-05");
+        expect(res.result?.protocolVersion).toBe("2025-06-18");
         expect(res.result?.serverInfo?.name).toBe("gdocsmith");
         expect(typeof res.result?.serverInfo?.version).toBe("string");
         expect(res.result?.capabilities?.tools).toBeDefined();
@@ -409,7 +409,7 @@ describe("MCP JSON-RPC wire integration", () => {
         expect(res.result?.isError).toBe(true);
         const errorText = res.result?.content?.[0]?.text ?? "";
         expect(errorText.length).toBeGreaterThan(0);
-        expect(errorText).toContain('Property "steps" does not match schema');
+        expect(errorText).toContain('unknown kind "invalidStepKind"');
       });
 
       test("tools/call returns MCP error frame when step references unopened doc", async () => {

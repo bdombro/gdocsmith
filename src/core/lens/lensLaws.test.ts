@@ -118,6 +118,15 @@ function markdownEdit(md: string, rng: () => number): string {
     if (line.startsWith("```")) inCode = !inCode;
     else if (!inCode && line.trim() && !line.startsWith("|") && !line.startsWith("{{")) editable.push(i);
   });
+  const tableRows = lines
+    .map((l, k) => (k >= fm && l.startsWith("| ") && !/^\| [-:]+ \|/.test(l) ? k : -1))
+    .filter((k) => k >= 0);
+  if (tableRows.length && rng() < 0.3) {
+    const k = tableRows[Math.floor(rng() * tableRows.length)];
+    if (rng() < 0.5) lines[k] = lines[k].replace(/ \|$/, " x |");
+    else if (k !== tableRows[0]) lines.splice(k + 1, 0, lines[k].replace(/\| ([^|]*?) \|/, "| added |"));
+    return lines.join("\n");
+  }
   if (!editable.length) return md;
   const i = editable[Math.floor(rng() * editable.length)];
   const words = ["new", "edited", "zeta", "more words"];

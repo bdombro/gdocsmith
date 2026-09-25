@@ -14,7 +14,15 @@ import {
   textStyleUpdate,
 } from "../model/edit.ts";
 import { bulletsSet, listJoin, listKindSet, listRunsResolve, nestingSet } from "../model/editLists.ts";
-import { pageBreakParagraphInsert, sectionBreakInsert, tableCreate } from "../model/editTables.ts";
+import {
+  columnsDelete,
+  columnsInsert,
+  pageBreakParagraphInsert,
+  rowsDelete,
+  rowsInsert,
+  sectionBreakInsert,
+  tableCreate,
+} from "../model/editTables.ts";
 import { headingStyleIs, textStyleEffective } from "../model/effectiveStyle.ts";
 import { CoreError } from "../model/errors.ts";
 import type { JsonObject } from "../model/rawJson.ts";
@@ -28,9 +36,10 @@ import {
   styleEqual,
 } from "../model/styleValues.ts";
 import { paragraphSymbols, type Sym } from "../model/symbols.ts";
-import type { Atom, AtomCreate, Block, DocModel, ParagraphBlock, TabModel } from "../model/types.ts";
+import type { Atom, AtomCreate, Block, DocModel, ParagraphBlock, TableBlock, TabModel } from "../model/types.ts";
 import { anchorResolve, paragraphText, type RangeRef, type ResolvedRange, rangeResolve } from "./anchors.ts";
 import { blockDiff } from "./blockDiff.ts";
+import { parsedCanonical } from "./canonical.ts";
 import {
   markdownParse,
   type ParsedBlock,
@@ -41,6 +50,7 @@ import {
 } from "./parse.ts";
 import { type DirectiveAttrs, type ProjBlock, projectionBuild, type TokenRef, tokenOrdinals } from "./project.ts";
 import { markdownRender } from "./render.ts";
+import { tableAlign } from "./tableAlign.ts";
 
 /** Where markdown goes. */
 export type Placement =
@@ -144,6 +154,7 @@ export function markdownPut(
     stylesNew: state.stylesNew,
     stylesOld: projection.styles,
   });
+  movesRefuse(edits, p0, p1.blocks, projected, projection.styles, state.stylesNew);
   const container = containerOf(tab, range.containerRef);
   // Cursor: where the next new block goes (after the previous block's owned invisible paragraphs, D25).
   let cursorKey: string | undefined = range.from > 0 ? container[range.from - 1].key : undefined;
@@ -181,6 +192,32 @@ export function markdownPut(
   if (absorbed.length && state.created.length) blocksDelete(target, absorbed);
   pendingLinksResolve(state);
   return { changed: state.touched, createdKeys: state.created, notes: state.notes };
+}
+
+/** Refuses moving a read-only table (the API can't recreate it): its markdown deleted in one place and written in another. */
+function movesRefuse(
+  edits: ReturnType<typeof blockDiff>,
+  p0: readonly ParsedBlock[],
+  p1: readonly ParsedBlock[],
+  projected: readonly ProjBlock[],
+  stylesOld: Record<string, DirectiveAttrs>,
+  stylesNew: Record<string, DirectiveAttrs>,
+): void {
+  const hash = (b: ParsedBlock, styles: Record<string, DirectiveAttrs>) =>
+    JSON.stringify(parsedCanonical([b], styles)[0]);
+  const deleted = new Set(
+    edits
+      .filter((e) => e.kind === "delete" && projected[e.o].table?.readOnly)
+      .map((e) => hash(p0[(e as { o: number }).o], stylesOld)),
+  );
+  for (const e of edits) {
+    if (e.kind === "insert" && p1[e.n].kind === "table" && deleted.has(hash(p1[e.n], stylesNew))) {
+      throw new CoreError(
+        "unrecreatableMove",
+        "a table markdown can't show (merged cells, several paragraphs in a cell) can't move: the Docs API can't recreate it",
+      );
+    }
+  }
 }
 
 /** State of one put. */
@@ -238,6 +275,10 @@ function pSymbols(spans: readonly ParsedSpan[]): PSym[] {
 
 /** Edits one paired block: kind first (so list and heading rules apply to the right paragraph), then its content and styles. */
 function blockUpdate(state: PutState, proj: ProjBlock, b0: ParsedBlock, b1: ParsedBlock): void {
+  if (proj.kind === "table" && b0.kind === "table" && b1.kind === "table") {
+    tableUpdate(state, proj, b0, b1);
+    return;
+  }
   if (
     proj.kind === "table" ||
     b0.kind === "table" ||
@@ -246,17 +287,73 @@ function blockUpdate(state: PutState, proj: ProjBlock, b0: ParsedBlock, b1: Pars
     b1.kind === "token"
   ) {
     if (JSON.stringify(b0) === JSON.stringify(b1)) return;
-    if (proj.kind === "table")
-      throw new CoreError(
-        "readOnlyTable",
-        "editing tables through markdown arrives in the next milestone; use table operations",
-      );
-    throw new CoreError("unsupportedSyntax", "a token block can't turn into text or back");
+    throw new CoreError("unsupportedSyntax", "a table or token block can't turn into text or back");
   }
   const found = blockFind(state.tab, proj.key);
   if (found?.block.kind !== "paragraph") throw new CoreError("internal", `no paragraph ${proj.key}`);
   kindChange(state, found.block, b0, b1);
   contentUpdate(state, proj, b0, b1);
+}
+
+/**
+ * Edits a paired simple table through its markdown: rows and columns aligned (`tableAlign`), deleted
+ * and inserted with the table primitives, kept cells edited character by character, new cells
+ * filled, and column alignment changes applied to the column's paragraphs. A read-only table can't
+ * change (`readOnlyTable`).
+ */
+function tableUpdate(state: PutState, proj: ProjBlock, b0: ParsedBlock, b1: ParsedBlock): void {
+  const t0 = b0.table as NonNullable<ParsedBlock["table"]>;
+  const t1 = b1.table as NonNullable<ParsedBlock["table"]>;
+  if (JSON.stringify(t0) === JSON.stringify(t1)) return;
+  if (proj.table?.readOnly) {
+    throw new CoreError(
+      "readOnlyTable",
+      "this table has merged cells or several paragraphs in a cell, which markdown can't show; edit it with table operations",
+    );
+  }
+  const { target } = state;
+  const key = proj.key;
+  const align = tableAlign(t0.rows, t1.rows);
+  const table = () => blockFind(state.tab, key)?.block as TableBlock;
+  const colDeletes = align.columns.filter((c) => c.n === undefined).map((c) => c.o as number);
+  const rowDeletes = align.rows.filter((r) => r.n === undefined).map((r) => r.o as number);
+  if (colDeletes.length === table().columns.length) {
+    // Every column replaced: the table is recreated.
+    const at = state.tab.blocks.findIndex((b) => b.key === key);
+    blocksDelete(target, [key]);
+    const rows = t1.rows.map((row) =>
+      row.map((cell) => pSymbols(cell).map((sym) => symSpec(state, cellParagraphProbe(), sym, undefined))),
+    );
+    state.created.push(tableCreate(target, at, { alignments: t1.alignments, rows }));
+    state.touched = true;
+    return;
+  }
+  state.touched = true;
+  if (colDeletes.length) columnsDelete(target, key, colDeletes);
+  if (rowDeletes.length) rowsDelete(target, key, rowDeletes);
+  const finalCols = align.columns.filter((c) => c.n !== undefined);
+  finalCols.forEach((c, index) => {
+    if (c.o === undefined) columnsInsert(target, key, index, 1);
+  });
+  const finalRows = align.rows.filter((r) => r.n !== undefined);
+  finalRows.forEach((r, index) => {
+    if (r.o === undefined) rowsInsert(target, key, index, 1);
+  });
+  finalRows.forEach((r, ri) => {
+    finalCols.forEach((c, ci) => {
+      const cell = table().rows[ri].cells[ci];
+      const paragraph = cell.blocks[0];
+      const before = r.o !== undefined && c.o !== undefined ? (t0.rows[r.o]?.[c.o] ?? []) : [];
+      spansUpdate(state, paragraph.key, before, t1.rows[r.n as number]?.[c.n as number] ?? []);
+      const alignment = t1.alignments[c.n as number];
+      const was = c.o !== undefined ? t0.alignments[c.o] : undefined;
+      if (alignment !== was || c.o === undefined) {
+        const current = (blockFind(state.tab, paragraph.key)?.block as ParagraphBlock | undefined)?.style.alignment;
+        const want = alignment ?? (was !== undefined ? "START" : current);
+        if (want !== current) paragraphStyleUpdate(target, paragraph.key, { alignment: want ?? null });
+      }
+    });
+  });
 }
 
 /** Changes a paired paragraph's kind in place: heading level, list kind or depth, code, or plain (D35). */
@@ -300,12 +397,20 @@ function kindChange(state: PutState, p: ParagraphBlock, b0: ParsedBlock, b1: Par
  * symbols kept but restyled in the markdown get only the fields the markdown expresses.
  */
 function contentUpdate(state: PutState, proj: ProjBlock, b0: ParsedBlock, b1: ParsedBlock): void {
+  const spans = (b: ParsedBlock): ParsedSpan[] =>
+    b.kind === "codeLine" ? [{ kind: "text", marks: {}, text: codeText(b) }] : b.spans;
+  spansUpdate(state, proj.key, spans(b0), spans(b1));
+}
+
+/** Edits one paragraph (a block, or a table cell's) from spans as read to spans as written. */
+function spansUpdate(state: PutState, key: string, spans0: readonly ParsedSpan[], spans1: readonly ParsedSpan[]): void {
   const { target } = state;
-  const found = blockFind(state.tab, proj.key);
+  const proj = { key };
+  const found = blockFind(state.tab, key);
   const paragraph = found?.block as ParagraphBlock;
   const model = paragraphSymbols(paragraph);
-  const s0 = pSymbols(b0.kind === "codeLine" ? [{ kind: "text", marks: {}, text: codeText(b0) }] : b0.spans);
-  const s1 = pSymbols(b1.kind === "codeLine" ? [{ kind: "text", marks: {}, text: codeText(b1) }] : b1.spans);
+  const s0 = pSymbols(spans0);
+  const s1 = pSymbols(spans1);
   const map = modelMap(model, s0);
   const hunks = diffHunks(
     s0.map((s) => s.id),

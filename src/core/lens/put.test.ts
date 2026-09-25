@@ -145,6 +145,45 @@ describe("markdownPut", () => {
     expect(s.exportMd(true)).toBe("intro\n\n1. step one\n   - detail\n   - more\n1. step two\n");
   });
 
+  test("markdown table edits: cells, rows, columns, alignment", () => {
+    const table: BlockSpec = {
+      cells: [
+        [[{ content: ["Name"] }], [{ content: ["Age"] }]],
+        [[{ content: ["Ada"] }], [{ content: ["36"] }]],
+      ],
+      kind: "table",
+    };
+    const s = setup([para("intro"), table, para("z")]);
+    const md = s.exportMd();
+    expect(md).toContain("| Name | Age |");
+    s.write(
+      md.replace(
+        "| Name | Age |\n| --- | --- |\n| Ada | 36 |",
+        "| Name | Role | Age |\n| --- | :-: | --- |\n| Ada | Eng | 37 |\n| Bob | Ops | 41 |",
+      ),
+    );
+    const { check } = s.plan();
+    expect(check.diffs).toEqual([]);
+    expect(s.exportMd()).toContain(
+      "| Name | Role | Age |\n| --- | :-: | --- |\n| Ada | Eng | 37 |\n| Bob | Ops | 41 |",
+    );
+  });
+
+  test("a read-only table can't change or move", () => {
+    const table: BlockSpec = {
+      cells: [[[{ content: ["x"] }, { content: ["x2"] }], [{ content: ["y"] }]]],
+      kind: "table",
+    };
+    const s = setup([para("intro"), table, para("z")]);
+    const md = s.exportMd();
+    expect(code(() => s.write(md.replace("| x x2 | y |", "| x x2 | changed |")))).toBe("readOnlyTable");
+    const lines = md.split("\n");
+    const start = lines.findIndex((l) => l.startsWith("| x x2"));
+    const tableLines = lines.splice(start, 2);
+    lines.push("", ...tableLines);
+    expect(code(() => s.write(lines.join("\n")))).toBe("unrecreatableMove");
+  });
+
   test("appending into an empty tab leaves no stray empty paragraph", () => {
     const s = setup([{ content: [], kind: "paragraph" }]);
     s.write("# Title\n\nbody", { kind: "append" });

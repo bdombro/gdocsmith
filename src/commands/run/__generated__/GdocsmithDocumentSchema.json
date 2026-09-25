@@ -56,18 +56,12 @@
         },
         "mode": {
           "type": "string",
-          "enum": [
-            "PAGES",
-            "PAGELESS"
-          ],
+          "enum": ["PAGES", "PAGELESS"],
           "description": "Document layout mode (PAGES or PAGELESS)."
         },
         "orientation": {
           "type": "string",
-          "enum": [
-            "LANDSCAPE",
-            "PORTRAIT"
-          ],
+          "enum": ["LANDSCAPE", "PORTRAIT"],
           "description": "Page orientation for paged documents."
         },
         "pageHeight": {
@@ -80,15 +74,7 @@
         },
         "pageSize": {
           "type": "string",
-          "enum": [
-            "LETTER",
-            "LEGAL",
-            "TABLOID",
-            "A3",
-            "A4",
-            "A5",
-            "CUSTOM"
-          ],
+          "enum": ["LETTER", "LEGAL", "TABLOID", "A3", "A4", "A5", "CUSTOM"],
           "description": "Standard paper size preset."
         },
         "pageWidth": {
@@ -199,10 +185,7 @@
         },
         "mode": {
           "type": "string",
-          "enum": [
-            "PAGES",
-            "PAGELESS"
-          ],
+          "enum": ["PAGES", "PAGELESS"],
           "description": "Document layout mode: \"PAGES\" or \"PAGELESS\"."
         },
         "pageSetup": {
@@ -226,11 +209,7 @@
           "description": "Document title."
         }
       },
-      "required": [
-        "as",
-        "kind",
-        "title"
-      ],
+      "required": ["as", "kind", "title"],
       "additionalProperties": false,
       "description": "Document creation or cloning step (`kind: \"docCreate\"`)."
     },
@@ -251,11 +230,7 @@
         },
         "kind": {
           "type": "string",
-          "enum": [
-            "docClose",
-            "docDelete",
-            "docTrash"
-          ],
+          "enum": ["docClose", "docDelete", "docTrash"],
           "description": "Workflow step kind."
         },
         "permanent": {
@@ -263,10 +238,7 @@
           "description": "Permanently delete document from Drive (docDelete)."
         }
       },
-      "required": [
-        "doc",
-        "kind"
-      ],
+      "required": ["doc", "kind"],
       "additionalProperties": false,
       "description": "Document lifecycle step (`kind: \"docClose\" | \"docDelete\" | \"docTrash\"`)."
     },
@@ -295,11 +267,7 @@
           "description": "Workflow step kind."
         }
       },
-      "required": [
-        "as",
-        "doc",
-        "kind"
-      ],
+      "required": ["as", "doc", "kind"],
       "additionalProperties": false,
       "description": "Open an existing document step (`kind: \"docOpen\"`)."
     },
@@ -328,11 +296,7 @@
           "description": "New title for the document."
         }
       },
-      "required": [
-        "doc",
-        "kind",
-        "title"
-      ],
+      "required": ["doc", "kind", "title"],
       "additionalProperties": false,
       "description": "Rename an open document step (`kind: \"docRename\"`)."
     },
@@ -394,10 +358,7 @@
           "description": "Plain text content (fallback alias for canonical markdown:)."
         }
       },
-      "required": [
-        "doc",
-        "kind"
-      ],
+      "required": ["doc", "kind"],
       "additionalProperties": false,
       "description": "Insert rendered markdown step (`kind: \"markdownInsert\"`)."
     },
@@ -423,10 +384,7 @@
         },
         "mode": {
           "type": "string",
-          "enum": [
-            "PAGES",
-            "PAGELESS"
-          ],
+          "enum": ["PAGES", "PAGELESS"],
           "description": "Document layout mode: \"PAGES\" or \"PAGELESS\"."
         },
         "pageSetup": {
@@ -442,10 +400,7 @@
           "description": "Target tab ID or title."
         }
       },
-      "required": [
-        "doc",
-        "kind"
-      ],
+      "required": ["doc", "kind"],
       "additionalProperties": false,
       "description": "Document page geometry / layout mode step (`kind: \"pageSetup\"`)."
     },
@@ -478,11 +433,7 @@
         },
         "kind": {
           "type": "string",
-          "enum": [
-            "docPermissionAdd",
-            "docPermissionList",
-            "docPermissionRemove"
-          ],
+          "enum": ["docPermissionAdd", "docPermissionList", "docPermissionRemove"],
           "description": "Workflow step kind."
         },
         "moveToNewOwnersRoot": {
@@ -510,34 +461,18 @@
           "description": "Whether to transfer file ownership to the grantee on docPermissionAdd."
         }
       },
-      "required": [
-        "doc",
-        "kind"
-      ],
+      "required": ["doc", "kind"],
       "additionalProperties": false,
       "description": "Document permission step (`kind: \"docPermissionAdd\" | \"docPermissionList\" | \"docPermissionRemove\"`)."
     },
     "DrivePermissionRole": {
       "type": "string",
-      "enum": [
-        "commenter",
-        "fileOrganizer",
-        "organizer",
-        "owner",
-        "reader",
-        "writer"
-      ],
+      "enum": ["commenter", "fileOrganizer", "organizer", "owner", "reader", "writer"],
       "description": "Role assigned to a Drive file permission."
     },
     "DrivePermissionScope": {
       "type": "string",
-      "enum": [
-        "anyone",
-        "domain",
-        "group",
-        "internal",
-        "user"
-      ],
+      "enum": ["anyone", "domain", "group", "internal", "user"],
       "description": "Grantee access scope for a Drive file permission."
     },
     "StepQuery": {
@@ -635,33 +570,18 @@
           "description": "Scope query to fragile nodes only."
         }
       },
-      "required": [
-        "as",
-        "doc",
-        "kind"
-      ],
+      "required": ["as", "doc", "kind"],
       "additionalProperties": false,
       "description": "Document inspection / query step (`kind: \"query\"`)."
     },
     "NodeKind": {
       "type": "string",
-      "enum": [
-        "paragraph",
-        "table",
-        "tableOfContents",
-        "sectionBreak",
-        "pageBreak"
-      ],
+      "enum": ["paragraph", "table", "tableOfContents", "sectionBreak", "pageBreak"],
       "description": "Structural element kinds on the body tape."
     },
     "QueryOutputFormat": {
       "type": "string",
-      "enum": [
-        "headings",
-        "markdown",
-        "nodes",
-        "outline"
-      ],
+      "enum": ["headings", "markdown", "nodes", "outline"],
       "description": "Serializer for `kind: query` matches written to `dumped` (\"headings\" is an alias for \"outline\")."
     },
     "StepRemove": {
@@ -689,10 +609,7 @@
         },
         "kind": {
           "type": "string",
-          "enum": [
-            "dangerousRemoveSection",
-            "remove"
-          ],
+          "enum": ["dangerousRemoveSection", "remove"],
           "description": "Workflow step kind."
         },
         "nodeAt": {
@@ -708,11 +625,7 @@
           "description": "Target tab ID or title."
         }
       },
-      "required": [
-        "doc",
-        "kind",
-        "nodeAt"
-      ],
+      "required": ["doc", "kind", "nodeAt"],
       "additionalProperties": false,
       "description": "Node or section removal step (`kind: \"remove\" | \"dangerousRemoveSection\"`)."
     },
@@ -745,10 +658,7 @@
         },
         "kind": {
           "type": "string",
-          "enum": [
-            "innerText",
-            "replace"
-          ],
+          "enum": ["innerText", "replace"],
           "description": "Workflow step kind."
         },
         "namedStyleType": {
@@ -783,21 +693,13 @@
           "description": "Plain text content (fallback alias for canonical replace:)."
         }
       },
-      "required": [
-        "doc",
-        "kind"
-      ],
+      "required": ["doc", "kind"],
       "additionalProperties": false,
       "description": "In-place text replacement step (`kind: \"replace\" | \"innerText\"`)."
     },
     "ParagraphAlignment": {
       "type": "string",
-      "enum": [
-        "START",
-        "CENTER",
-        "END",
-        "JUSTIFIED"
-      ],
+      "enum": ["START", "CENTER", "END", "JUSTIFIED"],
       "description": "Docs paragraph alignment (updateParagraphStyle.alignment)."
     },
     "NamedStyle": {
@@ -978,11 +880,7 @@
     },
     "CellContentAlignment": {
       "type": "string",
-      "enum": [
-        "TOP",
-        "MIDDLE",
-        "BOTTOM"
-      ],
+      "enum": ["TOP", "MIDDLE", "BOTTOM"],
       "description": "Vertical alignment inside a table cell (updateTableCellStyle.contentAlignment)."
     },
     "StepReplaceMarkdown": {
@@ -1027,10 +925,7 @@
           "description": "Heading-scoped id from query or text snippet to replace (e.g. h.arch.9a1b or \"Placeholder: ...\")."
         },
         "replaceMarkdown": {
-          "type": [
-            "string",
-            "boolean"
-          ],
+          "type": ["string", "boolean"],
           "description": "Markdown content or boolean flag when file: is specified."
         },
         "tab": {
@@ -1042,10 +937,7 @@
           "description": "Plain text content (fallback alias for canonical markdown:)."
         }
       },
-      "required": [
-        "doc",
-        "kind"
-      ],
+      "required": ["doc", "kind"],
       "additionalProperties": false,
       "description": "Single-node markdown replacement step (`kind: \"replaceMarkdown\"`)."
     },
@@ -1099,10 +991,7 @@
           "description": "Anchor node to insert before when inserting adjacent rather than replacing."
         },
         "replaceSection": {
-          "type": [
-            "string",
-            "boolean"
-          ],
+          "type": ["string", "boolean"],
           "description": "Markdown content or boolean flag when file: is specified."
         },
         "tab": {
@@ -1114,10 +1003,7 @@
           "description": "Plain text content (fallback alias for canonical markdown:)."
         }
       },
-      "required": [
-        "doc",
-        "kind"
-      ],
+      "required": ["doc", "kind"],
       "additionalProperties": false,
       "description": "Section-level auto-diffing replacement step (`kind: \"replaceSection\"`)."
     },
@@ -1174,11 +1060,7 @@
           "description": "Target tab ID or title."
         }
       },
-      "required": [
-        "doc",
-        "fromSection",
-        "kind"
-      ],
+      "required": ["doc", "fromSection", "kind"],
       "additionalProperties": false,
       "description": "Server-side section transfer step across documents or tabs (`kind: \"sectionCopy\"`)."
     },
@@ -1352,9 +1234,7 @@
               "type": "number"
             }
           },
-          "required": [
-            "uri"
-          ],
+          "required": ["uri"],
           "additionalProperties": false,
           "description": "Insert a public HTTPS inline image."
         },
@@ -1365,9 +1245,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "email"
-          ],
+          "required": ["email"],
           "additionalProperties": false,
           "description": "Insert a person mention chip."
         },
@@ -1384,9 +1262,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "uri"
-          ],
+          "required": ["uri"],
           "additionalProperties": false,
           "description": "Insert a rich link chip."
         },
@@ -1400,10 +1276,7 @@
               "properties": {
                 "sectionType": {
                   "type": "string",
-                  "enum": [
-                    "CONTINUOUS",
-                    "NEXT_PAGE"
-                  ]
+                  "enum": ["CONTINUOUS", "NEXT_PAGE"]
                 }
               },
               "additionalProperties": false
@@ -1498,10 +1371,7 @@
           "description": "Table styling (pinnedHeaderRows, preventOverflow, columnWidth, etc.)."
         }
       },
-      "required": [
-        "doc",
-        "kind"
-      ],
+      "required": ["doc", "kind"],
       "additionalProperties": false,
       "description": "Surgical DOM and tape mutation step (`kind: \"surgical\"`)."
     },
@@ -1556,10 +1426,7 @@
           "description": "Optional document ID to clone from."
         },
         "fromNode": {
-          "type": [
-            "number",
-            "string"
-          ],
+          "type": ["number", "string"],
           "description": "Alias for nodeId."
         },
         "fromTab": {
@@ -1571,10 +1438,7 @@
           "description": "Replacement text content."
         },
         "nodeId": {
-          "type": [
-            "number",
-            "string"
-          ],
+          "type": ["number", "string"],
           "description": "Scoped ID or tape index of the node to clone."
         }
       },
@@ -1630,12 +1494,7 @@
           "description": "Title for the new tab. Note: supply final title directly at creation to avoid HTTP 500 on template copies."
         }
       },
-      "required": [
-        "as",
-        "doc",
-        "kind",
-        "title"
-      ],
+      "required": ["as", "doc", "kind", "title"],
       "additionalProperties": false,
       "description": "Tab creation or cloning step (`kind: \"tabCreate\"`)."
     },
@@ -1668,11 +1527,7 @@
         },
         "kind": {
           "type": "string",
-          "enum": [
-            "tabDelete",
-            "tabMove",
-            "tabReorder"
-          ],
+          "enum": ["tabDelete", "tabMove", "tabReorder"],
           "description": "Workflow step kind."
         },
         "tab": {
@@ -1680,11 +1535,7 @@
           "description": "Target tab ID or title."
         }
       },
-      "required": [
-        "doc",
-        "kind",
-        "tab"
-      ],
+      "required": ["doc", "kind", "tab"],
       "additionalProperties": false,
       "description": "Tab modification step (`kind: \"tabDelete\" | \"tabMove\" | \"tabReorder\"`)."
     },
@@ -1729,12 +1580,7 @@
           "description": "Optional new title to rename the target tab in place."
         }
       },
-      "required": [
-        "doc",
-        "fromTab",
-        "kind",
-        "tab"
-      ],
+      "required": ["doc", "fromTab", "kind", "tab"],
       "additionalProperties": false,
       "description": "Whole-tab population step into an existing tab (`kind: \"tabPopulate\"`)."
     },
@@ -1767,12 +1613,7 @@
           "description": "New title for the tab. Note: tabRename 500s on docs lacking root 't.0' (set title directly on tabCreate)."
         }
       },
-      "required": [
-        "doc",
-        "kind",
-        "tab",
-        "title"
-      ],
+      "required": ["doc", "kind", "tab", "title"],
       "additionalProperties": false,
       "description": "Tab renaming step (`kind: \"tabRename\"`)."
     },
@@ -1837,12 +1678,7 @@
           "description": "Plain text replacement (fallback alias for replace:)."
         }
       },
-      "required": [
-        "doc",
-        "find",
-        "kind",
-        "replace"
-      ],
+      "required": ["doc", "find", "kind", "replace"],
       "additionalProperties": false,
       "description": "Plain find-and-replace text step (`kind: \"textReplace\"`)."
     }

@@ -210,6 +210,7 @@ describe("summarizeNode", () => {
       id: 3,
       image: { count: 1, widthPt: 480 },
       kind: "paragraph",
+      lossWarning: "FRAGILE: Contains 1 inline image(s). Removing or rewriting this node deletes them.",
       namedStyleType: "NORMAL_TEXT",
     });
   });
@@ -2294,6 +2295,125 @@ Conclusion paragraph
     ]);
 
     expect(() => applyOps(writer, [{ at: 1, remove: true }])).toThrow(/Refusing to remove node 1 \(tableOfContents\)/);
+
+    expect(() => applyOps(writer, [{ at: 1, force: true, remove: true }])).not.toThrow();
+    expect(writer.nodes.length).toBe(1);
+  });
+
+  test("hard-refuses removing or rewriting image paragraphs; innerText keeps images", () => {
+    const makeWriter = () =>
+      new DomWriter([
+        {
+          end: 14,
+          images: [{ end: 13, objectId: "kix.img", start: 12 }],
+          kind: "paragraph",
+          namedStyleType: "NORMAL_TEXT",
+          start: 10,
+          tapeIndex: 1,
+          text: "",
+        },
+        { end: 40, tapeIndex: 2, kind: "paragraph", namedStyleType: "NORMAL_TEXT", start: 14, text: "Follow up" },
+      ]);
+
+    const w1 = makeWriter();
+    expect(() => applyOps(w1, [{ at: 1, remove: true }])).toThrow(
+      /Refusing to remove node 1 \(contains 1 inline image/,
+    );
+
+    const w2 = makeWriter();
+    expect(() => applyOps(w2, [{ at: 1, replaceMarkdown: "x" }])).toThrow(/Refusing to replace node 1/);
+
+    const w3 = makeWriter();
+    expect(() => applyOps(w3, [{ at: 1, innerText: "Caption" }])).not.toThrow();
+    expect(w3.nodes[0]?.text).toBe("Caption");
+
+    const w4 = makeWriter();
+    expect(() => applyOps(w4, [{ at: 1, force: true, remove: true }])).not.toThrow();
+    expect(w4.nodes.length).toBe(1);
+  });
+
+  test("hard-refuses horizontal-rule paragraphs without force", () => {
+    const makeWriter = () =>
+      new DomWriter([
+        {
+          end: 12,
+          hasHorizontalRule: true,
+          kind: "paragraph",
+          namedStyleType: "NORMAL_TEXT",
+          start: 10,
+          tapeIndex: 1,
+          text: "",
+        },
+        { end: 30, tapeIndex: 2, kind: "paragraph", namedStyleType: "NORMAL_TEXT", start: 12, text: "Follow up" },
+      ]);
+
+    const w1 = makeWriter();
+    expect(() => applyOps(w1, [{ at: 1, innerText: "text" }])).toThrow(
+      /Refusing to innerText node 1 \(contains a horizontal rule\)/,
+    );
+
+    const w2 = makeWriter();
+    expect(() => applyOps(w2, [{ at: 1, remove: true }])).toThrow(
+      /Refusing to remove node 1 \(contains a horizontal rule\)/,
+    );
+
+    const w3 = makeWriter();
+    expect(() => applyOps(w3, [{ at: 1, force: true, remove: true }])).not.toThrow();
+    expect(w3.nodes.length).toBe(1);
+  });
+
+  test("hard-refuses footnote paragraphs without force", () => {
+    const makeWriter = () =>
+      new DomWriter([
+        {
+          end: 20,
+          footnoteIds: ["fn1"],
+          kind: "paragraph",
+          namedStyleType: "NORMAL_TEXT",
+          start: 0,
+          tapeIndex: 1,
+          text: "See note.",
+        },
+        { end: 40, tapeIndex: 2, kind: "paragraph", namedStyleType: "NORMAL_TEXT", start: 20, text: "Follow up" },
+      ]);
+
+    const w1 = makeWriter();
+    expect(() => applyOps(w1, [{ at: 1, innerText: "text" }])).toThrow(
+      /Refusing to innerText node 1 \(contains 1 footnote reference/,
+    );
+
+    const w2 = makeWriter();
+    expect(() => applyOps(w2, [{ at: 1, remove: true }])).toThrow(
+      /Refusing to remove node 1 \(contains 1 footnote reference/,
+    );
+
+    const w3 = makeWriter();
+    expect(() => applyOps(w3, [{ at: 1, force: true, remove: true }])).not.toThrow();
+    expect(w3.nodes.length).toBe(1);
+  });
+
+  test("refuses removing a table whose cells hold images", () => {
+    const writer = new DomWriter([
+      {
+        end: 30,
+        kind: "table",
+        start: 10,
+        tapeIndex: 1,
+        table: {
+          cells: [
+            [
+              { end: 20, images: [{ end: 15, objectId: "kix.cell-img", start: 14 }], start: 12, text: "" },
+              { end: 24, start: 20, text: "caption" },
+            ],
+          ],
+        },
+      },
+      { end: 40, tapeIndex: 2, kind: "paragraph", namedStyleType: "NORMAL_TEXT", start: 30, text: "Follow up" },
+    ]);
+
+    expect(() => applyOps(writer, [{ at: 1, remove: true }])).toThrow(
+      /Refusing to remove node 1 \(contains 1 inline image/,
+    );
 
     expect(() => applyOps(writer, [{ at: 1, force: true, remove: true }])).not.toThrow();
     expect(writer.nodes.length).toBe(1);

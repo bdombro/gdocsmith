@@ -163,12 +163,14 @@ function documentTabsParse(gdoc: Gdoc, title: string): Array<{ nodes: DocNode[];
   });
 }
 
-/** True when a node is fragile (chips, equations, HR, TOC). */
+/** True when a node is fragile (chips, equations, images, HR, footnotes, TOC). */
 function nodeIsUnsafe(node: DocNode): boolean {
   return (
     Boolean(node.hasEquation) ||
     Boolean(node.chips?.length) ||
+    Boolean(node.images?.length) ||
     Boolean(node.hasHorizontalRule) ||
+    Boolean(node.footnoteIds?.length) ||
     node.kind === "tableOfContents"
   );
 }

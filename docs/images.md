@@ -11,7 +11,7 @@ No extra Google APIs. `kind: query` then mutate as usual.
 | Find it | `kind: query` + `dump`; look for `image` on the node. Table cells use ids like `h.arch.table.0.1.3c8f`. |
 | Caption / nearby text | `kind: replace` / `innerText` on that paragraph. Table cell: `at: h.arch.table.0.1.3c8f`. Text runs are replaced; the image stays. |
 | Center it | `alignment: CENTER` on that paragraph or cell (Docs aligns the paragraph, not the image object). |
-| Delete it | `remove: true` on that paragraph. `remove` on a table deletes every cell image in it. |
+| Delete it | `remove: true` with `force: true` on that paragraph (removal permanently deletes the image; the API cannot recreate it). `remove` on a table deletes every cell image in it. |
 | Edit around it | `after` / `before` sibling inserts. |
 
 `:empty` is no text **and** no images. A photo with a blank caption is not empty.

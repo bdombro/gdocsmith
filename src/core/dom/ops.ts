@@ -1724,8 +1724,8 @@ export const applyOps = tapeMutationsApply;
 export const opsApply = tapeMutationsApply;
 
 /**
- * Hard refusal when mutating or removing fragile nodes (equations, chips, TOC).
- * Pass `force: true` to bypass.
+ * Hard refusal when mutating or removing fragile nodes (equations, chips, inline images,
+ * horizontal rules, footnote references, TOC). Pass `force: true` to bypass.
  */
 export function notFragileAssert(
   node: DocNode | CellParagraph,
@@ -1753,6 +1753,32 @@ export function notFragileAssert(
     );
   }
 
+  const imageCount = (node.images?.length ?? 0) + ("kind" in node ? tableImageCount(node) : 0);
+  if (imageCount > 0 && action !== "innerText") {
+    throw new Error(
+      `Refusing to ${action} node ${id} (contains ${imageCount} inline image(s)):\n` +
+        `Google Docs REST API cannot re-insert Drive-hosted images; this permanently deletes ${imageCount} inline image(s).\n` +
+        `To proceed intentionally, pass force: true in the op or on the apply document.`,
+    );
+  }
+
+  if (node.hasHorizontalRule) {
+    throw new Error(
+      `Refusing to ${action} node ${id} (contains a horizontal rule):\n` +
+        `Google Docs REST API cannot insert horizontal rules; modifying or deleting this node permanently destroys it.\n` +
+        `To proceed intentionally, pass force: true in the op or on the apply document.`,
+    );
+  }
+
+  const footnoteCount = "kind" in node ? (node.footnoteIds?.length ?? 0) : 0;
+  if (footnoteCount > 0) {
+    throw new Error(
+      `Refusing to ${action} node ${id} (contains ${footnoteCount} footnote reference(s)):\n` +
+        `this deletes ${footnoteCount} footnote reference(s) and their footnote text.\n` +
+        `To proceed intentionally, pass force: true in the op or on the apply document.`,
+    );
+  }
+
   if ("kind" in node && node.kind === "tableOfContents" && action === "remove") {
     throw new Error(
       `Refusing to remove node ${id} (tableOfContents):\n` +
@@ -1764,6 +1790,22 @@ export function notFragileAssert(
 
 /** Hard refusal when mutating or removing fragile nodes (alias for notFragileAssert). */
 export const assertNotFragile = notFragileAssert;
+
+/** Total inline images across every cell of a table node (0 for a non-table node). */
+function tableImageCount(node: DocNode): number {
+  if (!node.table) return 0;
+  let count = 0;
+  for (const row of node.table.cells) {
+    for (const cell of row) {
+      if (cell.paragraphs) {
+        for (const p of cell.paragraphs) count += p.images?.length ?? 0;
+      } else {
+        count += cell.images?.length ?? 0;
+      }
+    }
+  }
+  return count;
+}
 
 /** innerText / remove on a chip, equation, or divider paragraph is allowed with force; plan warns that they will be destroyed. */
 function chipWarnings(target: DocNode, cell?: [number, number], para?: number): string[] {
@@ -2131,8 +2173,18 @@ export function nodeSummarize(node: DocNode, opts: { contains?: string; full?: b
       `FRAGILE: Contains ${node.chips.length} smart chip(s). Modifying text replaces chip with plain text.`,
     );
   }
+  if (node.images?.length) {
+    lossWarnings.push(
+      `FRAGILE: Contains ${node.images.length} inline image(s). Removing or rewriting this node deletes them.`,
+    );
+  }
   if (node.hasHorizontalRule) {
     lossWarnings.push("FRAGILE: Contains horizontal rule divider.");
+  }
+  if (node.footnoteIds?.length) {
+    lossWarnings.push(
+      `FRAGILE: Contains ${node.footnoteIds.length} footnote reference(s). Rewriting or removing this node deletes them.`,
+    );
   }
   if (node.kind === "tableOfContents") {
     lossWarnings.push("IMMUTABLE: Table of contents cannot be recreated via API. Do not remove.");

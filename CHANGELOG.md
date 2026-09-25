@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The fragile-node guard now also refuses removing or rewriting a paragraph containing an inline image (in-place `innerText` is exempt and keeps the image), a horizontal rule, or a footnote reference, and refuses removing a table whose cells hold images — all without `force: true`. Previously only equations, smart chips, and Table of Contents were protected, so `replaceSection`, `replaceMarkdown`, `replace`, and `remove` could silently destroy images, dividers, and footnote text the Docs REST API cannot recreate. `query`'s `unsafeOnly` filter and node `lossWarning` summaries now flag these too
+
 ### Changed
 - `sectionCopy` without an anchor appends to the end of the target tab when it lacks the source heading (previously failed)
 

@@ -35,10 +35,10 @@ export const LIST_DEFAULT_PRESET: Record<"bullet" | "check" | "number", BulletPr
 /** A preset's per-level (0-8) glyph fields (`glyphType`, `glyphSymbol`, `glyphFormat`, `startNumber`); never includes indent or `textStyle`. */
 export type PresetLevels = readonly RawListNestingLevel[];
 
-/** Maps a preset name to its recorded level table. Empty until G3 M5's live conformance suite records it into `listPresets.json`. */
+/** Maps a preset name to its recorded level table, from G3 M5's live conformance suite (`listPresets.json`; all 15 presets, levels 0-8). */
 export type PresetTable = Partial<Record<BulletPreset, PresetLevels>>;
 
-const GLYPH_FIELDS = ["glyphFormat", "glyphSymbol", "glyphType"] as const;
+const GLYPH_FIELDS = ["bulletAlignment", "glyphFormat", "glyphSymbol", "glyphType"] as const;
 const PRESET_TABLE_PATH = join(import.meta.dir, "listPresets.json");
 
 let cachedPresetTable: PresetTable | undefined;
@@ -99,8 +99,10 @@ export function listKind(
 
 /**
  * Default indent (PT) for a nesting level when no explicit neighbor value exists to copy (see G3
- * D19). `def` is accepted (not yet used) so a future preset-specific indent table can be plugged
- * in without changing call sites.
+ * D19): `indentStart = 36 * (level + 1)`, `indentFirstLine = indentStart - 18`. Confirmed live
+ * (G3 M5) across all 15 presets at every level 0-8 — indent is preset-independent. `def` is
+ * accepted (not yet used) so a future per-preset override could be plugged in without changing
+ * call sites, though none has been found to be necessary.
  */
 export function listLevelIndent(
   /** List definition (currently unused; reserved for a future per-preset indent table). */
@@ -108,7 +110,7 @@ export function listLevelIndent(
   /** 0-based nesting level. */
   level: number,
 ): { indentFirstLine: number; indentStart: number } {
-  const indentStart = 18 + level * 18;
+  const indentStart = 36 * (level + 1);
   return { indentFirstLine: indentStart - 18, indentStart };
 }
 

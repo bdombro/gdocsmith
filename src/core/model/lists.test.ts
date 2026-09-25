@@ -66,7 +66,7 @@ describe("lists", () => {
 
   test("listLevelIndent increases with nesting", () => {
     const def: ListDef = { isNew: false, nestingLevels: [] };
-    expect(listLevelIndent(def, 0)).toEqual({ indentFirstLine: 0, indentStart: 18 });
+    expect(listLevelIndent(def, 0)).toEqual({ indentFirstLine: 18, indentStart: 36 });
     expect(listLevelIndent(def, 1).indentStart).toBeGreaterThan(listLevelIndent(def, 0).indentStart);
   });
 });

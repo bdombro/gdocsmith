@@ -203,7 +203,7 @@ describe("requestsEmulate", () => {
     expect(blocks[0].bullet?.listId).toBe(blocks[1].bullet?.listId);
   });
 
-  test("deleteParagraphBullets removes membership and sets indent from the level", () => {
+  test("deleteParagraphBullets removes membership and resets indent flat (indentFirstLine dropped, indentStart explicit-empty)", () => {
     const json = docJsonBuild({
       tabs: [
         {
@@ -219,7 +219,8 @@ describe("requestsEmulate", () => {
     ]);
     const p = parse(out).tabs[0].blocks[0] as ParagraphBlock;
     expect(p.bullet).toBeUndefined();
-    expect(p.style.indentStart).toEqual({ magnitude: 36, unit: "PT" });
+    expect(p.style.indentStart).toEqual({ magnitude: 0, unit: "PT" });
+    expect(p.style.indentFirstLine).toBeUndefined();
   });
 
   // --- one negative test per error code ---

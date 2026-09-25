@@ -1,7 +1,7 @@
 /* Applies Docs API batchUpdate requests to an EmulatorState tape (see G3 M3). */
 
 import type { GoogleDoc } from "~/core/types.ts";
-import { listLevelIndent, listPresetInfer, listPresetTable } from "../model/lists.ts";
+import { listPresetInfer, listPresetTable } from "../model/lists.ts";
 import type { JsonObject } from "../model/rawJson.ts";
 import type { BulletPreset } from "../model/types.ts";
 import {
@@ -480,19 +480,20 @@ function deleteParagraphBulletsRequestApply(state: EmulatorState, req: JsonObjec
   return {};
 }
 
-/** Removes bullet membership and sets `indentStart`/`indentFirstLine` from the level's default indent (G3 apiFacts `BULLETS_DELETE_INDENT`, confirmed by G3 M5). */
+/**
+ * Removes bullet membership: `indentFirstLine` is dropped entirely (reverts to inherited) and
+ * `indentStart` is set to an explicit empty dimension (`{unit: "PT"}`, no magnitude — an explicit
+ * reset to 0, not "unset"). Confirmed live (G3 M5) at nesting level 0 and level 3: the reset is
+ * flat and does not depend on the paragraph's prior nesting level.
+ */
 function deleteParagraphBulletsApply(tab: TabState, start: number, end: number): void {
   for (let i = start; i < end; i++) {
     const cell = tab.tape[i];
     if (cell.t !== "nl" || !cell.para.bullet) continue;
-    const level = ((cell.para.bullet as JsonObject).nestingLevel as number | undefined) ?? 0;
-    const indent = listLevelIndent({ isNew: false, nestingLevels: [] }, level);
     cell.para.bullet = undefined;
-    cell.para.style = {
-      ...cell.para.style,
-      indentFirstLine: { magnitude: indent.indentFirstLine, unit: "PT" },
-      indentStart: { magnitude: indent.indentStart, unit: "PT" },
-    };
+    const style: JsonObject = { ...cell.para.style, indentStart: { unit: "PT" } };
+    delete style.indentFirstLine;
+    cell.para.style = style;
   }
 }
 

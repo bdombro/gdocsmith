@@ -106,7 +106,16 @@ setup:
 
 # Run unit tests
 test:
-    bun test src
+    bun test src scripts
+
+# Run the v1 vs v2 evaluation harness (requires the M2 case registry and pilot gate)
+eval *ARGS: schemagen
+    bun scripts/eval.ts {{ARGS}}
+
+# Create the detached v1 baseline worktree used by G6
+eval-worktree:
+    @mkdir -p "$HOME/.cache/gdocsmith/evals"
+    @if test -e "$HOME/.cache/gdocsmith/evals/v1/.git"; then printf '%s\n' 'v1 eval worktree already exists'; else git worktree add --detach "$HOME/.cache/gdocsmith/evals/v1" v1-baseline; fi
 
 # Run all tests
 test-all: test test-live test-wire

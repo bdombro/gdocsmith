@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Offline-first Copilot v1/v2 evaluation harness with arm-specific skills and bundles, restricted sessions, nullable usage metrics, fixture cleanup, and a pilot gate before runtime output schemas are trusted.
+
 ### Changed
 - Release `--dry-run` now prints the planned actions and exits without checks or mutations.
 - Markdown writes refuse new or edited nested list items whose marker kind differs from the parent; unchanged existing mixed-kind lists remain preserved.

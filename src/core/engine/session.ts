@@ -299,6 +299,7 @@ class DocHandleImpl implements DocHandle {
       this.state.tabCounter++;
       const existing = this.state.hiddenTabs.find((t) => t.tabId === bound);
       if (!existing) throw new CoreError("internal", `created tab ${bound} is missing`);
+      existing.title = o.title;
       this.state.hiddenTabs = this.state.hiddenTabs.filter((t) => t !== existing);
       // Back into its loaded place among the visible tabs.
       const order = this.state.original.tabs.map((t) => t.tabId);

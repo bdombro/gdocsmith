@@ -11,6 +11,8 @@ export const DOC_ALIAS = /^[A-Za-z][A-Za-z0-9_-]{0,23}$/;
 export interface StepContext {
   /** Map of bound aliases to doc handles. */
   aliases: Map<string, DocHandle>;
+  /** True when re-running after create phase or revision conflict. */
+  isRetry?: boolean;
   /** The core engine transaction session. */
   session: Session;
   /** Index of current step in steps array. */
@@ -44,7 +46,7 @@ export async function docRefResolve(ctx: StepContext, ref: string, opts: { fresh
     return ctx.aliases.get(ref)!;
   }
   if (RAW_DOC_ID.test(ref)) {
-    return ctx.session.docOpen(ref, { forceFetch: opts.fresh });
+    return ctx.session.docOpen(ref, { forceFetch: ctx.isRetry || opts.fresh });
   }
   throw stepErrorCreate(
     ctx,

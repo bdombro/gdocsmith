@@ -40,6 +40,7 @@ import type { Atom, AtomCreate, Block, DocModel, ParagraphBlock, TableBlock, Tab
 import { anchorResolve, paragraphText, type RangeRef, type ResolvedRange, rangeResolve } from "./anchors.ts";
 import { type BlockEdit, blockDiff } from "./blockDiff.ts";
 import { parsedCanonical } from "./canonical.ts";
+import { linkContext } from "./export.ts";
 import {
   markdownParse,
   type ParsedBlock,
@@ -277,7 +278,7 @@ interface PutState {
 
 /** Parses the range's own rendering back (P0); its blocks line up one-to-one with the projection's. */
 function p0Parse(state: PutState, projection: ReturnType<typeof projectionBuild>): ParsedBlock[] {
-  const rendered = markdownRender(projection, {});
+  const rendered = markdownRender(projection, { links: linkContext(state.doc, state.tab) });
   const blocks = markdownParse(rendered, { doc: state.doc, styles: projection.styles, tab: state.tab }).blocks;
   if (blocks.length !== projection.blocks.length) {
     throw new CoreError("internal", `the range read back as ${blocks.length} blocks, not ${projection.blocks.length}`);

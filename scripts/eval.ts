@@ -1,4 +1,4 @@
-/* Offline-first Copilot E2E evaluation harness for gdocsmith (G6 M1). */
+/* Offline-first Claude Code agent E2E harness for gdocsmith. */
 
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -7,6 +7,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -20,57 +21,44 @@ import { type GdocsmithRunResult, runExecute } from "~/core/steps/run.ts";
 import type { GdocsmithStep } from "~/core/steps/types.ts";
 import type { GoogleDoc } from "~/core/types.ts";
 
-/** Fixed comparison defaults selected by the user for G6. */
+/** Agent E2E defaults. */
 export const EVAL_DEFAULTS = {
   fixtureId: "1QuCvvolxaAVZ6DroVAxAoO7ClZFiPUOp7453MN7l-Yc",
-  model: "gpt-5.6-luna",
-  reasoningEffort: "xhigh",
-  runs: 3,
+  model: "sonnet",
+  runs: 2,
+  maxAgents: 40,
   timeoutMs: 600_000,
 } as const;
 
-/** The two supported comparison arms. */
-export type EvalArmName = "v1" | "v2";
-
-/** A local Git worktree supplied for one arm. */
-export interface EvalArmPath {
-  /** Comparison arm label. */
-  name: EvalArmName;
-  /** Absolute repository or worktree path. */
-  root: string;
-}
-
-/** Immutable metadata recorded for a selected arm. */
-export interface EvalArm {
+/** Immutable metadata recorded for the checkout under test. */
+export interface EvalCheckout {
   /** Absolute root path. */
   root: string;
-  /** Arm label. */
-  name: EvalArmName;
-  /** Git revision at evaluation start. */
+  /** Git revision at E2E start. */
   revision: string;
-  /** Absolute path to the built Node MCP bundle. */
+  /** Absolute path to the checkout's built Node MCP bundle. */
   bundlePath: string;
-  /** SHA-256 of the selected arm's MCP bundle. */
+  /** SHA-256 of the checkout's MCP bundle. */
   bundleSha256: string;
-  /** Absolute path to the selected arm's gdocsmith skill. */
+  /** Absolute path to the checkout's gdocsmith skill. */
   skillPath: string;
-  /** SHA-256 of the selected arm's skill. */
+  /** SHA-256 of the checkout's skill. */
   skillSha256: string;
 }
 
-/** Parsed command-line options for one v1/v2 comparison. */
+/** Parsed command-line options for an E2E run. */
 export interface EvalOptions {
-  /** Absolute path for the v1 worktree. */
-  armRoots: Record<EvalArmName, string>;
+  /** Absolute path to the checkout under test. */
+  root: string;
   /** Optional case IDs; empty selects every registered case. */
   caseIds: string[];
   /** Keep fixture copies after each run. */
   keepDocs: boolean;
-  /** Requested model, applied identically to both arms. */
+  /** Run one read-only outline attempt. */
+  pilot: boolean;
+  /** Requested model. */
   model: string;
-  /** Requested reasoning effort, applied identically to both arms. */
-  reasoningEffort: string;
-  /** Repetitions per selected case and arm. */
+  /** Repetitions per selected case. */
   runs: number;
 }
 
@@ -97,7 +85,7 @@ export interface EvalVerificationContext {
   documentId: string;
   /** Captured agent transcript, when the CLI produced one. */
   transcript: string | null;
-  /** Raw, redacted Copilot JSONL stdout. */
+  /** Raw, redacted Claude JSONL stdout. */
   stdout: string;
   /** Runs read-only gdocsmith queries against the current document. */
   query(steps: GdocsmithStep[]): Promise<GdocsmithRunResult>;
@@ -115,8 +103,6 @@ export interface EvalCase {
 
 /** Nullable metrics retained for reporting without treating missing as zero. */
 export interface EvalMetrics {
-  /** Copilot AI credits from the usage report. */
-  aiCredits: number | null;
   /** Cached input tokens, kept separate from input token totals. */
   cachedInputTokens: number | null;
   /** Reported USD cost only; never estimated. */
@@ -133,13 +119,11 @@ export interface EvalMetrics {
   invalidCalls: number | null;
   /** Output tokens from the usage report. */
   outputTokens: number | null;
-  /** Premium requests from the usage report. */
-  premiumRequests: number | null;
   /** Run-tool guard refusals. */
   refusedCalls: number | null;
   /** gdocsmith run-tool calls. */
   runCalls: number | null;
-  /** Model turns from the usage report. */
+  /** Model turns from Claude's result. */
   turns: number | null;
 }
 
@@ -149,24 +133,16 @@ export interface EvalEvidence {
   stdoutFile: string;
   /** Relative path to captured stderr. */
   stderrFile: string;
-  /** Relative path to the local transcript, if produced. */
-  transcriptFile: string | null;
-  /** Relative path to the final usage JSON, if produced. */
-  usageFile: string | null;
-  /** Copilot's unique session UUID. */
+  /** Claude's unique session UUID. */
   sessionId: string;
   /** Unique MCP server name configured for this run. */
   mcpServerName: string;
-  /** User-confirmed isolation assumption for unrelated MCP servers. */
-  unrelatedMcpServers: "user-confirmed-disabled";
 }
 
-/** Normalized result for one case, arm, and repetition. */
+/** Normalized result for one case and repetition. */
 export interface EvalRunRecord {
-  /** Arm label. */
-  arm: EvalArmName;
-  /** Git revision of the arm. */
-  armRevision: string;
+  /** Git revision of the checkout. */
+  revision: string;
   /** MCP bundle hash used by the run. */
   bundleSha256: string;
   /** Case identifier. */
@@ -185,8 +161,6 @@ export interface EvalRunRecord {
   durationMs: number | null;
   /** Effective model observed in runtime evidence. */
   effectiveModel: string | null;
-  /** Effective reasoning effort observed in runtime evidence. */
-  effectiveReasoningEffort: string | null;
   /** Concise error or incomplete-run explanation. */
   error?: string;
   /** Provider, Google-auth, or isolation halt condition. */
@@ -195,16 +169,12 @@ export interface EvalRunRecord {
   keptDocumentId?: string;
   /** Run metrics. Missing usage and unverified event metrics are null. */
   metrics: EvalMetrics;
-  /** Whether the output event schema was confirmed by a pilot. */
-  outputSchemaVerified: boolean;
   /** Whether all deterministic case checks passed. */
   passed: boolean;
   /** One-based repetition index. */
   run: number;
   /** Requested model. */
   requestedModel: string;
-  /** Requested reasoning effort. */
-  requestedReasoningEffort: string;
   /** Run start time in ISO format. */
   startedAt: string;
   /** Run completion time in ISO format. */
@@ -215,17 +185,17 @@ export interface EvalRunRecord {
   completionObserved: boolean;
   /** Document copy could not be deleted. */
   undeletedDocumentId?: string;
-  /** Provider usage file state. */
-  usageStatus: "available" | "invalid" | "missing";
+  /** Provider usage state. */
+  usageStatus: "available" | "missing";
   /** Unmatched tool calls or malformed required events. */
   eventIssues: string[];
-  /** Copilot CLI version string. */
-  copilotVersion: string;
+  /** Claude CLI version string. */
+  claudeVersion: string;
   /** Run-owned fixture copy, deleted unless explicitly kept. */
   fixtureDocumentId: string | null;
 }
 
-/** Captured Copilot process result. */
+/** Captured Claude process result. */
 export interface EvalProcessResult {
   /** Child exit status. */
   exitCode: number;
@@ -237,11 +207,11 @@ export interface EvalProcessResult {
   timedOut: boolean;
 }
 
-/** Process arguments passed to the injectable Copilot invoker. */
+/** Process arguments passed to the injectable Claude invoker. */
 export interface EvalSpawnOptions {
   /** Fresh temporary workspace. */
   cwd: string;
-  /** Environment inherited by Copilot with automatic updates disabled. */
+  /** Environment inherited by Claude. */
   env: Record<string, string | undefined>;
   /** Hard per-session timeout. */
   timeoutMs: number;
@@ -259,11 +229,13 @@ export interface EvalGoogleClients {
 export interface EvalDependencies {
   /** Google clients; default to gdocsmith's authenticated clients. */
   clients?: EvalGoogleClients;
-  /** Copilot executable path; default to the installed CLI. */
-  copilotPath?: string;
+  /** Claude executable path; default to the installed CLI. */
+  claudePath?: string;
   /** Output directory; default is under ~/.cache/gdocsmith/evals. */
   outputDirectory?: string;
-  /** Per-run Copilot process invoker. */
+  /** Shared launch ledger path; default is under ~/.cache/gdocsmith/evals. */
+  ledgerPath?: string;
+  /** Per-run Claude process invoker. */
   spawn?: (command: string, args: string[], options: EvalSpawnOptions) => Promise<EvalProcessResult>;
   /** Read-only query override for verifier tests. */
   query?: (steps: GdocsmithStep[]) => Promise<GdocsmithRunResult>;
@@ -273,90 +245,50 @@ export interface EvalDependencies {
   now?: () => Date;
   /** Test UUID override. */
   id?: () => string;
-  /** Test-only gate for the runtime-confirmed event schema. */
-  outputSchemaVerified?: boolean;
   /** Test-only timeout override. */
   timeoutMs?: number;
   /** Test-only environment override. */
   env?: Record<string, string | undefined>;
 }
 
-/** Candidate Copilot event mapping; M2 must confirm this against a live pilot. */
-export interface CopilotEventSummary {
-  /** Syntactic and provisional semantic completion. */
+/** Observed Claude Code stream event mapping. */
+export interface ClaudeEventSummary {
+  /** Syntactic and semantic completion. */
   complete: boolean;
-  /** Whether a candidate session completion event was present. */
+  /** Whether a final result event was present. */
   completionObserved: boolean;
-  /** Candidate correlated call counts. */
+  /** Correlated call counts. */
   metrics: Pick<EvalMetrics, "failedCalls" | "forcedCalls" | "invalidCalls" | "refusedCalls" | "runCalls">;
-  /** Effective model when a recognized event reports one. */
+  /** Effective model reported by init or assistant messages. */
   effectiveModel: string | null;
-  /** Effective effort when a recognized event reports one. */
-  effectiveReasoningEffort: string | null;
   /** Issues that make the stream incomplete. */
   issues: string[];
   /** Names of tools outside the intended run/status pair. */
   unexpectedToolNames: string[];
+  /** Provider result usage. */
+  usage: Pick<EvalMetrics, "cachedInputTokens" | "costUsd" | "inputTokens" | "outputTokens" | "turns">;
+  /** Whether the init event advertised only the allowed MCP tools. */
+  toolsIsolated: boolean;
 }
 
-/** Usage fields mapped only from the harness's normalized candidate schema. */
-export interface CopilotUsageSummary {
-  /** Parsed nullable usage values. */
-  metrics: Pick<
-    EvalMetrics,
-    "aiCredits" | "cachedInputTokens" | "costUsd" | "inputTokens" | "outputTokens" | "premiumRequests" | "turns"
-  >;
-  /** Exact JSON property used for the reported USD value. */
-  costSource: string | null;
-  /** Effective model, if the report has the normalized field. */
-  model: string | null;
-  /** Effective reasoning effort, if the report has the normalized field. */
-  reasoningEffort: string | null;
-  /** Whether the usage file was present and valid JSON object data. */
-  status: "available" | "invalid" | "missing";
-}
-
-/** Comparison summary persisted alongside the detailed run matrix. */
+/** E2E summary persisted alongside the detailed run records. */
 export interface EvalSummary {
   /** Reason evaluation stopped early, if any. */
   abortReason: string | null;
-  /** Copilot CLI version. */
-  copilotVersion: string;
+  /** Claude CLI version. */
+  claudeVersion: string;
+  /** Number of launched agents across all invocations. */
+  agentsLaunched: number;
   /** Evaluation output directory. */
   outputDirectory: string;
-  /** Whether runtime event semantics were confirmed. */
-  outputSchemaVerified: boolean;
-  /** Requested model shared by both arms. */
+  /** Requested model. */
   requestedModel: string;
-  /** Requested reasoning effort shared by both arms. */
-  requestedReasoningEffort: string;
   /** Start timestamp in ISO format. */
   startedAt: string;
   /** Per-run outcomes. */
   runs: EvalRunRecord[];
 }
 
-/** Runtime schema remains unconfirmed until the authorized G6 M2 pilot. */
-export const COPILOT_OUTPUT_SCHEMA_VERIFIED = false;
-
-const JSONL_TOOL_START_TYPES = new Set(["mcp.tool.start", "tool.call.start", "tool.execution.start", "tool.start"]);
-const JSONL_TOOL_COMPLETE_TYPES = new Set([
-  "mcp.tool.complete",
-  "tool.call.complete",
-  "tool.execution.complete",
-  "tool.complete",
-]);
-const JSONL_SESSION_COMPLETE_TYPES = new Set([
-  "agent.complete",
-  "agent.completed",
-  "assistant.turn.complete",
-  "assistant.turn.completed",
-  "session.complete",
-  "session.completed",
-  "session.end",
-  "task.complete",
-  "turn.complete",
-]);
 const GOOGLE_AUTH_FAILURE =
   /\b(?:401|403)\b|unauthorized|authentication (?:expired|invalid|required)|permission denied|insufficient(?:file)?permissions|does not have permission/i;
 const PROVIDER_HALT =
@@ -368,11 +300,11 @@ const SECRET_ENV_NAME = /(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|API[_-]?KEY|PRIVATE
 
 /** Parses the supported command-line interface without invoking any clients. */
 export function evalOptionsParse(argv: string[]): EvalCliOptions {
-  const armRoots: Partial<Record<EvalArmName, string>> = {};
+  let root: string | undefined;
   const caseIds: string[] = [];
   let keepDocs = false;
-  let model: string = EVAL_DEFAULTS.model;
-  let reasoningEffort: string = EVAL_DEFAULTS.reasoningEffort;
+  let pilot = false;
+  const model: string = EVAL_DEFAULTS.model;
   let runs: number = EVAL_DEFAULTS.runs;
 
   for (let index = 0; index < argv.length; index++) {
@@ -382,19 +314,15 @@ export function evalOptionsParse(argv: string[]): EvalCliOptions {
       keepDocs = true;
       continue;
     }
-    if (flag === "--arm") {
+    if (flag === "--pilot") {
+      pilot = true;
+      continue;
+    }
+    if (flag === "--root") {
       const value = argv[++index];
-      if (!value) throw new Error("--arm needs v1=<absolute path> or v2=<absolute path>");
-      const separator = value.indexOf("=");
-      const name = value.slice(0, separator);
-      const root = value.slice(separator + 1);
-      if ((name !== "v1" && name !== "v2") || separator < 0 || !root || !isAbsolute(root)) {
-        throw new Error(
-          `invalid --arm value ${JSON.stringify(value)}; expected v1=<absolute path> or v2=<absolute path>`,
-        );
-      }
-      if (armRoots[name]) throw new Error(`--arm ${name} was supplied more than once`);
-      armRoots[name] = resolve(root);
+      if (root) throw new Error("--root was supplied more than once");
+      if (!value || !isAbsolute(value)) throw new Error("--root needs an absolute path");
+      root = resolve(value);
       continue;
     }
     if (flag === "--case") {
@@ -407,57 +335,54 @@ export function evalOptionsParse(argv: string[]): EvalCliOptions {
       if (added === 0) throw new Error("--case needs one or more case IDs");
       continue;
     }
-    if (flag === "--runs" || flag === "--model" || flag === "--reasoning-effort") {
+    if (flag === "--runs") {
       const value = argv[++index];
       if (!value || value.startsWith("--")) throw new Error(`${flag} needs a value`);
-      if (flag === "--runs") {
-        const parsed = Number(value);
-        if (!Number.isSafeInteger(parsed) || parsed < 1) throw new Error("--runs must be a positive integer");
-        runs = parsed;
-      } else if (flag === "--model") {
-        model = value;
-      } else {
-        reasoningEffort = value;
-      }
+      const parsed = Number(value);
+      if (!Number.isSafeInteger(parsed) || parsed < 1) throw new Error("--runs must be a positive integer");
+      runs = parsed;
       continue;
     }
     if (flag?.startsWith("--")) throw new Error(`unknown option ${flag}`);
     throw new Error(`unexpected argument ${JSON.stringify(flag)}`);
   }
 
-  if (!armRoots.v1 || !armRoots.v2)
-    throw new Error("both --arm v1=<absolute path> and --arm v2=<absolute path> are required");
+  if (!root) throw new Error("--root <absolute path> is required");
   if (new Set(caseIds).size !== caseIds.length) throw new Error("--case IDs must be unique");
+  if (runs * (caseIds.length || 10) > EVAL_DEFAULTS.maxAgents)
+    throw new Error(`requested matrix exceeds ${EVAL_DEFAULTS.maxAgents} headless Claude agents`);
+  if (pilot && (runs !== 1 || caseIds.length !== 1 || caseIds[0] !== "outline-headings")) {
+    throw new Error("--pilot requires exactly --case outline-headings and --runs 1");
+  }
   return {
-    armRoots: { v1: armRoots.v1, v2: armRoots.v2 },
     caseIds,
     keepDocs,
     model,
-    reasoningEffort,
+    pilot,
+    root,
     runs,
   };
 }
 
-/** Inspects a committed arm and hashes the exact bundle and skill used. */
-export function evalArmInspect(name: EvalArmName, rootPath: string): EvalArm {
+/** Inspects a checkout and hashes the exact bundle and skill used. */
+export function evalCheckoutInspect(rootPath: string): EvalCheckout {
   const root = resolve(rootPath);
   const bundlePath = join(root, "scripts", "mcp.mjs");
   const skillPath = join(root, "skills", "gdocsmith", "SKILL.md");
-  if (!existsSync(bundlePath)) throw new Error(`${name} arm is missing scripts/mcp.mjs: ${root}`);
-  if (!existsSync(skillPath)) throw new Error(`${name} arm is missing skills/gdocsmith/SKILL.md: ${root}`);
+  if (!existsSync(bundlePath)) throw new Error(`checkout is missing scripts/mcp.mjs: ${root}`);
+  if (!existsSync(skillPath)) throw new Error(`checkout is missing skills/gdocsmith/SKILL.md: ${root}`);
 
   let revision: string;
   try {
     revision = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
   } catch {
-    throw new Error(`${name} arm must be a Git worktree: ${root}`);
+    throw new Error(`checkout must be a Git worktree: ${root}`);
   }
-  if (!revision) throw new Error(`${name} arm has no readable Git revision: ${root}`);
+  if (!revision) throw new Error(`checkout has no readable Git revision: ${root}`);
 
   return {
     bundlePath,
     bundleSha256: sha256File(bundlePath),
-    name,
     revision,
     root,
     skillPath,
@@ -467,7 +392,7 @@ export function evalArmInspect(name: EvalArmName, rootPath: string): EvalArm {
 
 /** Builds the gdocsmith skill workspace and a session-local MCP config. */
 export function evalWorkspacePrepare(
-  arm: EvalArm,
+  checkout: EvalCheckout,
   workspace: string,
   sessionId: string,
 ): {
@@ -475,16 +400,16 @@ export function evalWorkspacePrepare(
   mcpServerName: string;
 } {
   mkdirSync(workspace, { mode: 0o700, recursive: true });
-  const skillTarget = join(workspace, ".github", "skills", "gdocsmith", "SKILL.md");
+  const skillTarget = join(workspace, ".claude", "skills", "gdocsmith", "SKILL.md");
   mkdirSync(dirname(skillTarget), { mode: 0o700, recursive: true });
-  copyFileSync(arm.skillPath, skillTarget);
+  copyFileSync(checkout.skillPath, skillTarget);
 
   const mcpServerName = `gdocsmith_eval_${sessionId.replaceAll("-", "").slice(0, 16)}`;
   const configPath = join(workspace, "mcp.json");
   const config = {
     mcpServers: {
       [mcpServerName]: {
-        args: [arm.bundlePath, "mcp"],
+        args: [checkout.bundlePath, "mcp"],
         command: "node",
       },
     },
@@ -498,64 +423,58 @@ export function evalPromptBuild(prompt: string, documentId: string): string {
   return `${prompt}\n\nThe Google Doc ID is ${documentId}. Use the gdocsmith tools. Do not ask questions; if something cannot be done safely, explain why and stop.`;
 }
 
-/** Builds exact Copilot CLI arguments for one restricted, fresh session. */
-export function evalCopilotArgs(input: {
+/** Builds exact Claude CLI arguments for one restricted, fresh session. */
+export function evalClaudeArgs(input: {
   configPath: string;
   mcpServerName: string;
   model: string;
   prompt: string;
-  reasoningEffort: string;
   sessionId: string;
-  sharePath: string;
-  usagePath: string;
-  workspace: string;
-  secretEnvNames?: string[];
+  skill: string;
 }): string[] {
-  const allowedTools = [`${input.mcpServerName}(run)`, `${input.mcpServerName}(status)`];
-  const args = [
-    "--prompt",
-    input.prompt,
+  return [
+    "--print",
     "--session-id",
     input.sessionId,
     "--model",
     input.model,
-    "--reasoning-effort",
-    input.reasoningEffort,
     "--output-format",
-    "json",
-    "--usage-output-file",
-    input.usagePath,
-    "--share",
-    input.sharePath,
-    "--disable-builtin-mcps",
-    "--no-custom-instructions",
-    "--no-ask-user",
-    "--no-remote",
-    "--no-remote-export",
-    "--no-auto-update",
-    "--no-color",
-    "--add-dir",
-    input.workspace,
-    "--additional-mcp-config",
-    `@${input.configPath}`,
-    "--available-tools",
-    ...allowedTools,
-    "--allow-tool",
-    ...allowedTools,
+    "stream-json",
+    "--verbose",
+    "--no-session-persistence",
+    "--restricted",
+    "--strict-mcp-config",
+    "--mcp-config",
+    input.configPath,
+    "--tools",
+    "",
+    "--allowedTools",
+    `mcp__${input.mcpServerName}__run,mcp__${input.mcpServerName}__status`,
+    "--permission-mode",
+    "dontAsk",
+    "--append-system-prompt",
+    `Use only the following gdocsmith skill for this task:\n\n${input.skill}`,
+    input.prompt,
   ];
-  if (input.secretEnvNames?.length) args.push("--secret-env-vars", ...input.secretEnvNames);
-  return args;
 }
 
-/** Parses JSONL and correlates provisional Copilot tool-call events by ID. */
-export function copilotJsonlParse(stdout: string, mcpServerName: string): CopilotEventSummary {
+/** Parses Claude stream JSONL and correlates MCP tool_use and tool_result blocks. */
+export function claudeJsonlParse(stdout: string, mcpServerName: string): ClaudeEventSummary {
   const issues: string[] = [];
-  const pending = new Map<string, { argumentsValue: unknown; toolName: string; serverName: string | null }>();
+  const pending = new Map<string, { argumentsValue: unknown; toolName: string }>();
   const completed = new Set<string>();
   const unexpectedToolNames = new Set<string>();
   const modelValues = new Set<string>();
-  const effortValues = new Set<string>();
-  let malformedLines = 0;
+  let assistantModel: string | null = null;
+  const usage: ClaudeEventSummary["usage"] = {
+    cachedInputTokens: null,
+    costUsd: null,
+    inputTokens: null,
+    outputTokens: null,
+    turns: null,
+  };
+  let initObserved = false;
+  let toolsIsolated = false;
   let completionObserved = false;
   let failedCalls = 0;
   let forcedCalls = 0;
@@ -569,140 +488,115 @@ export function copilotJsonlParse(stdout: string, mcpServerName: string): Copilo
     try {
       decoded = JSON.parse(line);
     } catch {
-      malformedLines++;
       issues.push(`line ${index + 1} is not valid JSON`);
       continue;
     }
     const event = recordOf(decoded);
     if (!event) {
-      malformedLines++;
       issues.push(`line ${index + 1} is not a JSON object`);
       continue;
     }
-
-    const payload = recordOf(event.data) ?? recordOf(event.payload) ?? {};
-    const data = { ...event, ...payload };
-    const type = eventType(data);
-    if (type && JSONL_SESSION_COMPLETE_TYPES.has(type)) completionObserved = true;
-    const model = stringField(data, ["model", "effectiveModel"]);
-    const effort = stringField(data, ["reasoningEffort", "reasoning_effort", "effectiveReasoningEffort"]);
-    if (model) modelValues.add(model);
-    if (effort) effortValues.add(effort);
-
-    if (type && JSONL_TOOL_START_TYPES.has(type)) {
-      const callId = callIdRead(data);
-      const toolName = toolNameRead(data);
-      const serverName = stringField(data, ["mcpServerName", "serverName", "server"]);
-      if (!callId || !toolName) {
-        issues.push(`line ${index + 1} has a tool start without a call ID or tool name`);
-        continue;
-      }
-      if (pending.has(callId) || completed.has(callId)) {
-        issues.push(`tool call ${callId} started more than once`);
-        continue;
-      }
-      if (serverName && serverName !== mcpServerName) {
-        issues.push(`tool call ${callId} came from unexpected MCP server ${serverName}`);
-      }
-      if (!evalToolIsAllowed(toolName, mcpServerName)) unexpectedToolNames.add(toolName);
-      pending.set(callId, { argumentsValue: argumentValueRead(data), serverName, toolName });
-      continue;
+    if (event.type === "system" && event.subtype === "init") {
+      initObserved = true;
+      const tools = event.tools;
+      const servers = event.mcp_servers;
+      toolsIsolated =
+        Array.isArray(tools) &&
+        tools.every((tool) => typeof tool === "string" && evalToolIsAllowed(tool, mcpServerName)) &&
+        Array.isArray(servers) &&
+        servers.length === 1 &&
+        recordOf(servers[0])?.name === mcpServerName &&
+        recordOf(servers[0])?.status === "connected";
+      if (!toolsIsolated) issues.push("init did not confirm exclusive gdocsmith tools and connected server");
+      const model = stringField(event, ["model"]);
+      if (model) modelValues.add(model);
     }
-
-    if (type && JSONL_TOOL_COMPLETE_TYPES.has(type)) {
-      const callId = callIdRead(data);
-      if (!callId) {
-        issues.push(`line ${index + 1} has a tool completion without a call ID`);
-        continue;
+    if (event.type === "assistant") {
+      const message = recordOf(event.message);
+      const model = message && stringField(message, ["model"]);
+      if (model) {
+        modelValues.add(model);
+        assistantModel = model;
       }
-      if (completed.has(callId)) continue;
-      const started = pending.get(callId);
-      if (!started) {
-        issues.push(`tool call ${callId} completed without a matching start`);
-        continue;
+      const content = message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        const tool = recordOf(block);
+        if (tool?.type !== "tool_use") continue;
+        const callId = stringField(tool, ["id"]);
+        const toolName = stringField(tool, ["name"]);
+        if (!callId || !toolName || pending.has(callId) || completed.has(callId)) {
+          issues.push(`line ${index + 1} has an invalid or duplicate tool use`);
+          continue;
+        }
+        if (!evalToolIsAllowed(toolName, mcpServerName)) unexpectedToolNames.add(toolName);
+        pending.set(callId, { argumentsValue: tool.input, toolName });
       }
-      pending.delete(callId);
-      completed.add(callId);
-      if (!evalToolIsRun(started.toolName, mcpServerName)) continue;
-
-      runCalls++;
-      if (containsForceTrue(started.argumentsValue)) forcedCalls++;
-      const result = recordOf(data.result) ?? {};
-      const errorText = textExtract(data.error) || textExtract(result.error) || textExtract(result);
-      const failed = data.isError === true || result.isError === true || data.error != null || result.error != null;
-      if (failed) failedCalls++;
-      if (failed && INVALID_RUN_ERROR.test(errorText)) invalidCalls++;
-      if (failed && REFUSAL_ERROR.test(errorText)) refusedCalls++;
+    }
+    if (event.type === "user") {
+      const content = recordOf(event.message)?.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        const result = recordOf(block);
+        if (result?.type !== "tool_result") continue;
+        const callId = stringField(result, ["tool_use_id"]);
+        if (!callId || !pending.has(callId)) {
+          if (!callId || !completed.has(callId)) issues.push(`line ${index + 1} has an unmatched tool result`);
+          continue;
+        }
+        const started = pending.get(callId)!;
+        pending.delete(callId);
+        completed.add(callId);
+        if (!evalToolIsRun(started.toolName, mcpServerName)) continue;
+        runCalls++;
+        if (containsForceTrue(started.argumentsValue)) forcedCalls++;
+        const text = textExtract(result.content);
+        const failed = result.is_error === true || INVALID_RUN_ERROR.test(text) || REFUSAL_ERROR.test(text);
+        if (failed) failedCalls++;
+        if (failed && INVALID_RUN_ERROR.test(text)) invalidCalls++;
+        if (REFUSAL_ERROR.test(text)) refusedCalls++;
+      }
+    }
+    if (event.type === "result") {
+      completionObserved = true;
+      if (event.is_error === true || event.subtype !== "success") issues.push("Claude result reported an error");
+      const stats = recordOf(event.usage);
+      const inputTokens = nonnegativeNumber(stats?.input_tokens);
+      const cacheRead = nonnegativeNumber(stats?.cache_read_input_tokens);
+      const cacheCreated = nonnegativeNumber(stats?.cache_creation_input_tokens);
+      usage.inputTokens = inputTokens === null ? null : inputTokens + (cacheRead ?? 0) + (cacheCreated ?? 0);
+      usage.cachedInputTokens = cacheRead;
+      usage.outputTokens = nonnegativeNumber(stats?.output_tokens);
+      usage.turns = nonnegativeNumber(event.num_turns);
+      usage.costUsd = nonnegativeNumber(event.total_cost_usd);
     }
   }
 
+  if (!initObserved) issues.push("Claude init event is missing");
+  if (Array.from(modelValues).some((model) => model !== "sonnet" && !/^claude-sonnet-/i.test(model)))
+    issues.push("a non-Sonnet model appeared in the stream");
   if (pending.size) issues.push(`${pending.size} tool call(s) have no completion event`);
-  if (!completionObserved) issues.push("session completion event is missing");
-  if (malformedLines) issues.push(`${malformedLines} malformed JSONL record(s)`);
+  if (!completionObserved) issues.push("Claude result event is missing");
   if (unexpectedToolNames.size)
     issues.push(`unexpected tools were called: ${Array.from(unexpectedToolNames).sort().join(", ")}`);
 
   return {
     complete: issues.length === 0,
     completionObserved,
-    effectiveModel: modelValues.size === 1 ? (Array.from(modelValues)[0] ?? null) : null,
-    effectiveReasoningEffort: effortValues.size === 1 ? (Array.from(effortValues)[0] ?? null) : null,
+    effectiveModel: assistantModel ?? (modelValues.size === 1 ? (Array.from(modelValues)[0] ?? null) : null),
     issues,
     metrics: { failedCalls, forcedCalls, invalidCalls, refusedCalls, runCalls },
     unexpectedToolNames: Array.from(unexpectedToolNames).sort(),
+    usage,
+    toolsIsolated,
   };
 }
 
-/** Parses only normalized usage properties; unknown provider fields stay unavailable. */
-export function copilotUsageParse(raw: string | null): CopilotUsageSummary {
-  const unavailable = {
-    aiCredits: null,
-    cachedInputTokens: null,
-    costUsd: null,
-    inputTokens: null,
-    outputTokens: null,
-    premiumRequests: null,
-    turns: null,
-  } satisfies CopilotUsageSummary["metrics"];
-  if (raw === null) {
-    return { costSource: null, metrics: unavailable, model: null, reasoningEffort: null, status: "missing" };
-  }
-  let decoded: unknown;
-  try {
-    decoded = JSON.parse(raw);
-  } catch {
-    return { costSource: null, metrics: unavailable, model: null, reasoningEffort: null, status: "invalid" };
-  }
-  const value = recordOf(decoded);
-  if (!value) return { costSource: null, metrics: unavailable, model: null, reasoningEffort: null, status: "invalid" };
-  return {
-    costSource: typeof value.costUsd === "number" ? "costUsd" : null,
-    metrics: {
-      aiCredits: nonnegativeNumber(value.aiCredits),
-      cachedInputTokens: nonnegativeNumber(value.cachedInputTokens),
-      costUsd: nonnegativeNumber(value.costUsd),
-      inputTokens: nonnegativeNumber(value.inputTokens),
-      outputTokens: nonnegativeNumber(value.outputTokens),
-      premiumRequests: nonnegativeNumber(value.premiumRequests),
-      turns: nonnegativeNumber(value.turns),
-    },
-    model: stringField(value, ["effectiveModel", "model"]),
-    reasoningEffort: stringField(value, ["effectiveReasoningEffort", "reasoningEffort"]),
-    status: "available",
-  };
-}
-
-/** Builds an interleaved, strictly sequential v1/v2 case schedule. */
-export function evalScheduleBuild(
-  cases: EvalCase[],
-  runs: number,
-): Array<{ arm: EvalArmName; caseValue: EvalCase; run: number }> {
-  const schedule: Array<{ arm: EvalArmName; caseValue: EvalCase; run: number }> = [];
-  for (const caseValue of cases) {
-    for (let run = 1; run <= runs; run++) {
-      schedule.push({ arm: "v1", caseValue, run });
-      schedule.push({ arm: "v2", caseValue, run });
-    }
+/** Builds a strictly sequential schedule for the selected cases. */
+export function evalScheduleBuild(cases: EvalCase[], runs: number): Array<{ caseValue: EvalCase; run: number }> {
+  const schedule: Array<{ caseValue: EvalCase; run: number }> = [];
+  for (let run = 1; run <= runs; run++) {
+    for (const caseValue of cases) schedule.push({ caseValue, run });
   }
   return schedule;
 }
@@ -713,107 +607,126 @@ export async function evalRunSuite(
   registeredCases: EvalCase[],
   dependencies: EvalDependencies = {},
 ): Promise<EvalSummary> {
-  const outputSchemaVerified = dependencies.outputSchemaVerified ?? COPILOT_OUTPUT_SCHEMA_VERIFIED;
-  if (!outputSchemaVerified) {
-    throw new Error(
-      "G6 eval sessions are disabled until the Copilot JSONL and usage schemas are confirmed in the M2 pilot",
-    );
+  if (
+    options.pilot &&
+    (options.runs !== 1 || options.caseIds.length !== 1 || options.caseIds[0] !== "outline-headings")
+  ) {
+    throw new Error("--pilot requires exactly --case outline-headings and --runs 1");
   }
 
   const cases = evalCasesSelect(options.caseIds, registeredCases);
-  const arms: Record<EvalArmName, EvalArm> = {
-    v1: evalArmInspect("v1", options.armRoots.v1),
-    v2: evalArmInspect("v2", options.armRoots.v2),
-  };
+  if (cases.length * options.runs > EVAL_DEFAULTS.maxAgents)
+    throw new Error(`requested matrix exceeds ${EVAL_DEFAULTS.maxAgents} headless Claude agents`);
+  const checkout = evalCheckoutInspect(options.root);
   const now = dependencies.now ?? (() => new Date());
-  const id = dependencies.id ?? randomUUID;
   const startedAt = now().toISOString();
-  const outputDirectory = dependencies.outputDirectory ?? evalOutputDirectoryCreate(now, id);
+  const cacheRoot = join(homedir(), ".cache", "gdocsmith", "evals");
+  const outputDirectory =
+    dependencies.outputDirectory ??
+    join(cacheRoot, `run-${startedAt.replaceAll(":", "-")}-${randomUUID().slice(0, 8)}`);
+  const ledgerPath = dependencies.ledgerPath ?? join(outputDirectory, "launches");
   mkdirSync(outputDirectory, { mode: 0o700, recursive: true });
+  mkdirSync(ledgerPath, { mode: 0o700, recursive: true });
+  const lockPath = join(ledgerPath, "active.lock");
+  mkdirSync(lockPath);
 
-  const environment = { ...(dependencies.env ?? process.env), COPILOT_AUTO_UPDATE: "false" };
-  const copilotPath = dependencies.copilotPath ?? Bun.which("copilot") ?? "copilot";
-  const readCliVersion = dependencies.readCliVersion ?? copilotVersionRead;
+  const environment = { ...(dependencies.env ?? process.env) };
+  const claudePath = dependencies.claudePath ?? Bun.which("claude") ?? "claude";
+  const readCliVersion = dependencies.readCliVersion ?? claudeVersionRead;
   const drive = dependencies.clients?.drive ?? gwsDrive;
   const docs = dependencies.clients?.docs ?? gws;
-  let copilotVersion = "unavailable";
+  let claudeVersion = "unavailable";
   let abortReason: string | null = null;
-  const runs: EvalRunRecord[] = [];
-
   try {
-    copilotVersion = readCliVersion(copilotPath, environment);
-  } catch (error) {
-    abortReason = `Could not read Copilot CLI version: ${errorMessage(error)}`;
-  }
-
-  let baseline: GoogleDoc | null = null;
-  if (!abortReason) {
-    try {
-      baseline = structuredClone(await docs.getDocument(EVAL_DEFAULTS.fixtureId));
-    } catch (error) {
-      abortReason = googleAuthFailure(errorMessage(error))
-        ? `Google Docs authorization failed while reading the source fixture: ${errorMessage(error)}`
-        : `Could not read the source fixture: ${errorMessage(error)}`;
-    }
-  }
-
-  if (!abortReason && baseline) {
-    const schedule = evalScheduleBuild(cases, options.runs);
-    for (const [index, item] of schedule.entries()) {
-      const record = await evalRunOne({
-        arm: arms[item.arm],
-        caseValue: item.caseValue,
-        cliPath: copilotPath,
-        cliVersion: copilotVersion,
-        dependencies,
-        docs,
-        drive,
-        environment,
-        index,
-        keepDocs: options.keepDocs,
-        model: options.model,
-        now,
-        outputDirectory,
-        outputSchemaVerified,
-        reasoningEffort: options.reasoningEffort,
-        run: item.run,
-        baseline,
-      });
-      runs.push(record);
-      abortReason = record.haltReason ?? null;
+    const slots = readdirSync(ledgerPath)
+      .filter((name) => /^\d{3}$/.test(name))
+      .sort();
+    const runs: EvalRunRecord[] = slots.flatMap((name) => {
+      const recordPath = join(ledgerPath, name, "record.json");
+      return existsSync(recordPath) ? [JSON.parse(readFileSync(recordPath, "utf8")) as EvalRunRecord] : [];
+    });
+    if (slots.length !== runs.length) abortReason = "Launch ledger has an unrecorded agent; audit before proceeding";
+    const summarize = (): EvalSummary =>
       evalSummaryPersist({
         abortReason,
-        copilotVersion,
+        agentsLaunched: readdirSync(ledgerPath).filter((name) => /^\d{3}$/.test(name)).length,
+        claudeVersion,
         outputDirectory,
-        outputSchemaVerified,
         requestedModel: options.model,
-        requestedReasoningEffort: options.reasoningEffort,
         startedAt,
         runs,
       });
-      if (abortReason) break;
-    }
-  }
 
-  return evalSummaryPersist({
-    abortReason,
-    copilotVersion,
-    outputDirectory,
-    outputSchemaVerified,
-    requestedModel: options.model,
-    requestedReasoningEffort: options.reasoningEffort,
-    startedAt,
-    runs,
-  });
+    if (!abortReason) {
+      try {
+        claudeVersion = readCliVersion(claudePath, environment);
+      } catch (error) {
+        abortReason = `Could not read Claude CLI version: ${errorMessage(error)}`;
+      }
+    }
+    let baseline: GoogleDoc | null = null;
+    if (!abortReason) {
+      try {
+        baseline = structuredClone(await docs.getDocument(EVAL_DEFAULTS.fixtureId));
+      } catch (error) {
+        abortReason = `Could not read the source fixture: ${errorMessage(error)}`;
+      }
+    }
+    if (!abortReason && baseline) {
+      const schedule = evalScheduleBuild(cases, options.runs);
+      for (const item of schedule) {
+        if (runs.some((record) => record.caseId === item.caseValue.id && record.run === item.run)) continue;
+        const slotNumber = readdirSync(ledgerPath).filter((name) => /^\d{3}$/.test(name)).length + 1;
+        if (slotNumber > EVAL_DEFAULTS.maxAgents) {
+          abortReason = `Reached the ${EVAL_DEFAULTS.maxAgents}-agent launch limit`;
+          break;
+        }
+        const slotPath = join(ledgerPath, String(slotNumber).padStart(3, "0"));
+        const record = await evalRunOne({
+          baseline,
+          caseValue: item.caseValue,
+          cliPath: claudePath,
+          cliVersion: claudeVersion,
+          checkout,
+          dependencies,
+          docs,
+          drive,
+          environment,
+          index: slotNumber - 1,
+          keepDocs: options.keepDocs,
+          model: options.model,
+          now,
+          outputDirectory,
+          run: item.run,
+          reserve: () => {
+            mkdirSync(slotPath);
+            fileWritePrivate(
+              join(slotPath, "launch.json"),
+              `${JSON.stringify({ caseId: item.caseValue.id, run: item.run, startedAt: now().toISOString() })}\n`,
+            );
+          },
+        });
+        if (existsSync(slotPath))
+          atomicFileWrite(join(slotPath, "record.json"), `${JSON.stringify(record, null, 2)}\n`);
+        runs.push(record);
+        abortReason = record.haltReason ?? null;
+        summarize();
+        if (abortReason) break;
+      }
+    }
+    return summarize();
+  } finally {
+    rmSync(lockPath, { recursive: true });
+  }
 }
 
-/** Runs one Copilot session, verifies the resulting doc, and always cleans up. */
+/** Runs one Claude session, verifies the resulting doc, and always cleans up. */
 async function evalRunOne(input: {
-  arm: EvalArm;
   baseline: GoogleDoc;
   caseValue: EvalCase;
   cliPath: string;
   cliVersion: string;
+  checkout: EvalCheckout;
   dependencies: EvalDependencies;
   docs: DocsClient;
   drive: DriveApi;
@@ -823,54 +736,42 @@ async function evalRunOne(input: {
   model: string;
   now: () => Date;
   outputDirectory: string;
-  outputSchemaVerified: boolean;
-  reasoningEffort: string;
   run: number;
+  reserve: () => void;
 }): Promise<EvalRunRecord> {
   const started = input.now();
   const sessionId = (input.dependencies.id ?? randomUUID)();
   const workspaceRoot = mkdtempSync(join(tmpdir(), "gdocsmith-eval-"));
   const workspace = join(workspaceRoot, "workspace");
-  const prefix = `${String(input.index + 1).padStart(3, "0")}-${slug(input.caseValue.id)}-${input.arm.name}-${input.run}`;
+  const prefix = `${String(input.index + 1).padStart(3, "0")}-${slug(input.caseValue.id)}-${input.run}`;
   const stdoutPath = join(input.outputDirectory, `${prefix}.stdout.jsonl`);
   const stderrPath = join(input.outputDirectory, `${prefix}.stderr.txt`);
-  const usageOutputPath = join(input.outputDirectory, `${prefix}.usage.json`);
-  const transcriptOutputPath = join(input.outputDirectory, `${prefix}.session.md`);
-  const usagePath = join(workspace, "usage.json");
-  const transcriptPath = join(workspace, "session.md");
   let baseRecord: EvalRunRecord = {
-    arm: input.arm.name,
-    armRevision: input.arm.revision,
-    bundleSha256: input.arm.bundleSha256,
+    revision: input.checkout.revision,
+    bundleSha256: input.checkout.bundleSha256,
     caseId: input.caseValue.id,
     checks: [],
     complete: false,
     completionObserved: false,
-    copilotVersion: input.cliVersion,
+    claudeVersion: input.cliVersion,
     costSource: null,
     documentId: null,
     durationMs: null,
     effectiveModel: null,
-    effectiveReasoningEffort: null,
     eventIssues: [],
     evidence: {
       mcpServerName: "unconfigured",
       sessionId,
       stderrFile: relative(input.outputDirectory, stderrPath),
       stdoutFile: relative(input.outputDirectory, stdoutPath),
-      transcriptFile: null,
-      unrelatedMcpServers: "user-confirmed-disabled",
-      usageFile: null,
     },
     finishedAt: started.toISOString(),
     fixtureDocumentId: null,
     metrics: evalMetricsEmpty(),
-    outputSchemaVerified: input.outputSchemaVerified,
     passed: false,
     requestedModel: input.model,
-    requestedReasoningEffort: input.reasoningEffort,
     run: input.run,
-    skillSha256: input.arm.skillSha256,
+    skillSha256: input.checkout.skillSha256,
     startedAt: started.toISOString(),
     usageStatus: "missing",
   };
@@ -881,11 +782,12 @@ async function evalRunOne(input: {
   let elapsed = 0;
   const startedMonotonic = performance.now();
   let haltReason: string | undefined;
+  let launched = false;
   const secrets = envSecretValues(input.environment);
 
   try {
     mkdirSync(workspace, { mode: 0o700, recursive: true });
-    const title = `[EVAL] ${input.caseValue.id} ${input.arm.name} ${input.run} ${timestampSlug(started)}`;
+    const title = `[E2E] ${input.caseValue.id} ${input.run} ${timestampSlug(started)}`;
     const copy = await input.drive.copyFile(EVAL_DEFAULTS.fixtureId, title);
     fixtureDocumentId = copy.id;
     if (!fixtureDocumentId || fixtureDocumentId === EVAL_DEFAULTS.fixtureId) {
@@ -894,23 +796,20 @@ async function evalRunOne(input: {
     baseRecord.documentId = fixtureDocumentId;
     baseRecord.fixtureDocumentId = fixtureDocumentId;
 
-    const workspaceConfig = evalWorkspacePrepare(input.arm, workspace, sessionId);
+    const workspaceConfig = evalWorkspacePrepare(input.checkout, workspace, sessionId);
     baseRecord.evidence.mcpServerName = workspaceConfig.mcpServerName;
-    const secretEnvNames = Object.keys(input.environment).filter((name) => SECRET_ENV_NAME.test(name));
-    const args = evalCopilotArgs({
+    const args = evalClaudeArgs({
       configPath: workspaceConfig.configPath,
       mcpServerName: workspaceConfig.mcpServerName,
       model: input.model,
       prompt: evalPromptBuild(input.caseValue.prompt, fixtureDocumentId),
-      reasoningEffort: input.reasoningEffort,
       sessionId,
-      sharePath: transcriptPath,
-      usagePath,
-      workspace,
-      secretEnvNames,
+      skill: readFileSync(input.checkout.skillPath, "utf8"),
     });
 
-    const processResult = await (input.dependencies.spawn ?? copilotProcessRun)(input.cliPath, args, {
+    input.reserve();
+    launched = true;
+    const processResult = await (input.dependencies.spawn ?? claudeProcessRun)(input.cliPath, args, {
       cwd: workspace,
       env: input.environment,
       timeoutMs: input.dependencies.timeoutMs ?? EVAL_DEFAULTS.timeoutMs,
@@ -920,42 +819,29 @@ async function evalRunOne(input: {
     const safeStderr = redactSecrets(processResult.stderr, secrets);
     fileWritePrivate(stdoutPath, safeStdout);
     fileWritePrivate(stderrPath, safeStderr);
-    if (existsSync(transcriptPath)) {
-      transcript = redactSecrets(readFileSync(transcriptPath, "utf8"), secrets);
-      fileWritePrivate(transcriptOutputPath, transcript);
-      baseRecord.evidence.transcriptFile = relative(input.outputDirectory, transcriptOutputPath);
-    }
-
-    const usageRaw = existsSync(usagePath) ? redactSecrets(readFileSync(usagePath, "utf8"), secrets) : null;
-    if (usageRaw !== null) {
-      fileWritePrivate(usageOutputPath, usageRaw);
-      baseRecord.evidence.usageFile = relative(input.outputDirectory, usageOutputPath);
-    }
-    const usage = copilotUsageParse(usageRaw);
-    const events = copilotJsonlParse(safeStdout, workspaceConfig.mcpServerName);
-    const effectiveModel = events.effectiveModel ?? usage.model;
-    const effectiveEffort = events.effectiveReasoningEffort ?? usage.reasoningEffort;
-    const settingsMatch = effectiveModel === input.model && effectiveEffort === input.reasoningEffort;
-    const toolMetrics = input.outputSchemaVerified && events.complete ? events.metrics : evalCallMetricsUnavailable();
+    const events = claudeJsonlParse(safeStdout, workspaceConfig.mcpServerName);
+    const effectiveModel = events.effectiveModel;
+    const settingsMatch = effectiveModel !== null && /^claude-sonnet-/i.test(effectiveModel);
+    const toolMetrics = events.complete ? events.metrics : evalCallMetricsUnavailable();
+    transcript = safeStdout;
     baseRecord = {
       ...baseRecord,
       complete:
         !processResult.timedOut &&
         processResult.exitCode === 0 &&
         events.complete &&
-        input.outputSchemaVerified &&
-        settingsMatch,
+        settingsMatch &&
+        events.toolsIsolated,
       completionObserved: events.completionObserved,
-      costSource: usage.costSource ? `usage.${usage.costSource}` : null,
+      costSource: events.usage.costUsd === null ? null : "result.total_cost_usd",
       effectiveModel,
-      effectiveReasoningEffort: effectiveEffort,
       eventIssues: events.issues,
       metrics: {
         ...toolMetrics,
-        ...usage.metrics,
+        ...events.usage,
         durationMs: elapsed,
       } as EvalMetrics,
-      usageStatus: usage.status,
+      usageStatus: events.usage.inputTokens === null ? "missing" : "available",
     };
 
     const current = await input.docs.getDocument(fixtureDocumentId);
@@ -973,30 +859,30 @@ async function evalRunOne(input: {
     baseRecord.passed =
       baseRecord.complete && baseRecord.checks.length > 0 && baseRecord.checks.every((check) => check.passed);
 
-    if (processResult.timedOut) baseRecord.error = "Copilot session exceeded the configured timeout";
-    else if (processResult.exitCode !== 0) baseRecord.error = `Copilot exited with status ${processResult.exitCode}`;
-    else if (!events.complete)
-      baseRecord.error = "Copilot JSONL stream is incomplete or contains unmatched tool events";
-    else if (!input.outputSchemaVerified)
-      baseRecord.error = "Copilot output schema is provisional; this run cannot be accepted";
-    else if (!settingsMatch)
-      baseRecord.error = "Effective model or reasoning effort is missing or differs from the requested setting";
+    if (processResult.timedOut) baseRecord.error = "Claude session exceeded the configured timeout";
+    else if (processResult.exitCode !== 0) baseRecord.error = `Claude exited with status ${processResult.exitCode}`;
+    else if (!events.complete) baseRecord.error = "Claude stream is incomplete or contains unmatched tool events";
+    else if (!settingsMatch) baseRecord.error = "Effective model is missing or is not Sonnet";
     else if (!baseRecord.checks.every((check) => check.passed))
       baseRecord.error = "One or more deterministic case checks failed";
 
     if (events.unexpectedToolNames.length)
-      haltReason = "Copilot invoked a tool outside the allowed gdocsmith run/status tools";
-    if (effectiveModel && effectiveModel !== input.model)
-      haltReason = "Copilot effective model differs from the requested model";
-    if (effectiveEffort && effectiveEffort !== input.reasoningEffort)
-      haltReason = "Copilot effective reasoning effort differs from the requested effort";
+      haltReason = "Claude invoked a tool outside the allowed gdocsmith run/status tools";
+    if (!events.toolsIsolated || !events.complete || !settingsMatch)
+      haltReason = "Claude model, event schema, or tool isolation could not be confirmed";
+    if (input.caseValue.id === "outline-headings" && events.metrics.runCalls === 0)
+      haltReason = "Read-only pilot did not call the selected gdocsmith run tool";
     if (processResult.exitCode !== 0 && PROVIDER_HALT.test(`${safeStderr}\n${safeStdout}`)) {
-      haltReason = "Copilot reported an authentication, rate-limit, or quota failure";
+      haltReason = "Claude reported an authentication, rate-limit, or quota failure";
     }
   } catch (error) {
     const message = redactSecrets(errorMessage(error), secrets);
     baseRecord.error = message;
-    if (googleAuthFailure(message)) haltReason = `Google authorization failed: ${message}`;
+    haltReason = googleAuthFailure(message)
+      ? `Google authorization failed: ${message}`
+      : launched
+        ? `Claude launch or verification failed: ${message}`
+        : `Evaluation setup failed: ${message}`;
     baseRecord.haltReason = haltReason;
   } finally {
     if (fixtureDocumentId && input.keepDocs) {
@@ -1010,9 +896,7 @@ async function evalRunOne(input: {
         baseRecord.error = [baseRecord.error, `Could not delete fixture copy ${fixtureDocumentId}: ${message}`]
           .filter(Boolean)
           .join("; ");
-        baseRecord.haltReason = googleAuthFailure(message)
-          ? `Google authorization failed during fixture cleanup: ${message}`
-          : baseRecord.haltReason;
+        baseRecord.haltReason = `Could not clean up fixture copy: ${message}`;
       }
     }
     rmSync(workspaceRoot, { force: true, recursive: true });
@@ -1026,8 +910,8 @@ async function evalRunOne(input: {
   return baseRecord;
 }
 
-/** Spawns the Copilot CLI without a shell and terminates it on timeout. */
-export async function copilotProcessRun(
+/** Spawns the Claude CLI without a shell and terminates it on timeout. */
+export async function claudeProcessRun(
   command: string,
   args: string[],
   options: EvalSpawnOptions,
@@ -1056,9 +940,8 @@ export async function copilotProcessRun(
   return { exitCode, stderr, stdout, timedOut };
 }
 
-/** Formats the comparison report with unavailable metrics shown as n/a. */
+/** Formats the scenario report with unavailable metrics shown as n/a. */
 export function evalReportMarkdown(summary: EvalSummary): string {
-  const armRows = (name: EvalArmName): EvalRunRecord[] => summary.runs.filter((run) => run.arm === name);
   const metricNames: Array<keyof EvalMetrics> = [
     "runCalls",
     "failedCalls",
@@ -1070,43 +953,50 @@ export function evalReportMarkdown(summary: EvalSummary): string {
     "inputTokens",
     "cachedInputTokens",
     "outputTokens",
-    "aiCredits",
-    "premiumRequests",
     "costUsd",
   ];
   const lines = [
-    "# Gdocsmith v1 vs v2 evaluation",
+    "# Gdocsmith agent E2E",
     "",
     `- Started: ${summary.startedAt}`,
-    `- Copilot CLI: ${summary.copilotVersion}`,
+    `- Claude CLI: ${summary.claudeVersion}`,
     `- Requested model: ${summary.requestedModel}`,
-    `- Requested reasoning effort: ${summary.requestedReasoningEffort}`,
-    `- Runtime output schema verified: ${summary.outputSchemaVerified ? "yes" : "no"}`,
+    `- Agents launched: ${summary.agentsLaunched}/${EVAL_DEFAULTS.maxAgents}`,
     `- Status: ${summary.abortReason ? `aborted: ${summary.abortReason}` : "recorded runs below"}`,
     "",
     "Metrics show means of available numeric values only. `n/a` means no verified value was reported.",
     "",
-    "## Arms",
+    "## Summary",
     "",
-    `| Arm | Runs | Complete | Passed | ${metricNames.join(" | ")} |`,
-    `| --- | ---: | ---: | ---: | ${metricNames.map(() => "---:").join(" | ")} |`,
+    `| Runs | Complete | Passed | ${metricNames.join(" | ")} |`,
+    `| ---: | ---: | ---: | ${metricNames.map(() => "---:").join(" | ")} |`,
   ];
-  for (const name of ["v1", "v2"] as const) {
-    const records = armRows(name);
-    const passed = records.filter((record) => record.passed).length;
-    const complete = records.filter((record) => record.complete).length;
+  const records = summary.runs;
+  lines.push(
+    `| ${records.length} | ${records.filter((record) => record.complete).length} | ${records.filter((record) => record.passed).length} | ${metricNames.map((metric) => metricMeanFormat(records, metric)).join(" | ")} |`,
+  );
+  lines.push(
+    "",
+    "## Cases",
+    "",
+    "| Case | Runs | Complete | Passed | Pass rate |",
+    "| --- | ---: | ---: | ---: | ---: |",
+  );
+  for (const caseId of Array.from(new Set(summary.runs.map((record) => record.caseId))).sort()) {
+    const caseRecords = summary.runs.filter((record) => record.caseId === caseId);
+    const passed = caseRecords.filter((record) => record.passed).length;
     lines.push(
-      `| ${name} | ${records.length} | ${complete} | ${passed} | ${metricNames.map((metric) => metricMeanFormat(records, metric)).join(" | ")} |`,
+      `| ${caseId} | ${caseRecords.length} | ${caseRecords.filter((record) => record.complete).length} | ${passed} | ${((passed / caseRecords.length) * 100).toFixed(0)}% |`,
     );
   }
-  lines.push("", "## Cases", "", "| Case | Arm | Runs | Complete | Passed |", "| --- | --- | ---: | ---: | ---: |");
-  const caseArmPairs = new Set(summary.runs.map((record) => `${record.caseId}\0${record.arm}`));
-  for (const pair of Array.from(caseArmPairs).sort()) {
-    const [caseId, arm] = pair.split("\0") as [string, EvalArmName];
-    const records = summary.runs.filter((record) => record.caseId === caseId && record.arm === arm);
+  lines.push("", "## Scenario checks", "");
+  for (const record of summary.runs) {
     lines.push(
-      `| ${caseId} | ${arm} | ${records.length} | ${records.filter((record) => record.complete).length} | ${records.filter((record) => record.passed).length} |`,
+      `- ${record.caseId} (run ${record.run}): ${record.complete ? (record.passed ? "passed" : "failed") : "incomplete"}`,
     );
+    for (const check of record.checks) lines.push(`  - ${check.passed ? "PASS" : "FAIL"} ${check.id}: ${check.detail}`);
+    if (record.error) lines.push(`  - Error: ${record.error}`);
+    lines.push(`  - Transcript: ${record.evidence.stdoutFile}`);
   }
   const undeleted = summary.runs.filter((record) => record.undeletedDocumentId);
   if (undeleted.length) {
@@ -1115,8 +1005,7 @@ export function evalReportMarkdown(summary: EvalSummary): string {
       "## Cleanup",
       "",
       ...undeleted.map(
-        (record) =>
-          `- Undeleted fixture ${record.undeletedDocumentId} (${record.caseId}, ${record.arm}, run ${record.run})`,
+        (record) => `- Undeleted fixture ${record.undeletedDocumentId} (${record.caseId}, run ${record.run})`,
       ),
     );
   }
@@ -1124,24 +1013,23 @@ export function evalReportMarkdown(summary: EvalSummary): string {
   return lines.join("\n");
 }
 
-/** Renders CLI usage without touching Copilot, Google, or a fixture. */
+/** Renders CLI usage without touching Claude, Google, or a fixture. */
 export function evalUsageText(): string {
   return [
-    "Usage: bun scripts/eval.ts --arm v1=<dir> --arm v2=<dir> [options]",
+    "Usage: bun scripts/eval.ts --root <absolute path> [options]",
     "Options:",
     "  --case <id...>             Select one or more task cases (default: all)",
-    "  --runs <count>             Repetitions per case and arm (default: 3)",
-    "  --model <name>             Same model for both arms (default: gpt-5.6-luna)",
-    "  --reasoning-effort <level> Same reasoning level for both arms (default: xhigh)",
+    "  --runs <count>             Repetitions per case (default: 2)",
+    "  --pilot                    Run one read-only outline attempt",
     "  --keep-docs                Retain fixture copies and report their IDs",
     "  --help                     Show this help",
-    "No session or total-spend cap is imposed by this harness. Provider limits and billing apply.",
+    "Sonnet is pinned; at most 40 launches per invocation.",
   ].join("\n");
 }
 
 /** Selects cases and reports unknown or duplicate IDs before any external calls. */
 function evalCasesSelect(caseIds: string[], registeredCases: EvalCase[]): EvalCase[] {
-  if (!registeredCases.length) throw new Error("No evaluation cases are registered; G6 M2 adds scripts/evalCases.ts");
+  if (!registeredCases.length) throw new Error("No agent E2E cases are registered in scripts/evalCases.ts");
   const byId = new Map(registeredCases.map((caseValue) => [caseValue.id, caseValue]));
   if (caseIds.length === 0) return registeredCases;
   const missing = caseIds.filter((caseId) => !byId.has(caseId));
@@ -1157,19 +1045,10 @@ function evalSummaryPersist(summary: EvalSummary): EvalSummary {
   return summary;
 }
 
-/** Creates the default private output directory under the user's cache. */
-function evalOutputDirectoryCreate(now: () => Date, id: () => string): string {
-  const root = join(homedir(), ".cache", "gdocsmith", "evals");
-  const stamp = `${timestampSlug(now())}-${id().slice(0, 8)}`;
-  const directory = join(root, stamp);
-  mkdirSync(directory, { mode: 0o700, recursive: true });
-  return directory;
-}
-
 /** Reads the installed CLI version without starting an agent session. */
-function copilotVersionRead(command: string, env: Record<string, string | undefined>): string {
+function claudeVersionRead(command: string, env: Record<string, string | undefined>): string {
   const version = execFileSync(command, ["--version"], { encoding: "utf8", env, timeout: 15_000 }).trim();
-  if (!version) throw new Error("Copilot CLI returned an empty version string");
+  if (!version) throw new Error("Claude CLI returned an empty version string");
   return version;
 }
 
@@ -1181,7 +1060,7 @@ async function evalMain(): Promise<void> {
     return;
   }
   const casesPath = join(import.meta.dir, "evalCases.ts");
-  if (!existsSync(casesPath)) throw new Error("G6 M2 cases are not installed; no model or Google calls were made");
+  if (!existsSync(casesPath)) throw new Error("Agent E2E cases are not installed; no model or Google calls were made");
   const module = (await import(pathToFileURL(casesPath).href)) as { evalCases?: EvalCase[] };
   if (!module.evalCases) throw new Error("scripts/evalCases.ts does not export evalCases");
   const summary = await evalRunSuite(parsed, module.evalCases);
@@ -1205,7 +1084,6 @@ function fileWritePrivate(path: string, contents: string): void {
 /** Returns a unique nullable-metric record before any usage data is known. */
 function evalMetricsEmpty(): EvalMetrics {
   return {
-    aiCredits: null,
     cachedInputTokens: null,
     costUsd: null,
     durationMs: null,
@@ -1214,7 +1092,6 @@ function evalMetricsEmpty(): EvalMetrics {
     inputTokens: null,
     invalidCalls: null,
     outputTokens: null,
-    premiumRequests: null,
     refusedCalls: null,
     runCalls: null,
     turns: null,
@@ -1229,50 +1106,12 @@ function evalCallMetricsUnavailable(): Pick<
   return { failedCalls: null, forcedCalls: null, invalidCalls: null, refusedCalls: null, runCalls: null };
 }
 
-/** Returns an exact event discriminator in a stable provisional spelling. */
-function eventType(value: Record<string, unknown>): string | null {
-  const type = stringField(value, ["type", "event", "kind"]);
-  return type?.toLowerCase().replace(/[_\s]+/g, ".") ?? null;
-}
-
-/** Reads a call ID from candidate event envelope spellings. */
-function callIdRead(value: Record<string, unknown>): string | null {
-  const direct = stringField(value, ["callId", "toolCallId", "tool_call_id"]);
-  if (direct) return direct;
-  const id = value.id;
-  return typeof id === "string" || typeof id === "number" ? String(id) : null;
-}
-
-/** Reads the invoked tool's name from a candidate event envelope. */
-function toolNameRead(value: Record<string, unknown>): string | null {
-  const direct = stringField(value, ["toolName", "tool_name", "name"]);
-  if (direct) return direct;
-  const tool = recordOf(value.tool);
-  return tool ? stringField(tool, ["name", "toolName"]) : typeof value.tool === "string" ? value.tool : null;
-}
-
-/** Reads candidate tool arguments without parsing or rewriting the original logs. */
-function argumentValueRead(value: Record<string, unknown>): unknown {
-  for (const key of ["arguments", "input", "params", "args"]) {
-    if (value[key] === undefined) continue;
-    if (typeof value[key] === "string") {
-      try {
-        return JSON.parse(value[key] as string) as unknown;
-      } catch {
-        return value[key];
-      }
-    }
-    return value[key];
-  }
-  return undefined;
-}
-
 /** Checks that a tool name targets this unique MCP server's run or status tool. */
 function evalToolIsAllowed(toolName: string, serverName: string): boolean {
   return evalToolIsRun(toolName, serverName) || evalToolIsStatus(toolName, serverName);
 }
 
-/** Matches gdocsmith's run tool across candidate Copilot name renderings. */
+/** Matches gdocsmith's run tool across Claude MCP name renderings. */
 function evalToolIsRun(toolName: string, serverName: string): boolean {
   return toolNameMatches(toolName, serverName, "run");
 }

@@ -1,4 +1,4 @@
-/* Offline tests for the Copilot v1/v2 evaluation harness. */
+/* Offline tests for the Claude agent E2E harness. */
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
@@ -8,15 +8,15 @@ import { join } from "node:path";
 import type { DocsClient, DriveApi } from "~/core/gws.ts";
 import type { GoogleDoc } from "~/core/types.ts";
 import {
-  copilotJsonlParse,
-  copilotProcessRun,
-  copilotUsageParse,
+  claudeJsonlParse,
+  claudeProcessRun,
   type EvalCase,
   type EvalDependencies,
   type EvalOptions,
   evalOptionsParse,
   evalRunSuite,
 } from "./eval.ts";
+import { evalCases } from "./evalCases.ts";
 
 const roots: string[] = [];
 
@@ -24,157 +24,248 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { force: true, recursive: true });
 });
 
+describe("agent E2E cases", () => {
+  test("registers all ten unique natural-language scenarios", () => {
+    expect(evalCases.map((caseValue) => caseValue.id)).toEqual([
+      "outline-headings",
+      "placeholder-fill",
+      "section-rewrite",
+      "find-replace",
+      "copy-section",
+      "table-row",
+      "new-tab",
+      "style-cleanup",
+      "guard-respect",
+      "pageless",
+    ]);
+    expect(new Set(evalCases.map((caseValue) => caseValue.id)).size).toBe(10);
+    expect(evalCases.every((caseValue) => caseValue.prompt.trim().length > 40)).toBe(true);
+    expect(evalCases.find((caseValue) => caseValue.id === "guard-respect")?.prompt).not.toMatch(/\bforce\b/i);
+  });
+});
+
 describe("eval options", () => {
-  test("uses the selected model and effort defaults with a three-run matrix", () => {
-    const options = evalOptionsParse(["--arm", "v1=/tmp/v1", "--arm", "v2=/tmp/v2"]);
+  test("pins Sonnet with a two-run default", () => {
+    const options = evalOptionsParse(["--root", "/tmp/checkout"]);
     expect(options).toMatchObject({
-      armRoots: { v1: "/tmp/v1", v2: "/tmp/v2" },
       caseIds: [],
       keepDocs: false,
-      model: "gpt-5.6-luna",
-      reasoningEffort: "xhigh",
-      runs: 3,
+      model: "sonnet",
+      root: "/tmp/checkout",
+      runs: 2,
+      pilot: false,
     });
   });
 
-  test("accepts explicit settings, repeated cases, and keep-docs", () => {
+  test("accepts selected agent E2E cases", () => {
+    const options = evalOptionsParse(["--root", "/tmp/checkout", "--case", "placeholder-fill", "--runs", "1"]);
+    expect(options).toMatchObject({
+      caseIds: ["placeholder-fill"],
+      runs: 1,
+    });
+  });
+
+  test("accepts repeated cases and keep-docs", () => {
     const options = evalOptionsParse([
-      "--arm",
-      "v1=/tmp/v1",
-      "--arm",
-      "v2=/tmp/v2",
+      "--root",
+      "/tmp/checkout",
       "--case",
       "outline-headings",
       "guard-respect",
       "--runs",
       "1",
-      "--model",
-      "gpt-5.6-luna",
-      "--reasoning-effort",
-      "xhigh",
       "--keep-docs",
     ]);
-    expect(options).toMatchObject({ caseIds: ["outline-headings", "guard-respect"], keepDocs: true, runs: 1 });
+    expect(options).toMatchObject({
+      caseIds: ["outline-headings", "guard-respect"],
+      keepDocs: true,
+      pilot: false,
+      runs: 1,
+    });
   });
 
-  test("rejects missing arms, relative roots, duplicate labels, invalid runs, and credit caps", () => {
-    expect(() => evalOptionsParse([])).toThrow("both --arm v1=");
-    expect(() => evalOptionsParse(["--arm", "v1=relative", "--arm", "v2=/tmp/v2"])).toThrow("absolute path");
-    expect(() => evalOptionsParse(["--arm", "v1=/tmp/a", "--arm", "v1=/tmp/b", "--arm", "v2=/tmp/v2"])).toThrow(
-      "supplied more than once",
-    );
-    expect(() => evalOptionsParse(["--arm", "v1=/tmp/v1", "--arm", "v2=/tmp/v2", "--runs", "0"])).toThrow(
-      "positive integer",
-    );
-    expect(() => evalOptionsParse(["--arm", "v1=/tmp/v1", "--arm", "v2=/tmp/v2", "--max-ai-credits", "1"])).toThrow(
+  test("accepts a single outlined pilot only", () => {
+    const options = evalOptionsParse([
+      "--root",
+      "/tmp/checkout",
+      "--case",
+      "outline-headings",
+      "--runs",
+      "1",
+      "--pilot",
+    ]);
+    expect(options).toMatchObject({ caseIds: ["outline-headings"], pilot: true, runs: 1 });
+  });
+
+  test("rejects missing or duplicate roots, invalid runs, and excess launches", () => {
+    expect(() => evalOptionsParse([])).toThrow("--root <absolute path>");
+    expect(() => evalOptionsParse(["--root", "relative"])).toThrow("absolute path");
+    expect(() => evalOptionsParse(["--root", "/tmp/a", "--root", "/tmp/b"])).toThrow("supplied more than once");
+    expect(() => evalOptionsParse(["--root", "/tmp/a", "--runs", "0"])).toThrow("positive integer");
+    expect(() => evalOptionsParse(["--root", "/tmp/a", "--max-ai-credits", "1"])).toThrow(
       "unknown option --max-ai-credits",
     );
+    expect(() => evalOptionsParse(["--root", "/tmp/a", "--model", "opus"])).toThrow("unknown option --model");
+    expect(() => evalOptionsParse(["--root", "/tmp/a", "--runs", "5"])).toThrow("exceeds 40 headless Claude agents");
+    expect(() =>
+      evalOptionsParse(["--root", "/tmp/checkout", "--pilot", "--case", "guard-respect", "--runs", "1"]),
+    ).toThrow("--pilot requires exactly --case outline-headings and --runs 1");
   });
 });
 
-describe("Copilot output parsing", () => {
+describe("Claude output parsing", () => {
   test("correlates tool calls once and classifies errors, refusals, and nested force", () => {
     const serverName = "gdocsmith_eval_1234567890abcdef";
     const events = [
       {
-        type: "tool.start",
-        data: { callId: "r1", toolName: "run", serverName, arguments: { steps: [{ force: true }] } },
+        type: "system",
+        subtype: "init",
+        model: "claude-sonnet-4-6",
+        tools: [`mcp__${serverName}__run`, `mcp__${serverName}__status`],
+        mcp_servers: [{ name: serverName, status: "connected" }],
       },
       {
-        type: "tool.complete",
-        data: {
-          callId: "r1",
-          result: { isError: true, content: [{ text: 'Invalid steps (1): unknown property "markdwn"' }] },
+        type: "assistant",
+        message: {
+          model: "claude-sonnet-4-6",
+          content: [
+            { type: "tool_use", id: "r1", name: `mcp__${serverName}__run`, input: { steps: [{ force: true }] } },
+            { type: "tool_use", id: "s1", name: `mcp__${serverName}__status`, input: {} },
+            { type: "tool_use", id: "r2", name: `mcp__${serverName}__run`, input: { steps: [{}] } },
+          ],
         },
       },
-      { type: "tool.complete", data: { callId: "r1", result: { isError: true, content: [{ text: "duplicate" }] } } },
-      { type: "tool.start", data: { callId: "s1", toolName: "status", serverName, arguments: {} } },
-      { type: "tool.complete", data: { callId: "s1", result: { content: [{ text: "version=2.0.0" }] } } },
       {
-        type: "tool.start",
-        data: { callId: "r2", toolName: `${serverName}(run)`, serverName, arguments: { steps: [{}] } },
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "r1",
+              is_error: true,
+              content: 'Invalid steps (1): unknown property "markdwn"',
+            },
+            { type: "tool_result", tool_use_id: "s1", content: "version=2.0.0" },
+            { type: "tool_result", tool_use_id: "r2", content: "Refused: Nothing was sent." },
+          ],
+        },
       },
       {
-        type: "tool.complete",
-        data: { callId: "r2", result: { isError: true, content: [{ text: "Refused: Nothing was sent." }] } },
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        total_cost_usd: 0.04,
+        num_turns: 2,
+        usage: { input_tokens: 100, cache_read_input_tokens: 25, cache_creation_input_tokens: 10, output_tokens: 30 },
       },
-      { type: "session.complete", data: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" } },
     ];
 
-    const parsed = copilotJsonlParse(events.map((event) => JSON.stringify(event)).join("\n"), serverName);
+    const parsed = claudeJsonlParse(events.map((event) => JSON.stringify(event)).join("\n"), serverName);
 
     expect(parsed.complete).toBe(true);
     expect(parsed.completionObserved).toBe(true);
     expect(parsed.metrics).toEqual({ failedCalls: 2, forcedCalls: 1, invalidCalls: 1, refusedCalls: 1, runCalls: 2 });
-    expect(parsed.effectiveModel).toBe("gpt-5.6-luna");
-    expect(parsed.effectiveReasoningEffort).toBe("xhigh");
+    expect(parsed.effectiveModel).toBe("claude-sonnet-4-6");
+    expect(parsed.toolsIsolated).toBe(true);
+    expect(parsed.usage).toEqual({
+      cachedInputTokens: 25,
+      costUsd: 0.04,
+      inputTokens: 135,
+      outputTokens: 30,
+      turns: 2,
+    });
   });
 
   test("marks malformed JSONL, unmatched calls, missing completion, and unexpected tools incomplete", () => {
     const serverName = "gdocsmith_eval_1234567890abcdef";
     const stdout = [
       "not-json",
-      JSON.stringify({ type: "tool.start", data: { callId: "x1", toolName: "shell", serverName, arguments: {} } }),
+      JSON.stringify({
+        type: "assistant",
+        message: { content: [{ type: "tool_use", id: "x1", name: "Bash", input: {} }] },
+      }),
     ].join("\n");
-    const parsed = copilotJsonlParse(stdout, serverName);
+    const parsed = claudeJsonlParse(stdout, serverName);
     expect(parsed.complete).toBe(false);
     expect(parsed.metrics.runCalls).toBe(0);
-    expect(parsed.issues.join(" ")).toContain("no completion event");
-    expect(parsed.unexpectedToolNames).toEqual(["shell"]);
+    expect(parsed.issues.join(" ")).toContain("result event is missing");
+    expect(parsed.unexpectedToolNames).toEqual(["Bash"]);
+    expect(parsed.usage.inputTokens).toBeNull();
   });
 
-  test("keeps missing usage nullable and ignores unverified Claude-style cost fields", () => {
-    expect(copilotUsageParse(null)).toMatchObject({ status: "missing", metrics: { costUsd: null, inputTokens: null } });
-    expect(copilotUsageParse("{broken").status).toBe("invalid");
-    const parsed = copilotUsageParse(
-      JSON.stringify({
-        aiCredits: 1.5,
-        cachedInputTokens: 25,
-        costUsd: 0.04,
-        inputTokens: 100,
-        outputTokens: 30,
-        premiumRequests: 1,
-        reasoningEffort: "xhigh",
-        total_cost_usd: 999,
-        turns: 2,
-      }),
-    );
-    expect(parsed).toMatchObject({
-      costSource: "costUsd",
-      metrics: {
-        aiCredits: 1.5,
-        cachedInputTokens: 25,
-        costUsd: 0.04,
-        inputTokens: 100,
-        outputTokens: 30,
-        premiumRequests: 1,
-        turns: 2,
+  test("rejects a model change during the stream", () => {
+    const serverName = "gdocsmith_eval_1234567890abcdef";
+    const stdout = [
+      {
+        type: "system",
+        subtype: "init",
+        model: "claude-sonnet-5",
+        tools: [`mcp__${serverName}__run`],
+        mcp_servers: [{ name: serverName, status: "connected" }],
       },
-      reasoningEffort: "xhigh",
-      status: "available",
-    });
+      { type: "assistant", message: { model: "claude-opus-5", content: [] } },
+      { type: "result", subtype: "success", is_error: false },
+    ]
+      .map((event) => JSON.stringify(event))
+      .join("\n");
+    const parsed = claudeJsonlParse(stdout, serverName);
+    expect(parsed.complete).toBe(false);
+    expect(parsed.issues).toContain("a non-Sonnet model appeared in the stream");
   });
 });
 
 describe("offline evaluation runner", () => {
-  test("keeps the run disabled until a pilot confirms the output schema", async () => {
+  test("refuses launches beyond the durable 40-agent ledger", async () => {
     const root = fixtureRootCreate();
     const options = evalOptionsCreate(root);
     let calls = 0;
+    const ledgerPath = join(root, "ledger");
+    mkdirSync(ledgerPath);
+    for (let slot = 1; slot <= 40; slot++) {
+      mkdirSync(join(ledgerPath, String(slot).padStart(3, "0")));
+      writeFileSync(
+        join(ledgerPath, String(slot).padStart(3, "0"), "record.json"),
+        JSON.stringify({
+          caseId: `old-${slot}`,
+          checks: [],
+          evidence: { stdoutFile: "old.stdout.jsonl" },
+          run: 1,
+          complete: true,
+          passed: false,
+          metrics: {
+            runCalls: null,
+            failedCalls: null,
+            invalidCalls: null,
+            refusedCalls: null,
+            forcedCalls: null,
+            turns: null,
+            durationMs: null,
+            inputTokens: null,
+            cachedInputTokens: null,
+            outputTokens: null,
+            costUsd: null,
+          },
+        }),
+      );
+    }
     const dependencies = evalDependenciesCreate(root, {
+      ledgerPath,
       copyFile: async () => {
         calls++;
         return { id: "unexpected", name: "unexpected" };
       },
+      spawn: async () => {
+        throw new Error("should never launch");
+      },
     });
 
-    await expect(evalRunSuite(options, [evalCaseCreate()], dependencies)).rejects.toThrow(
-      "disabled until the Copilot JSONL",
-    );
+    const summary = await evalRunSuite(options, [evalCaseCreate()], dependencies);
+    expect(summary.abortReason).toContain("40-agent launch limit");
+    expect(summary.agentsLaunched).toBe(40);
     expect(calls).toBe(0);
   });
 
-  test("uses one unique test MCP, exact settings, local arm skill, and deletes copies", async () => {
+  test("uses one unique test MCP, exact settings, local skill, and deletes copies", async () => {
     const root = fixtureRootCreate();
     const options = evalOptionsCreate(root);
     const invocations: Array<{
@@ -200,16 +291,27 @@ describe("offline evaluation runner", () => {
         getDocument: async () => structuredClone(current),
       },
       spawn: async (_command, args, spawnOptions) => {
-        const configArgument = args[args.indexOf("--additional-mcp-config") + 1];
-        const configPath = configArgument?.startsWith("@") ? configArgument.slice(1) : "";
+        const configPath = args[args.indexOf("--mcp-config") + 1] ?? "";
         const config = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
         invocations.push({ args, config, env: spawnOptions.env });
         const serverName = Object.keys((config.mcpServers as Record<string, unknown>) ?? {})[0] ?? "";
-        const events = [{ type: "session.complete", data: { model: "gpt-5.6-luna", reasoningEffort: "xhigh" } }];
-        const usagePath = args[args.indexOf("--usage-output-file") + 1];
-        if (usagePath) writeFileSync(usagePath, JSON.stringify({ turns: 1 }));
-        const sharePath = args[args.indexOf("--share") + 1];
-        if (sharePath) writeFileSync(sharePath, "local test transcript");
+        const events = [
+          {
+            type: "system",
+            subtype: "init",
+            model: "claude-sonnet-4-6",
+            tools: [`mcp__${serverName}__run`, `mcp__${serverName}__status`],
+            mcp_servers: [{ name: serverName, status: "connected" }],
+          },
+          {
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            num_turns: 1,
+            total_cost_usd: 0.01,
+            usage: { input_tokens: 10, output_tokens: 5 },
+          },
+        ];
         expect(serverName).toStartWith("gdocsmith_eval_");
         return {
           exitCode: 0,
@@ -218,77 +320,138 @@ describe("offline evaluation runner", () => {
           timedOut: false,
         };
       },
-      outputSchemaVerified: true,
       outputDirectory: join(root, "out"),
       env: { EVAL_TOKEN: "test-secret-value" },
     });
 
     const summary = await evalRunSuite(options, [evalCaseCreate()], dependencies);
 
-    expect(summary.runs).toHaveLength(2);
-    expect(invocations).toHaveLength(2);
-    expect(copies).toEqual(["copy-1", "copy-2"]);
+    expect(summary.abortReason).toBeNull();
+    expect(summary.runs).toHaveLength(1);
+    expect(invocations).toHaveLength(1);
+    expect(copies).toEqual(["copy-1"]);
     expect(deleted).toEqual(copies);
     for (const invocation of invocations) {
       const serverNames = Object.keys((invocation.config.mcpServers as Record<string, unknown>) ?? {});
       expect(serverNames).toHaveLength(1);
       expect(serverNames[0]).toStartWith("gdocsmith_eval_");
-      expect(invocation.args).toContain("gpt-5.6-luna");
-      expect(invocation.args).toContain("xhigh");
-      expect(invocation.args).toContain("json");
-      expect(invocation.args).toContain("--disable-builtin-mcps");
-      expect(invocation.args).toContain("--no-auto-update");
-      expect(invocation.args).toContain("--no-custom-instructions");
-      expect(invocation.args).toContain("--no-ask-user");
-      expect(invocation.args).toContain("--no-remote");
-      expect(invocation.args).toContain("--no-remote-export");
-      expect(invocation.args).toContain("--no-color");
-      expect(invocation.args).toContain("--secret-env-vars");
-      expect(invocation.args).toContain("EVAL_TOKEN");
+      expect(invocation.args).toContain("sonnet");
+      expect(invocation.args).toContain("stream-json");
+      expect(invocation.args).toContain("--print");
+      expect(invocation.args).toContain("--restricted");
+      expect(invocation.args).toContain("--strict-mcp-config");
+      expect(invocation.args).toContain("--no-session-persistence");
+      expect(invocation.args[invocation.args.indexOf("--tools") + 1]).toBe("");
+      expect(invocation.args[invocation.args.indexOf("--allowedTools") + 1]).toBe(
+        `mcp__${serverNames[0]}__run,mcp__${serverNames[0]}__status`,
+      );
       expect(invocation.args).not.toContain("test-secret-value");
       expect(invocation.args).not.toContain("--max-ai-credits");
-      expect(invocation.args).not.toContain("--disable-mcp-server");
-      const availableToolsIndex = invocation.args.indexOf("--available-tools");
-      const allowToolsIndex = invocation.args.indexOf("--allow-tool");
-      const secretNamesIndex = invocation.args.indexOf("--secret-env-vars");
-      expect(invocation.args.slice(availableToolsIndex + 1, allowToolsIndex)).toEqual([
-        `${serverNames[0]}(run)`,
-        `${serverNames[0]}(status)`,
-      ]);
-      expect(invocation.args.slice(allowToolsIndex + 1, secretNamesIndex)).toEqual([
-        `${serverNames[0]}(run)`,
-        `${serverNames[0]}(status)`,
-      ]);
-      expect(invocation.args[invocation.args.indexOf("--prompt") + 1]).toContain("Google Doc ID is copy-");
-      expect(invocation.env.COPILOT_AUTO_UPDATE).toBe("false");
+      expect(invocation.args.at(-1)).toContain("Google Doc ID is copy-");
+      expect(invocation.args[invocation.args.indexOf("--append-system-prompt") + 1]).toContain("# checkout skill");
       expect(invocation.env.EVAL_TOKEN).toBe("test-secret-value");
       const mcpServer = (invocation.config.mcpServers as Record<string, { args: string[]; command: string }>)[
         serverNames[0] ?? ""
       ];
       expect(mcpServer.command).toBe("node");
-      expect([join(root, "v1", "scripts", "mcp.mjs"), join(root, "v2", "scripts", "mcp.mjs")]).toContain(
-        mcpServer.args[0],
-      );
+      expect(mcpServer.args[0]).toBe(join(root, "checkout", "scripts", "mcp.mjs"));
     }
     expect(
       invocations.map((invocation) => {
         const serverName = Object.keys((invocation.config.mcpServers as Record<string, unknown>) ?? {})[0] ?? "";
         return (invocation.config.mcpServers as Record<string, { args: string[] }>)[serverName]?.args[0];
       }),
-    ).toEqual([join(root, "v1", "scripts", "mcp.mjs"), join(root, "v2", "scripts", "mcp.mjs")]);
+    ).toEqual([join(root, "checkout", "scripts", "mcp.mjs")]);
     expect(summary.runs.every((record) => record.complete && record.passed)).toBe(true);
+    expect(summary.agentsLaunched).toBe(1);
+    const resumed = await evalRunSuite(options, [evalCaseCreate()], dependencies);
+    expect(resumed.agentsLaunched).toBe(1);
+    expect(invocations).toHaveLength(1);
     expect(summary.runs.every((record) => record.metrics.runCalls === 0)).toBe(true);
     expect(summary.runs.every((record) => record.metrics.turns === 1)).toBe(true);
     expect(existsSync(join(root, "out", "runs.json"))).toBe(true);
     expect(existsSync(join(root, "out", "report.md"))).toBe(true);
-    const firstRun = summary.runs[0];
-    expect(firstRun?.evidence.transcriptFile).not.toBeNull();
-    expect(existsSync(join(root, "out", firstRun?.evidence.transcriptFile ?? ""))).toBe(true);
-    expect(readFileSync(join(root, "out", "report.md"), "utf8")).toContain("gpt-5.6-luna");
+    expect(readFileSync(join(root, "out", "report.md"), "utf8")).toContain("sonnet");
+    expect(readFileSync(join(root, "out", "report.md"), "utf8")).toContain("| offline-fixture | 1 | 1 | 1 | 100% |");
     expect(readdirSync(join(root, "out")).some((name) => name.endsWith(".stdout.jsonl"))).toBe(true);
   });
 
-  test("deletes fixture copies after failed and timed-out Copilot sessions", async () => {
+  test("runs a scenario with independent verification and cleanup", async () => {
+    const root = fixtureRootCreate();
+    const options = evalOptionsCreate(root);
+    const copied: string[] = [];
+    const deleted: string[] = [];
+    const bundles: string[] = [];
+    const dependencies = evalDependenciesCreate(root, {
+      drive: {
+        copyFile: async (_sourceId, name) => {
+          copied.push(name);
+          return { id: "current-copy", name };
+        },
+        deleteFile: async (id) => {
+          deleted.push(id);
+        },
+      },
+      spawn: async (_command, args) => {
+        const config = JSON.parse(readFileSync(args[args.indexOf("--mcp-config") + 1] ?? "", "utf8")) as {
+          mcpServers: Record<string, { args: string[] }>;
+        };
+        const serverName = Object.keys(config.mcpServers)[0] ?? "";
+        bundles.push(config.mcpServers[serverName]?.args[0] ?? "");
+        return {
+          exitCode: 0,
+          stderr: "",
+          stdout: [
+            {
+              type: "system",
+              subtype: "init",
+              model: "claude-sonnet-4-6",
+              tools: [`mcp__${serverName}__run`, `mcp__${serverName}__status`],
+              mcp_servers: [{ name: serverName, status: "connected" }],
+            },
+            {
+              type: "result",
+              subtype: "success",
+              is_error: false,
+              num_turns: 1,
+              usage: { input_tokens: 10, output_tokens: 5 },
+            },
+          ]
+            .map((event) => JSON.stringify(event))
+            .join("\n"),
+          timedOut: false,
+        };
+      },
+    });
+
+    const summary = await evalRunSuite(options, [evalCaseCreate()], dependencies);
+    expect(summary.abortReason).toBeNull();
+    expect(summary.runs).toHaveLength(1);
+    expect(summary.runs[0]).toMatchObject({ complete: true, passed: true });
+    expect(copied).toHaveLength(1);
+    expect(deleted).toEqual(["current-copy"]);
+    expect(bundles).toEqual([join(root, "checkout", "scripts", "mcp.mjs")]);
+    const report = readFileSync(join(root, "out", "report.md"), "utf8");
+    expect(report).toContain("# Gdocsmith agent E2E");
+    expect(report).toContain("| 1 | 1 | 1 |");
+    expect(report).toContain("PASS stub: stub verifier passed");
+  });
+
+  test("labels a report correctly even if preflight fails", async () => {
+    const root = fixtureRootCreate();
+    const options = evalOptionsCreate(root);
+    const dependencies = evalDependenciesCreate(root, {});
+    dependencies.readCliVersion = () => {
+      throw new Error("unavailable");
+    };
+
+    const summary = await evalRunSuite(options, [evalCaseCreate()], dependencies);
+    expect(summary.abortReason).toContain("unavailable");
+    expect(summary.runs).toHaveLength(0);
+    expect(readFileSync(join(root, "out", "report.md"), "utf8")).toContain("# Gdocsmith agent E2E");
+  });
+
+  test("deletes fixture copies and halts on a failed Claude session", async () => {
     const root = fixtureRootCreate();
     const options = evalOptionsCreate(root);
     const deleted: string[] = [];
@@ -310,23 +473,23 @@ describe("offline evaluation runner", () => {
           timedOut: spawnCount === 1,
         };
       },
-      outputSchemaVerified: true,
       outputDirectory: join(root, "failed-out"),
     });
 
     const summary = await evalRunSuite(options, [evalCaseCreate()], dependencies);
 
-    expect(summary.runs).toHaveLength(2);
+    expect(summary.runs).toHaveLength(1);
+    expect(summary.agentsLaunched).toBe(1);
     expect(summary.runs.every((record) => !record.passed)).toBe(true);
     expect(summary.runs[0]?.error).toContain("timeout");
-    expect(deleted).toHaveLength(2);
+    expect(deleted).toHaveLength(1);
   });
 });
 
-describe("Copilot process timeout", () => {
+describe("Claude process timeout", () => {
   test("terminates a child that exceeds its timeout", async () => {
     const root = fixtureRootCreate();
-    const result = await copilotProcessRun(process.execPath, ["-e", "setTimeout(() => {}, 10000)"], {
+    const result = await claudeProcessRun(process.execPath, ["-e", "setTimeout(() => {}, 10000)"], {
       cwd: root,
       env: process.env,
       timeoutMs: 20,
@@ -336,22 +499,20 @@ describe("Copilot process timeout", () => {
   });
 });
 
-/** Creates two disposable Git arms with the exact paths the runner requires. */
+/** Creates a disposable Git checkout with the exact paths the runner requires. */
 function fixtureRootCreate(): string {
   const root = mkdtempSync(join(tmpdir(), "gdocsmith-eval-test-"));
   roots.push(root);
-  for (const name of ["v1", "v2"]) {
-    const arm = join(root, name);
-    mkdirSync(join(arm, "scripts"), { recursive: true });
-    mkdirSync(join(arm, "skills", "gdocsmith"), { recursive: true });
-    writeFileSync(join(arm, "scripts", "mcp.mjs"), `// ${name} bundle\n`);
-    writeFileSync(join(arm, "skills", "gdocsmith", "SKILL.md"), `# ${name} skill\n`);
-    execFileSync("git", ["-C", arm, "init", "--quiet"]);
-    execFileSync("git", ["-C", arm, "config", "user.name", "Eval Test"]);
-    execFileSync("git", ["-C", arm, "config", "user.email", "eval-test@example.invalid"]);
-    execFileSync("git", ["-C", arm, "add", "."]);
-    execFileSync("git", ["-C", arm, "commit", "--quiet", "-m", "fixture"]);
-  }
+  const checkout = join(root, "checkout");
+  mkdirSync(join(checkout, "scripts"), { recursive: true });
+  mkdirSync(join(checkout, "skills", "gdocsmith"), { recursive: true });
+  writeFileSync(join(checkout, "scripts", "mcp.mjs"), "// checkout bundle\n");
+  writeFileSync(join(checkout, "skills", "gdocsmith", "SKILL.md"), "# checkout skill\n");
+  execFileSync("git", ["-C", checkout, "init", "--quiet"]);
+  execFileSync("git", ["-C", checkout, "config", "user.name", "Eval Test"]);
+  execFileSync("git", ["-C", checkout, "config", "user.email", "eval-test@example.invalid"]);
+  execFileSync("git", ["-C", checkout, "add", "."]);
+  execFileSync("git", ["-C", checkout, "commit", "--quiet", "-m", "fixture"]);
   return root;
 }
 
@@ -364,14 +525,14 @@ function evalCaseCreate(): EvalCase {
   };
 }
 
-/** Builds the argument object for a two-arm, one-case test run. */
+/** Builds the argument object for a one-case test run. */
 function evalOptionsCreate(root: string): EvalOptions {
   return {
-    armRoots: { v1: join(root, "v1"), v2: join(root, "v2") },
     caseIds: [],
     keepDocs: false,
-    model: "gpt-5.6-luna",
-    reasoningEffort: "xhigh",
+    model: "sonnet",
+    pilot: false,
+    root: join(root, "checkout"),
     runs: 1,
   };
 }
@@ -391,7 +552,7 @@ function evalDependenciesCreate(
     drive?: Pick<DriveApi, "copyFile" | "deleteFile">;
     env?: Record<string, string | undefined>;
     outputDirectory?: string;
-    outputSchemaVerified?: boolean;
+    ledgerPath?: string;
     spawn?: EvalDependencies["spawn"];
   },
 ): EvalDependencies {
@@ -413,7 +574,7 @@ function evalDependenciesCreate(
   } as DocsClient;
   return {
     clients: { docs, drive },
-    copilotPath: "copilot-stub",
+    claudePath: "claude-stub",
     env: overrides.env ?? {},
     id: (() => {
       let counter = 0;
@@ -421,8 +582,8 @@ function evalDependenciesCreate(
     })(),
     now: () => new Date("2026-09-25T12:00:00.000Z"),
     outputDirectory: overrides.outputDirectory ?? join(root, "out"),
-    outputSchemaVerified: overrides.outputSchemaVerified,
-    readCliVersion: () => "Copilot CLI 1.0.88",
+    ledgerPath: overrides.ledgerPath ?? join(root, "ledger"),
+    readCliVersion: () => "Claude Code 2.1.282",
     spawn: overrides.spawn,
     timeoutMs: 20,
   };

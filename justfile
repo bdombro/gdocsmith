@@ -108,26 +108,21 @@ setup:
 test:
     bun test src scripts
 
-# Run the v1 vs v2 evaluation harness (requires the M2 case registry and pilot gate)
-eval *ARGS: schemagen
-    bun scripts/eval.ts {{ARGS}}
+# Run current-version agent E2E scenarios on disposable fixture copies
+test-e2e *ARGS: build
+    bun scripts/eval.ts --root "$(pwd)" {{ARGS}}
 
-# Create the detached v1 baseline worktree used by G6
-eval-worktree:
-    @mkdir -p "$HOME/.cache/gdocsmith/evals"
-    @if test -e "$HOME/.cache/gdocsmith/evals/v1/.git"; then printf '%s\n' 'v1 eval worktree already exists'; else git worktree add --detach "$HOME/.cache/gdocsmith/evals/v1" v1-baseline; fi
-
-# Run all tests
-test-all: test test-live test-wire
+# Run all non-agent tests
+test-all: test test-live test-mcp
 
 # Run live integration tests against Google Docs/Drive APIs (requires gws auth)
 test-live *ARGS: build
-    bun test tests/integration {{ARGS}}
+    bun test tests/integration/conformance.test.ts tests/integration/fixtureWorkflow.test.ts tests/integration/v2Live.test.ts {{ARGS}}
 
 alias test-integration := test-live
 
 # Run offline MCP wire integration tests over stdio (source and bundled server)
-test-wire *ARGS: build
+test-mcp *ARGS: build
     bun test tests/integration/mcpWire.test.ts {{ARGS}}
 
 # Typecheck without emitting build artifacts

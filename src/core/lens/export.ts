@@ -52,7 +52,7 @@ export function tabMarkdownExport(
 }
 
 /** Link resolution for one tab of a document. */
-function linkContext(doc: DocModel, tab: TabModel): LinkRenderContext {
+export function linkContext(doc: DocModel, tab: TabModel): LinkRenderContext {
   const headings = (t: TabModel) =>
     t.blocks.filter(
       (b): b is ParagraphBlock =>

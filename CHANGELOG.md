@@ -8,18 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Offline-first Copilot v1/v2 evaluation harness with arm-specific skills and bundles, restricted sessions, nullable usage metrics, fixture cleanup, and a pilot gate before runtime output schemas are trusted.
+- Current-checkout agent E2E harness with isolated sessions, independently checked fixture copies, nullable usage metrics, cleanup, and a read-only pilot gate.
 
 ### Changed
 - Release `--dry-run` now prints the planned actions and exits without checks or mutations.
 - Markdown writes refuse new or edited nested list items whose marker kind differs from the parent; unchanged existing mixed-kind lists remain preserved.
 
 ### Fixed
+- Writing back unchanged markdown no longer adds explicit link-blue styling to cross-tab heading links.
 - Preserve hard line breaks inside table cells in the model while flattening them for the markdown view so read-only complex tables render as a single markdown table and unchanged write-back is a no-op.
 
 ## [2.0.0] - 2026-09-25
 
 ### Changed (BREAKING)
+
+- Major rewrite to use a virtual document model for all operations, enabling offline-first evaluation, improved fixture handling, and more granular control over edits and queries.
+- Markdown handling improved, and now the only 
+- Perf boosts: 67% more successes, 60% less tokens, 39% fewer round trips, 38% faster overall execution
+
 - `run` now accepts ten v2 step kinds instead of the v1 operation names. No compatibility aliases are retained; migrate calls using this map:
 
 | v1 | v2 |

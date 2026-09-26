@@ -166,6 +166,41 @@ describe("lens laws", () => {
     }
   });
 
+  test("GetPut preserves cross-tab heading links without adding link color", () => {
+    const json = docJsonBuild({
+      tabs: [
+        { blocks: [h("Source", 1, "h.source")], title: "Source", tabId: "t.0" },
+        {
+          blocks: [
+            p({ style: { link: { heading: { id: "h.source", tabId: "t.0" } }, underline: true }, text: "see source" }),
+          ],
+          title: "Current",
+          tabId: "t.1",
+        },
+      ],
+    });
+    const original = docModelParse(json, { docId: "synthetic-doc", keys: new KeyAllocator() });
+    for (const plain of [false, true]) {
+      const final = structuredClone(original);
+      const tab = final.tabs[1];
+      const before = JSON.stringify(final);
+      const markdown = tabMarkdownExport(
+        final,
+        tab,
+        { containerRef: { kind: "body" }, from: 0, to: tab.blocks.length },
+        { skipFrontmatter: plain },
+      ).markdown;
+      const report = markdownPut(
+        { ctx: { keys: new KeyAllocator(), stamp: { force: false, stepIndex: 0 }, tombstones: [] }, tab },
+        final,
+        { kind: "replace", range: { kind: "tab" } },
+        markdown,
+      );
+      expect(report.changed).toBe(false);
+      expect(JSON.stringify(final)).toBe(before);
+    }
+  });
+
   test("PutGet over 500 seeded edits: what you write is what you read back, and every plan self-checks", () => {
     const failures: string[] = [];
     let refused = 0;
